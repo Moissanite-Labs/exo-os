@@ -8,6 +8,6 @@ dep="$here/.deps/exo"
 [[ -d $dep/.git ]] || git clone -q https://github.com/aska-digital/exo.git "$dep"
 git -C "$dep" fetch -q origin
 git -C "$dep" -c advice.detachedHead=false checkout -q "$pin"
-[[ -d $here/.venv ]] || uv venv -q --system-site-packages "$here/.venv"
+[[ -d $here/.venv ]] || uv venv -q --python /usr/bin/python3 --system-site-packages "$here/.venv"
 VIRTUAL_ENV="$here/.venv" uv pip install -q -e "$dep[tui,dev]" -e "$here[dev]"
 echo "exo $(git -C "$dep" rev-parse --short HEAD) and exo-os installed in .venv"
