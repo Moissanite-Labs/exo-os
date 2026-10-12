@@ -87,6 +87,13 @@ def main(argv: list[str] | None = None) -> int:
     p = a.add_parser("remove")
     p.add_argument("name")
     p.add_argument("--by", default="person")
+    sy = sub.add_parser("system", help="system snapshots and packages, through exo-sysd").add_subparsers(
+        dest="sys_cmd", required=True)
+    sy.add_parser("status")
+    sy.add_parser("snapshots").add_argument("-n", type=int, default=10)
+    p = sy.add_parser("install")
+    p.add_argument("names", nargs="+")
+    p.add_argument("--reason", default="asked from the command line")
     args = ap.parse_args(argv)
 
     try:
@@ -124,6 +131,27 @@ def _run(args: argparse.Namespace) -> int:
         return _print_result(eng.undo(args.change, by=args.by), args.json)
     if args.cmd == "redeploy":
         return _print_result(eng.redeploy(), args.json)
+    if args.cmd == "system":
+        from .sysd.client import SysdClient, SysdError
+
+        try:
+            if args.sys_cmd == "status":
+                out = SysdClient().call("status")
+            elif args.sys_cmd == "snapshots":
+                out = SysdClient().call("snapshot.list", {"limit": args.n})
+            else:
+                out = SysdClient().call("package.install", {"names": args.names, "reason": args.reason})
+        except SysdError as e:
+            print(str(e), file=sys.stderr)
+            return 1
+        if args.json or args.sys_cmd == "status":
+            print(json.dumps(out, indent=2))
+        elif args.sys_cmd == "snapshots":
+            for snap in out["snapshots"]:
+                print(f"{snap['number']:>5}  {snap['date'][:16]}  {snap['description']}")
+        else:
+            print(f"Installed {', '.join(out['installed'])}. Snapshots before and after: {out['pre']}, {out['post']}.")
+        return 0
     if args.cmd == "app":
         prof = eng.profile()
         if args.app_cmd == "open":

@@ -19,6 +19,7 @@ hl.bind("SUPER + ESCAPE", hl.dsp.exec_cmd("loginctl lock-session"), { descriptio
 
 hl.config({
   misc = { disable_hyprland_logo = true, disable_splash_rendering = true },
+  ecosystem = { no_update_news = true, no_donation_nag = true },
   general = { layout = "dwindle" },
 })
 

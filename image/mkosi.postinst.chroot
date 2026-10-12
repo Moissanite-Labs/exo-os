@@ -16,6 +16,7 @@ getent group exo-sys >/dev/null || groupadd --system exo-sys
 id exo >/dev/null 2>&1 || useradd --create-home --groups wheel,exo-sys,video,input --shell /bin/bash exo
 passwd --lock exo >/dev/null
 install -d -m 0700 /var/lib/exo/exo
+cp -rT /etc/skel /home/exo   # explicit: useradd did not copy the skeleton in the image build
 mkdir -p /home/exo/.config/hypr/exo
 /opt/exo/bin/python - <<'PY'
 from exo_os.profile import Profile

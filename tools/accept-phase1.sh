@@ -10,7 +10,7 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$here/image/out"
 report="$out/accept-phase1.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }
-as_exo() { ssh_vm "runuser -u exo -- env XDG_RUNTIME_DIR=/run/user/\$(id -u exo) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$(id -u exo)/bus EXO_HOME=/var/lib/exo/exo EXO_PLUGIN_DIRS=/opt/exo/plugins $*"; }
+as_exo() { ssh_vm "cd /tmp && as-exo $*"; }
 pass=0 fail=0
 result() {  # name ok detail
   local line
@@ -18,7 +18,7 @@ result() {  # name ok detail
   echo "$line" | tee -a "$report"
 }
 shot() {  # name: screenshot from inside the guest (grim), since QEMU cannot dump a GL scanout
-  ssh_vm "runuser -u exo -- env XDG_RUNTIME_DIR=/run/user/\$(id -u exo) WAYLAND_DISPLAY=wayland-1 grim /tmp/$1.png && cat /tmp/$1.png" > "$out/$1.png" 2>/dev/null
+  ssh_vm "cd /tmp && as-exo grim /tmp/$1.png && cat /tmp/$1.png" > "$out/$1.png" 2>/dev/null
 }
 
 : > "$report"
@@ -52,7 +52,7 @@ pid2=$(as_exo systemctl --user show exod -p MainPID --value)
 state=$(as_exo systemctl --user is-active exod)
 result "exod-restarts" "$([[ $state == active && $pid2 != 0 && $pid2 != "$pid1" ]] && echo 1 || echo 0)" \
   "before kill pid=$pid1, after pid=$pid2 ($state)"
-reply=$(as_exo "sh -c 'echo \"Say hello in five words.\" | timeout 120 /opt/exo/bin/exo chat --title acceptance'" 2>&1 | tail -5)
+reply=$(as_exo "sh -c 'echo \"Say hello in five words.\" | timeout 120 /opt/exo/bin/exo chat --title acceptance'" 2>&1 | grep -v -e 'warn: cwd' | tail -4)
 models=$(as_exo /opt/exo/bin/exo config roles 2>&1 | head -3 | tr '\n' ' ')
 result "chat" "$([[ -n $reply && $reply != *rror* ]] && echo 1 || echo 0)" "reply: $(echo "$reply" | tr '\n' ' ' | cut -c1-160) | routes: ${models:0:160}"
 
@@ -64,19 +64,18 @@ host_verify=$("$here/.venv/bin/exo" log verify --root "$out/store-copy/exo" 2>&1
 rows=$("$here/.venv/bin/python" -c "
 import sqlite3,sys; c=sqlite3.connect('$out/store-copy/exo/ledger.sqlite')
 print(c.execute('select count(*) from events').fetchone()[0])" 2>/dev/null || echo '?')
-result "store-portable" "$([[ $vm_verify == *'\"ok\": true'* && $host_verify == *'\"ok\": true'* ]] && echo 1 || echo 0)" \
+vm_ok=$(echo "$vm_verify" | grep -c '"ok": true'); host_ok=$(echo "$host_verify" | grep -c '"ok": true')
+result "store-portable" "$([[ $vm_ok == 1 && $host_ok == 1 ]] && echo 1 || echo 0)" \
   "vm: $vm_verify | host: $host_verify | ledger rows: $rows"
 
 # machine profile change inside the VM, end to end: rendered, Hyprland verified and reloaded, logged
-sig=$(ssh_vm 'ls /run/user/$(id -u exo)/hypr/ 2>/dev/null | head -1')
-change=$(as_exo env HYPRLAND_INSTANCE_SIGNATURE="$sig" /opt/exo/bin/exo-os set keyboard.layouts us,ara,pk 2>&1)
-kb=$(as_exo env HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl getoption input:kb_layout 2>&1 | head -1)
+change=$(as_exo /opt/exo/bin/exo-os set keyboard.layouts us,ara,pk 2>&1)
+kb=$(as_exo hyprctl getoption input:kb_layout 2>&1 | head -1)
 result "profile-change-live" "$([[ $change == *Undo?* && $kb == *ara* ]] && echo 1 || echo 0)" "$change | live: $kb"
 
 # 4. memory with Chromium and three web apps
 for url in https://web.whatsapp.com/ https://mail.google.com/ https://drive.google.com/; do
-  as_exo env WAYLAND_DISPLAY=wayland-1 HYPRLAND_INSTANCE_SIGNATURE="$sig" \
-    setsid -f chromium --app="$url" >/dev/null 2>&1
+  as_exo setsid -f chromium --app="$url" >/dev/null 2>&1
 done
 sleep 45
 ssh_vm 'python3 - <<"PY"

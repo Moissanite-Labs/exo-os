@@ -17,6 +17,33 @@ from .ledger import open_sink
 
 CORE_PLUGINS = ["exo-gate", "exo-memory", "exo-context", "exo-os"]
 
+# Exo OS's default gate rules, written into the person's policies/gates.yaml at first setup. They are
+# the person's policy from then on: visible, editable, and enforced by Exo's gate, not by the model.
+GATE_RULES = """rules:
+  # Exo OS: installing software changes the system. The person decides, every time.
+  - match: {tool: "system_package_*"}
+    decision: ask
+    reason: installing software changes the system
+  # Exo OS: machine profile changes are checked, logged, and undone with one step.
+  - match: {tool: "machine_*"}
+    decision: act
+    reason: checked, logged and undoable
+  - match: {tool: "app_open"}
+    decision: act
+    reason: opens or focuses one of the person's own apps
+"""
+
+
+def add_gate_rules(store) -> bool:
+    gates = store / "policies" / "gates.yaml"
+    if not gates.exists():
+        return False
+    text = gates.read_text()
+    if "system_package_*" in text or "\nrules: []\n" not in text:
+        return False  # already there, or the person has their own rules: leave them alone
+    gates.write_text(text.replace("\nrules: []\n", "\n" + GATE_RULES, 1))
+    return True
+
 
 def main() -> int:
     home = paths.exo_home()
@@ -29,6 +56,8 @@ def main() -> int:
         subprocess.run([sys.executable, "-m", "exo.cli", "init", principal], check=True,
                        env={**os.environ, "EXO_HOME": str(home)})
         cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
+    if add_gate_rules(store):
+        print("Added Exo OS rules to policies/gates.yaml")
     changed = False
     if not cfg.get("principal"):
         cfg["principal"], changed = principal, True
