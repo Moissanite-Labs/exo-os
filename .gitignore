@@ -1,0 +1,6 @@
+image/out/
+image/mkosi.cache/
+image/mkosi.builddir/
+__pycache__/
+*.egg-info/
+.venv/
