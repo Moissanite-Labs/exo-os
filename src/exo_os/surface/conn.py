@@ -114,13 +114,15 @@ class Connection:
 
     # -- commands, callable from any thread
 
-    def send(self, body: Any) -> None:
-        """Send one command; a refusal or a dead link reaches the listener as on_failed(code, message)."""
+    def send(self, body: Any, quiet: bool = False) -> None:
+        """Send one command; a refusal or a dead link reaches the listener as on_failed(code, message).
+        quiet drops failures, for signals such as ui.respond that the person never asked for."""
         loop = self._loop
         if loop is None or self._client is None:
-            self.post(self.listener.on_failed, "not_connected", "exod is not reachable")
+            if not quiet:
+                self.post(self.listener.on_failed, "not_connected", "exod is not reachable")
             return
-        asyncio.run_coroutine_threadsafe(self._send(body), loop)
+        asyncio.run_coroutine_threadsafe(self._send(body, quiet), loop)
 
     def send_turn(self, text: str, mode: str = "send") -> None:
         if self.session is None:
@@ -133,19 +135,20 @@ class Connection:
                                     client=CLIENT, binding=binding))
 
     def respond_panel(self, panel_id: str, action: str, value: dict[str, Any] | None = None) -> None:
-        self.send(s.UiRespond(panel_id=panel_id, action=action, value=value or {}))  # type: ignore[arg-type]
+        self.send(s.UiRespond(panel_id=panel_id, action=action, value=value or {}),  # type: ignore[arg-type]
+                  quiet=True)
 
-    async def _send(self, body: Any) -> None:
+    async def _send(self, body: Any, quiet: bool = False) -> None:
         client = self._client
-        if client is None:
-            self.post(self.listener.on_failed, "not_connected", "exod is not reachable")
-            return
         try:
+            if client is None:
+                raise ConnectionError("exod is not reachable")
             resp = await client.send(body)
         except Exception as exc:  # the link dropped mid-send; the follower will notice and reconnect
-            self.post(self.listener.on_failed, "not_connected", f"{type(exc).__name__}: {exc}")
+            if not quiet:
+                self.post(self.listener.on_failed, "not_connected", f"{type(exc).__name__}: {exc}")
             return
-        if not resp.ok:
+        if not resp.ok and not quiet:
             err = resp.error
             self.post(self.listener.on_failed, err.code if err else "unknown", err.message if err else "")
 

@@ -108,8 +108,10 @@ def test_turn_approval_and_state(paths):
         rec.wait(lambda: len(rec.events("turn.completed")) == 2)
         assert "approve: send it" in "".join(e.body.text for e in rec.events("message.delta"))
 
-        c.respond_panel("p_missing", "dismissed")  # the echo engine has no ui.respond: a plain refusal
-        rec.wait(lambda: rec.last("failed") == "unsupported")
+        c.respond_panel("p_missing", "dismissed")  # the echo engine has no ui.respond; panel signals are quiet
+        c.send(s.TurnSend(session="s_nobody", text="x"))
+        rec.wait(lambda: rec.last("failed") == "not_found")
+        assert [c_ for c_ in rec.calls if c_[0] == "failed"] == [("failed", "not_found")]
     finally:
         c.stop()
         exod.stop()
