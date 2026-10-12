@@ -19,6 +19,7 @@ from typing import Any
 
 from exo.protocol import schema as s
 
+from ..words import describe_call, plain_summary
 from ..profile import Profile
 
 CLIENT = "exo-surface"
@@ -259,7 +260,10 @@ class SurfaceModel:
         options = [o for o in (req.get("options") or ["allow", "deny"]) if o in ("allow", "deny", "allow_always")]
         if self.plain:
             options = [o for o in options if o != "allow_always"]  # a standing grant is an operator's call
-        self.approvals.append(ApprovalCard(rid, req.get("summary") or "Exo is waiting for your answer.",
+        summary = req.get("summary") or "Exo is waiting for your answer."
+        if self.plain:
+            summary = (describe_call(call.name, call.arguments) if call else None) or plain_summary(summary)
+        self.approvals.append(ApprovalCard(rid, summary,
                                            req.get("binding") or "", options or ["allow", "deny"],
                                            req.get("risk") or "medium", req.get("session"), detail))
         return {"approval", "status"}

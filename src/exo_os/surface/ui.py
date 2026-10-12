@@ -88,13 +88,13 @@ def layer_shell_ok() -> bool:
     return bool(LayerShell.is_supported())
 
 
-def _layer(win: Gtk.Window, layer: str, anchors: tuple[str, ...], keyboard: str) -> bool:
+def _layer(win: Gtk.Window, layer: str, anchors: tuple[str, ...], keyboard: str, name: str) -> bool:
     """Make win a layer surface; False (and a plain window) where layer-shell is not supported."""
     if not layer_shell_ok():
         win.set_decorated(False)
         return False
     LayerShell.init_for_window(win)
-    LayerShell.set_namespace(win, "exo-surface")
+    LayerShell.set_namespace(win, f"exo-surface-{name}")  # Hyprland layer rules and tests tell them apart
     LayerShell.set_layer(win, getattr(LayerShell.Layer, layer))
     for edge in anchors:
         LayerShell.set_anchor(win, getattr(LayerShell.Edge, edge), True)
@@ -123,7 +123,7 @@ class Bar(Gtk.Window):
 
     def __init__(self) -> None:
         super().__init__(title="Exo", css_classes=["exo", "exo-bar"])
-        self.layered = _layer(self, "OVERLAY", ("TOP", "LEFT", "RIGHT"), "EXCLUSIVE")
+        self.layered = _layer(self, "OVERLAY", ("TOP", "LEFT", "RIGHT"), "EXCLUSIVE", "bar")
         if not self.layered:
             self.set_default_size(960, -1)
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12,
@@ -172,12 +172,17 @@ class Drawer(Gtk.Window):
 
     def __init__(self) -> None:
         super().__init__(title="Exo panels", css_classes=["exo", "exo-drawer"])
-        self.layered = _layer(self, "TOP", ("RIGHT", "TOP", "BOTTOM"), "ON_DEMAND")
+        self.layered = _layer(self, "TOP", ("RIGHT", "TOP", "BOTTOM"), "NONE", "drawer")  # never takes the keys from the prompt
         self.set_default_size(DRAWER_WIDTH, 600 if not self.layered else -1)
         self.set_size_request(DRAWER_WIDTH, -1)
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_top=16, margin_bottom=16,
                            margin_start=20, margin_end=20)
         self.set_child(Gtk.ScrolledWindow(child=self.box, hscrollbar_policy=Gtk.PolicyType.NEVER))
+
+    def below(self, height: int) -> None:
+        """Sit under the prompt bar, which is on the overlay layer and as wide as the screen."""
+        if self.layered and height > 0:
+            LayerShell.set_margin(self, LayerShell.Edge.TOP, height)
 
     def show_panels(self, views: list[dict[str, Any]], on_close: Callable[[str], None],
                     on_choice: Callable[[str, str], None]) -> None:
@@ -256,7 +261,7 @@ class Card(Gtk.Window):
 
     def __init__(self, on_answer: Callable[[str], None]) -> None:
         super().__init__(title="Exo asks", css_classes=["exo", "exo-card"])
-        self.layered = _layer(self, "OVERLAY", (), "EXCLUSIVE")
+        self.layered = _layer(self, "OVERLAY", (), "EXCLUSIVE", "card")
         self.on_answer = on_answer
         self.shown_at = 0
         self.options: list[str] = []
@@ -346,8 +351,14 @@ class SurfaceUI:
         if profile is not None:
             self.model.set_profile(profile)
         self.bar.present()
-        self.bar.entry.grab_focus()
         self.render({"status", "transcript", "palette", "panels", "approval"})
+        self._focus_prompt()
+
+    def _focus_prompt(self) -> None:
+        """The prompt keeps the keyboard; the drawer's buttons are clicked. (Keyboard reach to the drawer is open.)"""
+        if self.bar.get_visible() and not self.model.approvals:
+            self.bar.present()
+            self.bar.entry.grab_focus()
 
     def hide(self) -> None:
         self.bar.set_visible(False)
@@ -374,6 +385,8 @@ class SurfaceUI:
                 self.card.show_card(card.summary, card.detail, card.options)
         if "panels" in changes:
             self._render_panels()
+        if self.drawer.get_visible():  # the bar grows with the transcript; keep the drawer under it
+            GLib.idle_add(lambda: self.drawer.below(self.bar.get_height()) or False)
         for body in m.take_outbox():
             self._send(body)
 
@@ -384,7 +397,9 @@ class SurfaceUI:
             return
         views = [{**panel_view(p), "panel_id": p.panel_id} for p in reversed(m.panels.values())]
         self.drawer.show_panels(views, self.close_panel, self.choose)
+        self.drawer.below(self.bar.get_height())
         self.drawer.present()
+        self._focus_prompt()  # a panel arriving must not take the keys from the prompt
         for p in list(m.panels.values()):
             if (body := m.panel_shown(p.panel_id)) is not None:
                 self._send(body)
