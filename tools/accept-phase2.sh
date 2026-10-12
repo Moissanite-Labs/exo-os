@@ -46,7 +46,9 @@ before_rows=$(ledger_rows)
 before_commits=$(as_exo "git -C /var/lib/exo/exo/principals/exo/machine rev-list --count HEAD")
 ok=0
 for c in "${changes[@]}"; do
-  as_exo /opt/exo/bin/exo-os $c 2>&1 | grep -q 'Undo?' && ok=$((ok + 1))
+  res=$(as_exo /opt/exo/bin/exo-os --json $c 2>&1)
+  if echo "$res" | grep -q '"ok": true'; then ok=$((ok + 1)); else
+    echo "      change failed: $c: $(echo "$res" | tr '\n' ' ' | cut -c1-900)" | tee -a "$report"; fi
 done
 install=$(as_exo /opt/exo/bin/exo-os system install htop --reason acceptance 2>&1)
 [[ $install == Installed* ]] && ok=$((ok + 1))
@@ -60,7 +62,7 @@ result "20-changes" "$([[ $ok == "$n" && $((after_commits - before_commits)) == 
   "$ok/$n applied; commits +$((after_commits - before_commits)), each with a diff: $diffs; ledger rows +$((after_rows - before_rows)); install snapshots $pre, $post"
 
 # 2. a broken change puts itself back
-broken=$(as_exo /opt/exo/bin/exo-os set keyboard.layouts us,zz 2>&1 | head -1)
+broken=$(as_exo /opt/exo/bin/exo-os set keyboard.layouts us,zz 2>/dev/null | head -1)
 kb=$(as_exo /opt/exo/bin/exo-os show keyboard.layouts)
 live=$(as_exo hyprctl getoption input:kb_layout | head -1)
 reverted=$(as_exo "/opt/exo/bin/exo log tail -n 3" | grep -c 'change.reverted')
@@ -83,7 +85,7 @@ result "undo" "$([[ $u1 == Undo:* && $theme == light && $u2 == Undo:* && $theme2
 sudo_rc=$(as_exo "sudo -n true >/dev/null 2>&1; echo \$?")
 refused=$(as_exo "/opt/exo/bin/python -c \"
 from exo_os.sysd.client import SysdClient, SysdError
-for a, args in (('shell', {'cmd': 'id'}), ('package.install', {'names': ['--overwrite=*']}), ('snapshot.create', {'description': 'x; reboot'})):
+for a, args in (('shell', {'cmd': 'id'}), ('package.install', {'names': ['--overwrite=*']}), ('package.remove', {'names': ['exo-os']})):
     try:
         SysdClient().call(a, args); print('ran', a)
     except SysdError as e:

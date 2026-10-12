@@ -62,16 +62,26 @@ def config_errors(text: str) -> list[str]:
 
 
 def hypridle_restart(config_home: Path, profile: Any = None) -> tuple[bool, str]:
-    """hypridle reads its file only at start; restart it if it runs as a user service."""
-    if not shutil.which("systemctl"):
-        return True, "no systemctl"
+    """hypridle reads its file only at start, so restart it, but only when that file changed: systemd
+    refuses more than 5 starts in 10 s, and quick runs of unrelated changes used to hit that limit."""
+    conf = config_home / "hypr" / "hypridle.conf"
+    if not shutil.which("systemctl") or not conf.exists():
+        return True, "no hypridle config or no systemctl"
+    import hashlib
+
+    digest = hashlib.sha256(conf.read_bytes()).hexdigest()
+    stamp = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "exo-os-hypridle.sha256"
     active = subprocess.run(["systemctl", "--user", "is-active", "--quiet", "hypridle.service"]).returncode == 0
     if not active:
         return True, "hypridle not running as a service"
+    if stamp.exists() and stamp.read_text() == digest:
+        return True, "hypridle config unchanged"
+    subprocess.run(["systemctl", "--user", "reset-failed", "hypridle.service"], capture_output=True)
     r = subprocess.run(["systemctl", "--user", "restart", "hypridle.service"], capture_output=True, text=True,
                        timeout=30)
     if r.returncode != 0:
         return False, "hypridle failed to restart: " + r.stderr[-300:]
+    stamp.write_text(digest)
     return True, "hypridle restarted"
 
 
