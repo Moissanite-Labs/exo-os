@@ -62,7 +62,11 @@ class Actions:
                 "--print-number", "--description", desc, "--userdata", "exo-os=yes"]
         if pre is not None:
             argv += ["--pre-number", str(pre)]
-        return int(self._ok(argv).strip().splitlines()[-1])
+        out = self._ok(argv).strip().splitlines()[-1]
+        try:
+            return int(out)
+        except ValueError:
+            raise ActionError(f"snapper did not return a snapshot number: {out[:100]}") from None
 
     def snapshot_list(self, args: dict[str, Any]) -> dict[str, Any]:
         limit = _int(args.get("limit", 10), 1, 100)

@@ -119,3 +119,35 @@ def test_snapshot_undo_only_for_a_pre_post_pair():
     for bad in ({"pre": 11, "post": 13}, {"pre": 12, "post": 11}, {"pre": 11, "post": 99}, {"pre": "11", "post": 12}):
         with pytest.raises(ActionError):
             Actions(FakeRunner(), keyring=KEYRING).snapshot_undo(bad)
+
+
+def test_snapshot_create_with_garbled_snapper_output():
+    class Garbled(FakeRunner):
+        def __call__(self, argv):
+            if argv[0] == "snapper" and "create" in argv:
+                return subprocess.CompletedProcess(argv, 0, "not a number\n", "")
+            return super().__call__(argv)
+
+    with pytest.raises(ActionError, match="did not return a snapshot number"):
+        Actions(Garbled(), keyring=KEYRING).snapshot_create({})
+
+
+def test_broken_ledger_does_not_hide_a_result(tmp_path, monkeypatch, capsys):
+    srv = Server(Actions(FakeRunner(), keyring=KEYRING), key_path=tmp_path / "key", log_path=None)
+    monkeypatch.setattr("exo_os.sysd.client.open_sink", lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    reply = json.dumps({"ok": True, "result": {"x": 1}, "receipt": {"by": "exo-sysd"}}).encode() + b"\n"
+
+    class FakeSock:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def settimeout(self, t): pass
+        def connect(self, p): pass
+        def sendall(self, b): pass
+        def makefile(self, mode):
+            import io
+            return io.BytesIO(reply)
+
+    monkeypatch.setattr("exo_os.sysd.client.socket.socket", FakeSock)
+    assert SysdClient("x").call("snapshot.create") == {"x": 1}
+    assert "not written to the ledger" in capsys.readouterr().err

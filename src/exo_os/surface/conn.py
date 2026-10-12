@@ -94,10 +94,12 @@ class Connection:
 
     def stop(self) -> None:
         loop, task = self._loop, self._task
-        if loop is not None and task is not None:
+        self._loop, self._task, thread = None, None, self._thread
+        self._thread = None
+        if loop is not None and task is not None and not loop.is_closed():
             loop.call_soon_threadsafe(task.cancel)
-        if self._thread is not None:
-            self._thread.join(5)
+        if thread is not None:
+            thread.join(5)
         self._save(force=True)
 
     def _thread_main(self, ready: threading.Event) -> None:

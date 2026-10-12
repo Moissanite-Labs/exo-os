@@ -1,15 +1,15 @@
 """The exo-os plugin for Exo: tools that let the agent look at and change this machine.
 
-Loaded by Exo through the `exo.plugins` entry point. The tools are named so Exo's gate sorts them
-the way DESIGN.md §5.2 wants without any change to Exo:
+Loaded by Exo through the `exo.plugins` entry point. The tools carry Exo's registry risk labels
+("low": the agent runs it and it is logged; "high": the gate asks the person first). The names are
+chosen so the gate rules Exo OS writes at setup (setup.py: `system_package_*` and
+`system_snapshot_undo` ask, `machine_*` acts, `app_open` acts) sort them the way DESIGN.md §5.2 wants
+without any change to Exo:
 
-    machine_show, machine_changes_list      read          runs, logged
-    timeline_show                           read          runs, logged
-    machine_set, machine_app_put            local_write   reversible: runs, logged, shows "Undo?"
-    machine_undo, machine_app_unbind        unknown       costly-private: runs, logged
-    app_open                                unknown       costly-private: runs, logged
-    system_package_install (risk high)      unknown+high  exo-gate raises this to ask
-    system_snapshot_undo (risk high)        unknown+high  asks
+    machine_show, machine_changes_list, timeline_show, system_snapshots_list   low    read: runs, logged
+    machine_set, machine_app_put                                                low    reversible: runs, logged, shows "Undo?"
+    machine_undo, machine_app_unbind, app_open                                  low    runs, logged
+    system_package_install, system_snapshot_undo                                high   asks, in plain words
 
 Every change still goes through the change engine, so it is checked, put back if a check fails,
 committed to the machine repo, and written to the principal's ledger.

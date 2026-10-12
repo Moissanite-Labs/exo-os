@@ -281,7 +281,7 @@ class SurfaceModel:
 
     def answer(self, decision: str) -> s.ApprovalRespond | None:
         """The person answered the card. The binding is echoed back so an edited request cannot pass on an
-        answer given to an older text (docs/GATE.md)."""
+        answer given to an older text."""
         card = self.approval
         if card is None or decision not in card.options:
             return None

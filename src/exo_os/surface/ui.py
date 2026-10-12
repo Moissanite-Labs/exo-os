@@ -291,8 +291,9 @@ class Card(Gtk.Window):
                 b.connect("clicked", lambda _b, d=decision: self._answer(d))
                 self.buttons.append(b)
         self.update_property([Gtk.AccessibleProperty.LABEL], [summary])
-        if not self.get_visible():
-            self.shown_at = GLib.get_monotonic_time()
+        # Every card shown gets a fresh arm window, even one that replaces another while visible:
+        # a key still being typed must never land on the next question.
+        self.shown_at = GLib.get_monotonic_time()
         self.present()
 
     def armed(self) -> bool:

@@ -60,7 +60,7 @@ def load_profile(path: Path | None = None) -> Profile:
     path = path or paths.machine_repo() / "machine.toml"
     try:
         return Profile.loads(path.read_text())
-    except (OSError, ValueError):
+    except Exception:  # noqa: BLE001 - a missing or broken file must not stop the bar from opening
         return Profile.default()
 
 

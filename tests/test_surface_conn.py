@@ -166,3 +166,17 @@ def test_pending_approvals_are_fetched_on_connect(paths):
     finally:
         c2.stop()
         exod.stop()
+
+
+def test_stop_twice_does_not_raise(paths):
+    sock, state = paths
+    exod = Exod(sock)
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is True)
+    finally:
+        exod.stop()
+    c.stop()
+    c.stop()  # stopping an already-stopped connection is a no-op, not a crash

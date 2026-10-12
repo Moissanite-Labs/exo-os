@@ -48,3 +48,10 @@ def test_app_add_remove(env, capsys):
     assert "chrome-mail\\\\.google\\\\.com__-Default" in lua
     assert cli.main(["app", "remove", "Gmail"]) == 0
     assert cli.main(["app", "open", "Nope"]) == 1
+
+
+def test_show_unknown_setting_says_so(env, capsys):
+    assert cli.main(["init"]) == 0
+    assert cli.main(["show", "nope"]) == 1
+    assert "There is no setting called nope." in capsys.readouterr().err
+    assert cli.main(["show", "display.nope"]) == 1
