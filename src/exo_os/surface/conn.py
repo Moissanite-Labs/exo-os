@@ -16,13 +16,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from exo.protocol import schema as s
+
+from .. import paths
 
 CLIENT = "exo-surface"
 CAPABILITIES = ["markdown", "diff"]
@@ -35,13 +36,12 @@ SAVE_EVERY = 2.0
 
 
 def socket_path() -> Path:
-    """Same default as `exo serve`: $EXO_HOME/run/exod.sock, EXO_HOME defaulting to ~/.exo."""
-    return Path(os.environ.get("EXO_HOME") or Path.home() / ".exo").expanduser() / "run" / "exod.sock"
+    """Same place `exo serve` listens: $EXO_HOME/run/exod.sock."""
+    return paths.exo_home() / "run" / "exod.sock"
 
 
 def state_path() -> Path:
-    base = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
-    return Path(base).expanduser() / "exo-os" / "surface.json"
+    return paths.state_home() / "surface.json"
 
 
 class Listener(Protocol):

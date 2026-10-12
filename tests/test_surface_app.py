@@ -12,30 +12,43 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("gi")
-from exo_os.surface import app  # noqa: E402  (imports GTK but opens no display)
+from exo_os.surface import app  # noqa: E402  (loads Gio only)
 
 SRC = str(Path(__file__).resolve().parents[1] / "src")
 
 
 def test_needs_preload():
-    assert app.needs_preload({"WAYLAND_DISPLAY": "wayland-1"}) == (app.LayerShell is not None)
-    assert not app.needs_preload({"WAYLAND_DISPLAY": "wayland-1", "LD_PRELOAD": "/usr/lib/libgtk4-layer-shell.so"})
-    assert not app.needs_preload({"WAYLAND_DISPLAY": "wayland-1", app.PRELOAD_MARK: "1"})
-    assert not app.needs_preload({"WAYLAND_DISPLAY": "wayland-1", "GDK_BACKEND": "broadway"})
-    assert not app.needs_preload({"DISPLAY": ":0"})
+    lib = "libgtk4-layer-shell.so.0"
+    wl = {"WAYLAND_DISPLAY": "wayland-1"}
+    assert app.needs_preload(wl, lib)
+    assert not app.needs_preload(wl, None)  # library not installed: plain windows, no re-exec
+    assert not app.needs_preload({**wl, "LD_PRELOAD": "/usr/lib/libgtk4-layer-shell.so"}, lib)
+    assert not app.needs_preload({**wl, app.PRELOAD_MARK: "1"}, lib)
+    assert not app.needs_preload({**wl, "GDK_BACKEND": "broadway"}, lib)
+    assert not app.needs_preload({"DISPLAY": ":0"}, lib)
     env = app.preload_env({"LD_PRELOAD": "libfoo.so"}, "libgtk4-layer-shell.so.0")
     assert env["LD_PRELOAD"] == "libgtk4-layer-shell.so.0:libfoo.so" and env[app.PRELOAD_MARK] == "1"
 
 
-def test_load_profile(tmp_path):
-    good = tmp_path / "machine.toml"
-    good.write_text('[surface]\nlanguage = "ur"\n')
-    assert app.load_profile({"EXO_OS_PROFILE": str(good)}).get("surface.language") == "ur"
-    (tmp_path / "store" / "machine").mkdir(parents=True)
-    (tmp_path / "store" / "machine" / "machine.toml").write_text("[nonsense]\n")
+def test_toggle_path_does_not_load_gtk():
+    code = "import sys, exo_os.surface.app; print('gi.repository.Gtk' in sys.modules, 'exo_os.surface.ui' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", code], env={**os.environ, "PYTHONPATH": SRC}, capture_output=True,
+                         text=True, timeout=60)
+    assert out.stdout.split() == ["False", "False"], out.stderr
+
+
+def test_unknown_command_is_refused():
+    assert app.main(["exo-surface", "dance"]) == 2
+
+
+def test_load_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("EXO_OS_MACHINE", str(tmp_path))
+    assert app.load_profile().get("surface.plain") is True  # no file yet: the default
+    (tmp_path / "machine.toml").write_text('[surface]\nlanguage = "ur"\n')
+    assert app.load_profile().get("surface.language") == "ur"
     # a broken profile falls back to the default instead of keeping the bar shut
-    assert app.load_profile({"EXO_STORE": str(tmp_path / "store")}).get("surface.language") == "en"
-    assert app.load_profile({}).get("surface.plain") is True
+    (tmp_path / "machine.toml").write_text("[nonsense]\n")
+    assert app.load_profile().get("surface.language") == "en"
 
 
 CHILD = textwrap.dedent('''
@@ -47,7 +60,7 @@ CHILD = textwrap.dedent('''
     from exo.core.types import Message
     from exo.protocol import schema as s
     from exo_os.profile import Profile
-    from exo_os.surface import app as A
+    from exo_os.surface import ui as A
     from exo_os.surface.model import SurfaceModel
 
     def pump():

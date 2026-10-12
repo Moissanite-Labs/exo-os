@@ -41,7 +41,7 @@ def _assistant(text, mid="m1"):
 
 def test_deltas_stream_then_completed_message_becomes_one_line():
     m = _model()
-    assert m.apply(ev(s.TurnStarted(turn_id="t1", model="anthropic:claude-x"))) == {"status", "transcript"}
+    assert m.apply(ev(s.TurnStarted(turn_id="t1", model="provider:model-x"))) == {"status", "transcript"}
     assert m.busy and m.status == WORKING  # plain mode: no model name
     m.apply(ev(s.MessageDelta(message_id="m1", text="Call ")))
     m.apply(ev(s.MessageDelta(message_id="m1", text="Lead A.")))
@@ -64,8 +64,8 @@ def test_streamed_text_without_completed_message_is_kept_at_turn_end():
 
 def test_operator_mode_shows_model_and_tools():
     m = _model(plain=False)
-    m.apply(ev(s.TurnStarted(turn_id="t1", model="anthropic:claude-x")))
-    assert "anthropic:claude-x" in m.status
+    m.apply(ev(s.TurnStarted(turn_id="t1", model="provider:model-x")))
+    assert "provider:model-x" in m.status
     m.apply(ev(s.ToolStarted(call=ToolCall(id="c1", name="crm_search", arguments={"q": "today"}))))
     assert m.lines[-1].role == "tool" and "crm_search" in m.lines[-1].text
     m.apply(ev(s.ToolCompleted(result=ToolResult.of_text("c1", "boom", is_error=True), is_error=True)))
@@ -81,23 +81,23 @@ def test_operator_mode_shows_model_and_tools():
 
 def test_plain_mode_hides_tools_notices_and_internals():
     m = _model()
-    m.apply(ev(s.TurnStarted(turn_id="t1", model="anthropic:claude-x")))
+    m.apply(ev(s.TurnStarted(turn_id="t1", model="provider:model-x")))
     for body in (s.ToolStarted(call=ToolCall(id="c1", name="crm_search", arguments={"q": "x"})),
                  s.ToolOutput(call_id="c1", text="rows..."),
                  s.ToolCompleted(result=ToolResult.of_text("c1", "Traceback ...", is_error=True), is_error=True),
                  s.Notice(text="cwd is /home/x", level="warn"),
                  s.ReasoningDelta(message_id="m1", text="thinking"),
                  s.TaskUpdated(task_id="k1", status="done", detail="done"),
-                 s.UsageUpdated(usage=s.Usage(), model="anthropic:claude-x"),
+                 s.UsageUpdated(usage=s.Usage(), model="provider:model-x"),
                  s.HarnessError(where="hook", message="KeyError")):
         m.apply(ev(body))
     assert m.lines == []
     assert m.status == WORKING
-    m.apply(ev(s.Error(code="provider", message="HTTP 529 overloaded from anthropic:claude-x")))
+    m.apply(ev(s.Error(code="provider", message="HTTP 529 overloaded from provider:model-x")))
     assert m.lines[-1].text == "Something went wrong. Please try again."
     m.apply(ev(s.TurnCompleted(turn_id="t1", stop_reason="error")))
     assert m.lines[-1].text == "Something went wrong, so I stopped. Please try again."
-    assert not any("claude" in ln.text or "Traceback" in ln.text for ln in m.lines)
+    assert not any("model-x" in ln.text or "Traceback" in ln.text for ln in m.lines)
 
 
 def test_plain_mode_has_no_slash_commands():
