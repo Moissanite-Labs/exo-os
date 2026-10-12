@@ -7,7 +7,7 @@
 set -euo pipefail
 
 PREFIX="${EXO_OS_TOOLS:-$HOME/.local/opt/exo-os-tools}"
-PKGS=(mkosi systemd-ukify python-pefile sbsigntools qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci qemu-hw-display-virtio-gpu-gl qemu-hw-display-virtio-gpu-pci-gl qemu-ui-gtk qemu-ui-opengl qemu-system-x86 qemu-img edk2-ovmf mtools erofs-utils squashfs-tools arch-install-scripts)
+PKGS=(mkosi systemd-ukify python-pefile sbsigntools qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci qemu-hw-display-virtio-gpu-gl qemu-hw-display-virtio-gpu-pci-gl qemu-ui-gtk qemu-ui-opengl qemu-ui-egl-headless virglrenderer qemu-hw-display-virtio-vga-gl qemu-hw-display-virtio-vga qemu-system-x86 qemu-img edk2-ovmf mtools erofs-utils squashfs-tools arch-install-scripts)
 
 command -v pacman >/dev/null || { echo "needs an Arch host (pacman)" >&2; exit 1; }
 mkdir -p "$PREFIX/cache" "$PREFIX/root"

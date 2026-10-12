@@ -45,3 +45,10 @@ def test_hyprland_accepts_rendered_config(tmp_path):
     r = subprocess.run(["Hyprland", "--verify-config", "-c", str(tmp_path / "hyprland.lua")],
                        capture_output=True, text=True, cwd=tmp_path)
     assert r.returncode == 0 and "config ok" in r.stdout + r.stderr
+
+
+def test_config_errors_parsing():
+    from exo_os.checks import config_errors
+    assert config_errors('[\n\t""\n]') == []
+    assert config_errors("[]") == []
+    assert config_errors('["line 3: bad", ""]') == ["line 3: bad"]

@@ -1,0 +1,13 @@
+[Unit]
+Description=Exo OS: give the person their home and Exo store (first boot)
+ConditionPathExists=!/var/lib/exo/.owned
+Before=greetd.service systemd-user-sessions.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/chown -R exo:exo /home/exo /var/lib/exo/exo
+ExecStart=/usr/bin/touch /var/lib/exo/.owned
+
+[Install]
+WantedBy=multi-user.target

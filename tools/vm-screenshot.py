@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
-"""Save the test VM's screen as PNG: tools/vm-screenshot.py OUT.png (uses the QEMU monitor socket)."""
+"""Save the test VM's screen as PNG: tools/vm-screenshot.py [OUT.png] (QEMU's QMP socket)."""
+import json
 import socket
-import struct
 import sys
-import time
-import zlib
 from pathlib import Path
 
 out_dir = Path(__file__).resolve().parents[1] / "image" / "out"
-png = Path(sys.argv[1] if len(sys.argv) > 1 else out_dir / "screen.png")
-ppm = out_dir / "screen.ppm"
+png = Path(sys.argv[1] if len(sys.argv) > 1 else out_dir / "screen.png").resolve()
 with socket.socket(socket.AF_UNIX) as s:
-    s.connect(str(out_dir / "monitor.sock"))
-    s.sendall(f"screendump {ppm}\n".encode())
-    time.sleep(1.5)
-data = ppm.read_bytes()
-parts = data.split(maxsplit=4)
-w, h, body = int(parts[1]), int(parts[2]), parts[4]
-raw = b"".join(b"\x00" + body[y * w * 3:(y + 1) * w * 3] for y in range(h))
-chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))  # noqa: E731
-png.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
-                + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
+    s.settimeout(30)
+    s.connect(str(out_dir / "qmp.sock"))
+    f = s.makefile("rw")
+    f.readline()  # greeting
+    for cmd in ({"execute": "qmp_capabilities"},
+                {"execute": "screendump", "arguments": {"filename": str(png), "format": "png"}}):
+        f.write(json.dumps(cmd) + "\n")
+        f.flush()
+        while True:
+            reply = json.loads(f.readline())
+            if "return" in reply or "error" in reply:
+                break
+        if "error" in reply:
+            sys.exit(f"screendump failed: {reply['error']}")
 print(png)

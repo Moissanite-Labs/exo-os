@@ -15,7 +15,7 @@ for b in exo exo-os exo-surface exo-os-setup; do ln -sf "/opt/exo/bin/$b" "/usr/
 getent group exo-sys >/dev/null || groupadd --system exo-sys
 id exo >/dev/null 2>&1 || useradd --create-home --groups wheel,exo-sys,video,input --shell /bin/bash exo
 passwd --lock exo >/dev/null
-install -d -o exo -g exo -m 0700 /var/lib/exo/exo
+install -d -m 0700 /var/lib/exo/exo
 mkdir -p /home/exo/.config/hypr/exo
 /opt/exo/bin/python - <<'PY'
 from exo_os.profile import Profile
@@ -23,7 +23,7 @@ from exo_os.render.hyprland import render
 for rel, text in render(Profile.default()).items():
     open(f"/home/exo/.config/{rel}", "w").write(text)
 PY
-chown -R exo:exo /home/exo
+# Ownership is set at first boot (exo-os-firstboot.service): an unprivileged build cannot chown.
 
 # snapper: one config for the system subvolume. @snapshots is already mounted at /.snapshots by fstab.
 sed -e 's/^SUBVOLUME=.*/SUBVOLUME="\/"/' -e 's/^TIMELINE_CREATE=.*/TIMELINE_CREATE="no"/' \

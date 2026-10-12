@@ -5,6 +5,7 @@ for the ledger and for Ahraz; the person only ever sees "That did not work, so I
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -41,13 +42,22 @@ def hyprland_live(config_home: Path) -> tuple[bool, str]:
     if r.returncode != 0:
         return False, "hyprctl reload failed: " + (r.stdout + r.stderr)[-300:]
     r = subprocess.run(["hyprctl", "-j", "configerrors"], capture_output=True, text=True, timeout=15)
-    errors = r.stdout.strip()
-    if r.returncode == 0 and errors not in ("", "[]", '[""]'):
-        return False, "Hyprland reports config errors: " + errors[-600:]
+    errors = config_errors(r.stdout) if r.returncode == 0 else []
+    if errors:
+        return False, "Hyprland reports config errors: " + "; ".join(errors)[-600:]
     r = subprocess.run(["hyprctl", "version"], capture_output=True, text=True, timeout=15)
     if r.returncode != 0:
         return False, "Hyprland stopped answering after reload"
     return True, "Hyprland reloaded"
+
+
+def config_errors(text: str) -> list[str]:
+    """`hyprctl -j configerrors` prints a list of strings; with no errors it is [""] (Hyprland 0.56)."""
+    try:
+        items = json.loads(text or "[]")
+    except ValueError:
+        return [text.strip()] if text.strip() else []
+    return [str(e).strip() for e in items if str(e).strip()]
 
 
 def hypridle_restart(config_home: Path) -> tuple[bool, str]:

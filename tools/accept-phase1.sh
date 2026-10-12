@@ -13,13 +13,18 @@ ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }
 as_exo() { ssh_vm "runuser -u exo -- env XDG_RUNTIME_DIR=/run/user/\$(id -u exo) DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$(id -u exo)/bus EXO_HOME=/var/lib/exo/exo EXO_PLUGIN_DIRS=/opt/exo/plugins $*"; }
 pass=0 fail=0
 result() {  # name ok detail
-  if [[ $2 == 1 ]]; then pass=$((pass + 1)); echo "PASS  $1  $3"; else fail=$((fail + 1)); echo "FAIL  $1  $3"; fi | tee -a "$report"
+  local line
+  if [[ $2 == 1 ]]; then pass=$((pass + 1)); line="PASS  $1  $3"; else fail=$((fail + 1)); line="FAIL  $1  $3"; fi
+  echo "$line" | tee -a "$report"
+}
+shot() {  # name: screenshot from inside the guest (grim), since QEMU cannot dump a GL scanout
+  ssh_vm "runuser -u exo -- env XDG_RUNTIME_DIR=/run/user/\$(id -u exo) WAYLAND_DISPLAY=wayland-1 grim /tmp/$1.png && cat /tmp/$1.png" > "$out/$1.png" 2>/dev/null
 }
 
 : > "$report"
 echo "Exo OS phase 1 acceptance, $(date -Is), exo $(cat "$here/exo.pin" | cut -c1-7), exo-os $(git -C "$here" rev-parse --short HEAD)" | tee -a "$report"
 
-"$here/tools/run-vm.sh" --mem "${EXO_OS_VM_MEM:-3072}" > "$out/qemu.log" 2>&1 &
+"$here/tools/run-vm.sh" --mem "${EXO_OS_VM_MEM:-3072}" ${EXO_OS_VM_ARGS:-} > "$out/qemu.log" 2>&1 &
 qemu=$!
 trap 'kill $qemu 2>/dev/null' EXIT
 for _ in $(seq 1 60); do ssh_vm true 2>/dev/null && break; sleep 3; done
@@ -31,7 +36,7 @@ hypr=$(ssh_vm 'pgrep -u exo -x Hyprland' 2>/dev/null)
 session=$(ssh_vm "loginctl list-sessions --no-legend | awk '\$3==\"exo\"{print \$1}' | head -1")
 stype=$(ssh_vm "loginctl show-session $session -p Type --value" 2>/dev/null)
 sleep 8
-python3 "$here/tools/vm-screenshot.py" "$out/accept-desktop.png" >/dev/null 2>&1
+shot accept-desktop
 result "desktop" "$([[ -n $hypr && $stype == wayland ]] && echo 1 || echo 0)" \
   "Hyprland pid=${hypr:-none}, session=${session:-none} type=${stype:-none}, screenshot image/out/accept-desktop.png"
 failed=$(ssh_vm 'systemctl --failed --no-legend --plain | awk "{print \$1}" | tr "\n" " "')
@@ -90,7 +95,7 @@ print("      MemTotal %s MB, MemAvailable %s MB" % (int(m["MemTotal"].split()[0]
 for name, kb in tot.most_common(12):
     print("      PSS %-22s %6d MB" % (name, kb // 1024))
 PY' | tee -a "$report"
-python3 "$here/tools/vm-screenshot.py" "$out/accept-apps.png" >/dev/null 2>&1
+shot accept-apps
 
 echo "passed $pass, failed $fail" | tee -a "$report"
 ((fail == 0))
