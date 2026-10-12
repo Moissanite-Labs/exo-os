@@ -4,3 +4,4 @@ image/mkosi.builddir/
 __pycache__/
 *.egg-info/
 .venv/
+.deps/
