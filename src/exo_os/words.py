@@ -58,7 +58,7 @@ def describe_call(name: str, args: dict[str, Any] | None) -> str | None:
     """One plain question for an approval card, or None when this tool has no wording here.
 
     Exo's gate words an approval for an operator ("system_package_install (costly, private). Why: ...").
-    Exo's pre_approval_request hook is declared but not called by the core (4e6e644), so the surface
+    Exo's pre_approval_request hook is declared but not called by the core (aska-digital/exo#26), so the surface
     words the card itself, for exo-os tools and the common Exo ones."""
     a = args or {}
     if name == "system_package_install":

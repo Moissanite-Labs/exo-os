@@ -43,8 +43,9 @@ async def _turn(d, eng, sid, text, answer=None):
             if isinstance(ev.body, s.ApprovalRequested) and ev.body.request_id in eng._approvals:
                 asked.append(ev.body.summary)
                 if answer:
-                    await d.run(s.Command.of(s.ApprovalRespond(request_id=ev.body.request_id, decision=answer,
-                                                               binding=ev.body.binding)))
+                    r = await d.run(s.Command.of(s.ApprovalRespond(request_id=ev.body.request_id, decision=answer,
+                                                                   binding=ev.body.binding)))
+                    assert r.ok, r.error  # a refused answer would leave the turn waiting forever
         await asyncio.sleep(0.01)
     return asked
 
@@ -63,7 +64,7 @@ def test_agent_changes_machine_and_undoes(env):
     eng = _engine(env, rules)
 
     async def main():
-        d = Dispatcher(eng)
+        d = Dispatcher(eng, caller="principal:surface")  # the person, as the prompt bar is
         sid = (await d.run(s.Command.of(s.SessionCreate()))).result["session"]["id"]
         assert await _turn(d, eng, sid, "bigger") == []      # reversible: runs without asking
         await _turn(d, eng, sid, "undo")
@@ -87,7 +88,7 @@ def test_bad_value_is_refused_in_plain_words(env):
     eng = _engine(env, rules)
 
     async def main():
-        d = Dispatcher(eng)
+        d = Dispatcher(eng, caller="principal:surface")  # the person, as the prompt bar is
         sid = (await d.run(s.Command.of(s.SessionCreate()))).result["session"]["id"]
         await _turn(d, eng, sid, "huge")
 
@@ -104,7 +105,7 @@ def test_package_install_asks_first(env, monkeypatch):
     eng = _engine(env, rules)
 
     async def main():
-        d = Dispatcher(eng)
+        d = Dispatcher(eng, caller="principal:surface")  # the person, as the prompt bar is
         sid = (await d.run(s.Command.of(s.SessionCreate()))).result["session"]["id"]
         return await _turn(d, eng, sid, "install", answer="deny")
 
