@@ -29,6 +29,7 @@ from .ledger import NullSink, Sink
 from .profile import Profile
 from .render.hyprland import render as render_hyprland
 
+INIT_SUMMARY = "Set up the machine profile"
 Renderer = Callable[[Profile], dict[str, str]]
 GIT_ENV = {"GIT_AUTHOR_NAME": "Exo OS", "GIT_AUTHOR_EMAIL": "exo-os@localhost",
            "GIT_COMMITTER_NAME": "Exo OS", "GIT_COMMITTER_EMAIL": "exo-os@localhost"}
@@ -86,11 +87,15 @@ class ChangeEngine:
         self.repo.mkdir(parents=True, exist_ok=True)
         if not (self.repo / ".git").exists():
             self._git("init", "-q", "-b", "main")
-        return self.apply(profile or self.profile(), "Set up the machine profile", by=by, force=True)
+        return self.apply(profile or self.profile(), INIT_SUMMARY, by=by, force=True)
 
     def apply(self, new: Profile, summary: str, *, by: str = "exo", undoes: str = "",
               force: bool = False) -> Result:
         new.validate()
+        if not (self.repo / ".git").exists() and summary != INIT_SUMMARY:
+            first = self.init(by=by)  # record the starting point, so the first real change can be undone
+            if not first.ok:
+                return first
         with self._lock():
             if not (self.repo / ".git").exists():
                 self.repo.mkdir(parents=True, exist_ok=True)
