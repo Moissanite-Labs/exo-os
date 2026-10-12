@@ -21,9 +21,11 @@ Phases 1 to 3 are built on branch `phase-1` and pass their acceptance scripts in
   logged change.
 - **Exo plugin.** Tools that let the agent show and change the machine, open apps, list changes, undo, and
   install packages (which asks first), placed by Exo's own gate.
-- **exo-sysd.** The one root process: four named actions, signed receipts.
-- **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client
-  Approval cards in plain words.
+- **exo-sysd.** The one root process: five named actions (status, snapshot create, list and undo,
+  package install), signed receipts.
+- **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client,
+  with approval cards in plain words.
+- **Timeline.** `exo-os today` and the `timeline_show` tool: what Exo did on a day, from the ledger.
 
 Not yet: rollback that boots an older snapshot, the sandbox and secrets layers, voice and phone clients.
 See `ROADMAP.md`.

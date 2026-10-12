@@ -44,7 +44,8 @@ with KVM) should take this over.
 ## OS-4. Root: exo-sysd with named actions only (rules on proposed D4)
 
 **Decision.** One root service, `exo-sysd`, socket-activated on `/run/exo-sysd.sock` (group `exo-sys`, mode
-0660). It does four things: `status`, `snapshot.create`, `snapshot.list`, `package.install`. Arguments are
+0660). It does five things: `status`, `snapshot.create`, `snapshot.list`, `package.install` and
+`snapshot.undo` (snapper undochange for one recorded pre/post pair). Arguments are
 checked, commands are fixed argv lists, never shell strings. Bootloader, partitions, firmware, kernel
 options and reboots are not on the list.
 
