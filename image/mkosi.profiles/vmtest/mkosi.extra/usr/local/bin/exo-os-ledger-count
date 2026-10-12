@@ -1,0 +1,5 @@
+#!/opt/exo/bin/python
+"""Test profile only: how many exo-os rows the person's ledger holds."""
+import sqlite3
+db = sqlite3.connect("/var/lib/exo/exo/principals/exo/ledger.sqlite")
+print(db.execute("select count(*) from events where json_extract(body, '$.os') = 'exo-os'").fetchone()[0])

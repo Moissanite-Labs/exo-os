@@ -112,7 +112,7 @@ class ChangeEngine:
             notes: list[str] = []
             for check in self.checks:
                 try:
-                    ok, note = check(self.config_home)
+                    ok, note = check(self.config_home, new)
                 except Exception as e:  # a crashing check is a failed check
                     ok, note = False, f"{getattr(check, '__name__', 'check')} crashed: {e}"
                 notes.append(note)
@@ -120,7 +120,7 @@ class ChangeEngine:
                     self._restore(backup)
                     for again in self.checks:  # bring the live session back to the old files
                         try:
-                            again(self.config_home)
+                            again(self.config_home, None)
                         except Exception:
                             pass
                     self.ledger.append("change.reverted", {"summary": summary, "by": by, "check": note,

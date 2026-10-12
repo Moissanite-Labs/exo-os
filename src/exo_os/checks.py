@@ -1,7 +1,8 @@
 """Checks run after a change is written. If one fails, the change engine puts everything back.
 
-A check gets the config folder the files were written to and returns (ok, message). Messages are
-for the ledger and for Ahraz; the person only ever sees "That did not work, so I put it back."
+A check gets the config folder the files were written to and the new profile, and returns
+(ok, message). Messages are for the ledger and for the helper; the person only ever sees "That did not
+work, so I put it back."
 """
 from __future__ import annotations
 
@@ -11,12 +12,12 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
-Check = Callable[[Path], tuple[bool, str]]
+Check = Callable[[Path, Any], tuple[bool, str]]
 
 
-def hyprland_config(config_home: Path) -> tuple[bool, str]:
+def hyprland_config(config_home: Path, profile: Any = None) -> tuple[bool, str]:
     """`Hyprland --verify-config` on the generated file, loaded the way the real config loads it."""
     if not shutil.which("Hyprland"):
         return True, "Hyprland not installed; config not checked"
@@ -34,7 +35,7 @@ def hyprland_config(config_home: Path) -> tuple[bool, str]:
     return False, "Hyprland config check failed: " + out[-600:]
 
 
-def hyprland_live(config_home: Path) -> tuple[bool, str]:
+def hyprland_live(config_home: Path, profile: Any = None) -> tuple[bool, str]:
     """When a Hyprland session is running, reload it and check it still answers."""
     if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") or not shutil.which("hyprctl"):
         return True, "no running Hyprland session"
@@ -60,7 +61,7 @@ def config_errors(text: str) -> list[str]:
     return [str(e).strip() for e in items if str(e).strip()]
 
 
-def hypridle_restart(config_home: Path) -> tuple[bool, str]:
+def hypridle_restart(config_home: Path, profile: Any = None) -> tuple[bool, str]:
     """hypridle reads its file only at start; restart it if it runs as a user service."""
     if not shutil.which("systemctl"):
         return True, "no systemctl"
@@ -74,7 +75,28 @@ def hypridle_restart(config_home: Path) -> tuple[bool, str]:
     return True, "hypridle restarted"
 
 
-DEFAULT_CHECKS: list[Check] = [hyprland_config, hyprland_live, hypridle_restart]
+XKB = Path("/usr/share/X11/xkb")
+
+
+def keyboard_layouts(config_home: Path, profile: Any = None) -> tuple[bool, str]:
+    """Hyprland 0.56 accepts an unknown layout without a config error and the keyboard keeps the old
+    keymap (seen in the VM with us,zz), so check the layouts against the system's xkb data."""
+    if profile is None:
+        return True, "no profile to check"
+    layouts, switch = profile.get("keyboard.layouts"), profile.get("keyboard.switch")
+    if (XKB / "symbols").is_dir():
+        missing = [l for l in layouts if not (XKB / "symbols" / l).exists()]
+        if missing:
+            return False, f"unknown keyboard layout: {', '.join(missing)}"
+    if shutil.which("xkbcli"):
+        r = subprocess.run(["xkbcli", "compile-keymap", "--layout", ",".join(layouts), "--options", switch],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            return False, "keyboard layouts do not compile: " + r.stderr.strip()[-300:]
+    return True, "keyboard layouts ok"
+
+
+DEFAULT_CHECKS: list[Check] = [keyboard_layouts, hyprland_config, hyprland_live, hypridle_restart]
 
 
 def _lua(s: str) -> str:

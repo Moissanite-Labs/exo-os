@@ -5,3 +5,4 @@ enable snapper-cleanup.timer
 enable greetd.service
 enable exo-sysd.socket
 enable exo-os-firstboot.service
+enable exo-os-pacman-init.service

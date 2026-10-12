@@ -94,6 +94,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sy.add_parser("install")
     p.add_argument("names", nargs="+")
     p.add_argument("--reason", default="asked from the command line")
+    p = sy.add_parser("undo", help="put the system back as it was before one install")
+    p.add_argument("pre", type=int)
+    p.add_argument("post", type=int)
     args = ap.parse_args(argv)
 
     try:
@@ -139,6 +142,8 @@ def _run(args: argparse.Namespace) -> int:
                 out = SysdClient().call("status")
             elif args.sys_cmd == "snapshots":
                 out = SysdClient().call("snapshot.list", {"limit": args.n})
+            elif args.sys_cmd == "undo":
+                out = SysdClient().call("snapshot.undo", {"pre": args.pre, "post": args.post})
             else:
                 out = SysdClient().call("package.install", {"names": args.names, "reason": args.reason})
         except SysdError as e:
@@ -149,8 +154,11 @@ def _run(args: argparse.Namespace) -> int:
         elif args.sys_cmd == "snapshots":
             for snap in out["snapshots"]:
                 print(f"{snap['number']:>5}  {snap['date'][:16]}  {snap['description']}")
+        elif args.sys_cmd == "undo":
+            print(f"Put the system back as it was at snapshot {out['undone'][0]}.")
         else:
-            print(f"Installed {', '.join(out['installed'])}. Snapshots before and after: {out['pre']}, {out['post']}.")
+            print(f"Installed {', '.join(out['installed'])}. Snapshots before and after: {out['pre']}, {out['post']}."
+                  f" To undo: exo-os system undo {out['pre']} {out['post']}")
         return 0
     if args.cmd == "app":
         prof = eng.profile()

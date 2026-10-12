@@ -8,6 +8,7 @@ the way DESIGN.md §5.2 wants without any change to Exo:
     machine_undo, machine_app_unbind        unknown       costly-private: runs, logged
     app_open                                unknown       costly-private: runs, logged
     system_package_install (risk high)      unknown+high  exo-gate raises this to ask
+    system_snapshot_undo (risk high)        unknown+high  asks
 
 Every change still goes through the change engine, so it is checked, put back if a check fails,
 committed to the machine repo, and written to the principal's ledger.
@@ -119,6 +120,15 @@ def system_package_install(args: dict, **kw: Any) -> str:
     return json.dumps(out)
 
 
+def system_snapshot_undo(args: dict, **kw: Any) -> str:
+    from .sysd.client import SysdClient, SysdError
+
+    try:
+        return json.dumps(SysdClient().call("snapshot.undo", {"pre": args["pre"], "post": args["post"]}))
+    except SysdError as e:
+        raise _error(str(e)) from None
+
+
 def system_snapshots_list(args: dict, **kw: Any) -> str:
     from .sysd.client import SysdClient, SysdError
 
@@ -174,6 +184,10 @@ TOOLS = [
         "the person first.",
         {"names": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 10},
          "reason": {"type": "string", "description": "One plain sentence: why"}}, ["names", "reason"])),
+    ("system_snapshot_undo", system_snapshot_undo, "high", _schema(
+        "Undo one package install: put the system's files back as they were at its 'before' snapshot. Home "
+        "and the Exo store are not touched. Always asks the person first.",
+        {"pre": {"type": "integer"}, "post": {"type": "integer"}}, ["pre", "post"])),
     ("system_snapshots_list", system_snapshots_list, "low", _schema(
         "List system snapshots (taken before package installs and system changes).",
         {"limit": {"type": "integer", "minimum": 1, "maximum": 50}}, [])),

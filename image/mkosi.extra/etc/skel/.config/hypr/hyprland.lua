@@ -18,7 +18,7 @@ end
 hl.bind("SUPER + ESCAPE", hl.dsp.exec_cmd("loginctl lock-session"), { description = "Lock" })
 
 hl.config({
-  misc = { disable_hyprland_logo = true, disable_splash_rendering = true },
+  misc = { disable_hyprland_logo = true, disable_splash_rendering = true, background_color = "rgb(f4f1ea)" },
   ecosystem = { no_update_news = true, no_donation_nag = true },
   general = { layout = "dwindle" },
 })

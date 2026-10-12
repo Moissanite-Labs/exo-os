@@ -34,7 +34,7 @@ def test_no_op_change_does_nothing(tmp_path):
 
 
 def test_failed_check_reverts_everything(tmp_path):
-    def picky(config_home):
+    def picky(config_home, profile):
         text = (config_home / "hypr/exo/profile.lua").read_text()
         return ("scale = 2" not in text, "scale 2 breaks the screen")
 
@@ -54,7 +54,7 @@ def test_failed_check_reverts_everything(tmp_path):
 
 
 def test_crashing_check_counts_as_failure(tmp_path):
-    def boom(config_home):
+    def boom(config_home, profile):
         raise RuntimeError("no display")
 
     eng = _engine(tmp_path)
@@ -113,3 +113,14 @@ def test_events_land_in_a_verifiable_exo_ledger(tmp_path, monkeypatch):
                          capture_output=True, text=True)
     assert out.returncode == 0, out.stdout + out.stderr
     assert json.loads(out.stdout)["ok"] is True
+
+
+def test_unknown_keyboard_layout_is_put_back(tmp_path):
+    from exo_os.checks import keyboard_layouts
+
+    eng = _engine(tmp_path, checks=[keyboard_layouts])
+    eng.init()
+    r = eng.apply(eng.profile().set_value("keyboard.layouts", ["us", "zz"]), "Bad layout")
+    assert not r.ok and r.reverted and "zz" in r.checks[-1]
+    assert eng.profile().get("keyboard.layouts") == ["us"]
+    assert eng.apply(eng.profile().set_value("keyboard.layouts", ["us", "ara", "pk"]), "Good layouts").ok

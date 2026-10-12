@@ -24,6 +24,9 @@ GATE_RULES = """rules:
   - match: {tool: "system_package_*"}
     decision: ask
     reason: installing software changes the system
+  - match: {tool: "system_snapshot_undo"}
+    decision: ask
+    reason: putting the system back changes installed software
   # Exo OS: machine profile changes are checked, logged, and undone with one step.
   - match: {tool: "machine_*"}
     decision: act
