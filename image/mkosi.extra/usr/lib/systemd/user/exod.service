@@ -1,0 +1,14 @@
+[Unit]
+Description=Exo core (exod)
+After=exo-os-setup.service
+Wants=exo-os-setup.service
+
+[Service]
+ExecStart=/opt/exo/bin/exo serve
+Restart=always
+RestartSec=2
+# exod is the person's agent. It runs as the person, never as root; only exo-sysd runs as root.
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

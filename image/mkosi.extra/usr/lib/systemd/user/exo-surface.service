@@ -1,0 +1,9 @@
+[Unit]
+Description=Exo OS prompt bar
+PartOf=exo-desktop.target
+After=exod.service
+
+[Service]
+ExecStart=/opt/exo/bin/exo-surface
+Restart=on-failure
+RestartSec=2

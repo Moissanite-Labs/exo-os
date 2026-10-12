@@ -1,0 +1,11 @@
+[terminal]
+vt = 1
+
+# Log the person in straight to the desktop. After they log out, a plain login prompt.
+[initial_session]
+command = "start-hyprland"
+user = "exo"
+
+[default_session]
+command = "agreety --cmd start-hyprland"
+user = "greeter"

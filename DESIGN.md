@@ -1,12 +1,37 @@
 # Exo OS: design, phase 0
 
-Date: 2026-10-12. Status: design only. Nothing here has been built, and nothing on any machine was changed.
+Date: 2026-10-12. Status: phase 0 design; building started in phase 1 (see "Since phase 0" below and README.md).
 
 How to read this. Each idea starts from first principles, for a smart reader who is new to the jargon.
 Claims carry a source in brackets. Research notes in this repo are cited as (note 01) to (note 05).
 Exo's own documents are cited by name, such as (D-014) for a decision in Exo's `DECISIONS.md` or (P11)
 for principle 11 in Exo's `research/PRINCIPLES.md`. "Guess" marks my own reasoning. There are no
 benchmarks in this document except the few that a cited source measured.
+
+---
+
+## Since phase 0 (2026-10-12)
+
+Exo moved on while this design was written, and building started. What changed, checked against Exo
+`4e6e644`:
+
+- **Already in Exo, so Exo OS uses it rather than asking for it:** the `ui` tool and `ui.panel` event (D-023,
+  nine panel kinds, each with a text fallback); approvals bound to the exact text, approver rules, and
+  scoped, expiring standing grants (D-033); peers with one ingress path (D-026); trace and findings
+  (D-025); background jobs and schedules; `exo brief`.
+- **Names that now mean something else in Exo.** Exo's "operator" is the floor of rules a principal cannot
+  lower (P11), not a person. §9.2's operator is called the **helper** from here on, and is an approver
+  through `policies/approvals.yaml`, not a second principal (OS-8). A bus peer is input, never consent
+  (D-026). An Exo "session" is now a **thread** of one agent per seat (D-028).
+- **§6.3 "grant capabilities, not clicks" does not fit D-033 as written.** Exo scopes a grant for an
+  outward act to its category, target and exact text. A grant like "message these five contacts today"
+  would need a change to Exo. It stays a proposal.
+- **§8 says the core shapes output to client capabilities.** Exo does not read `Hello.capabilities` today.
+- **The protocol has no free command slots** (30 of 30). Everything Exo OS asks of Exo must be an optional
+  field or a `command.run` command.
+- **Built differently from this text:** the machine profile lives in a git repo at `<store>/machine` (OS-6);
+  everyday changes need no root and are undone with git, not snapper (OS-5); phase 1 boots with systemd-boot,
+  and snapshot boot entries come with rollback in phase 2 (OS-1). See `DECISIONS.md`.
 
 ---
 

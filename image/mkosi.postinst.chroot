@@ -1,0 +1,34 @@
+#!/bin/sh
+# Runs inside the image after packages and extra trees are in. Installs Exo and exo-os from the
+# wheelhouse that tools/build-image.sh put in /opt/exo/wheels (no network), creates the person's
+# account, and configures snapper for the system subvolume.
+set -eu
+
+# Exo and exo-os in one venv. --system-site-packages: the prompt bar uses the distribution's PyGObject.
+python -m venv --system-site-packages --without-pip /opt/exo
+python -m pip --python /opt/exo/bin/python install --quiet --no-index --no-cache-dir \
+    --find-links /opt/exo/wheels exo exo-os
+rm -rf /opt/exo/wheels
+for b in exo exo-os exo-surface exo-os-setup; do ln -sf "/opt/exo/bin/$b" "/usr/local/bin/$b"; done
+
+# The person. Phase 1 has one account with automatic login; onboarding will create it in later phases.
+getent group exo-sys >/dev/null || groupadd --system exo-sys
+id exo >/dev/null 2>&1 || useradd --create-home --groups wheel,exo-sys,video,input --shell /bin/bash exo
+passwd --lock exo >/dev/null
+install -d -o exo -g exo -m 0700 /var/lib/exo/exo
+mkdir -p /home/exo/.config/hypr/exo
+/opt/exo/bin/python - <<'PY'
+from exo_os.profile import Profile
+from exo_os.render.hyprland import render
+for rel, text in render(Profile.default()).items():
+    open(f"/home/exo/.config/{rel}", "w").write(text)
+PY
+chown -R exo:exo /home/exo
+
+# snapper: one config for the system subvolume. @snapshots is already mounted at /.snapshots by fstab.
+sed -e 's/^SUBVOLUME=.*/SUBVOLUME="\/"/' -e 's/^TIMELINE_CREATE=.*/TIMELINE_CREATE="no"/' \
+    -e 's/^NUMBER_LIMIT=.*/NUMBER_LIMIT="30"/' \
+    /usr/share/snapper/config-templates/default > /etc/snapper/configs/root
+chmod 0640 /etc/snapper/configs/root
+echo 'SNAPPER_CONFIGS="root"' > /etc/conf.d/snapper
+mkdir -p /.snapshots

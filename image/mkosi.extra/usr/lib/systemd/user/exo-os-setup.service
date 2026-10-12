@@ -1,0 +1,11 @@
+[Unit]
+Description=Exo OS: create the Exo store and machine profile if missing
+Before=exod.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/exo/bin/exo-os-setup
+
+[Install]
+WantedBy=default.target

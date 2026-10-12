@@ -1,5 +1,7 @@
 # Exo OS: decisions A must make
 
+**Ruled on 2026-10-12: see `DECISIONS.md` (OS-1 to OS-9). This file is kept as the record of the options.**
+
 Date: 2026-10-12. Status: proposed. None of these is decided. Each has options, the trade, and a
 recommendation. Numbering here (D1 to D8) is local to Exo OS; accepted ones would be recorded in Exo's
 `DECISIONS.md` after D-021, since Exo OS is a branch of Exo (D-020).

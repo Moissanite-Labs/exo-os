@@ -62,3 +62,8 @@ def test_webapp_class_seen_on_charminar():
     assert webapp_class("https://mail.google.com") == "chrome-mail.google.com__-Default"
     assert webapp_class("https://mail.google.com/") == "chrome-mail.google.com__-Default"
     assert webapp_class("http://127.0.0.1:8741") == "chrome-127.0.0.1__-Default"
+
+
+def test_reserved_desktop_keys():
+    with pytest.raises(ProfileError, match="kept for the desktop"):
+        Profile.default().put_app({"name": "X", "command": "foot", "key": "SUPER+W"})

@@ -1,0 +1,10 @@
+[Unit]
+Description=Exo OS system helper socket
+
+[Socket]
+ListenStream=/run/exo-sysd.sock
+SocketMode=0660
+SocketGroup=exo-sys
+
+[Install]
+WantedBy=sockets.target

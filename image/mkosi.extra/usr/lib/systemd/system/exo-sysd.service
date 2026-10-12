@@ -1,0 +1,10 @@
+[Unit]
+Description=Exo OS system helper (named root actions only)
+Requires=exo-sysd.socket
+
+[Service]
+ExecStart=/opt/exo/bin/exo-sysd
+StateDirectory=exo-sysd
+StateDirectoryMode=0700
+ProtectHome=yes
+PrivateTmp=yes

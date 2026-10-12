@@ -1,7 +1,7 @@
 """exo-sysd server: one JSON request per line in, one JSON reply per line out, over a Unix socket.
 
-The socket comes from systemd (exo-sysd.socket: /run/exo-sysd.sock, mode 0660, group exo), so only
-members of the exo group can connect; the peer's uid is also read with SO_PEERCRED and written into
+The socket comes from systemd (exo-sysd.socket: /run/exo-sysd.sock, mode 0660, group exo-sys), so only
+members of the exo-sys group can connect; the peer's uid is also read with SO_PEERCRED and written into
 every receipt. Actions run one at a time. Each reply carries a receipt signed with exo-sysd's own key,
 which the caller copies into the principal's ledger: the record of a root action is signed by the
 process that did it, not by the agent that asked (DESIGN.md §5.4, separate signer).
@@ -116,7 +116,7 @@ def _load_or_make_key(path: Path):
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="exo-sysd")
     ap.add_argument("--socket", default="/run/exo-sysd.sock", help="used only without systemd socket activation")
-    ap.add_argument("--group", default="exo", help="only members of this group may connect")
+    ap.add_argument("--group", default="exo-sys", help="only members of this group may connect")
     a = ap.parse_args(argv)
     if os.geteuid() != 0:
         print("exo-sysd must run as root (it is the only part of Exo OS that does)", file=sys.stderr)

@@ -1,0 +1,2 @@
+enable exo-os-setup.service
+enable exod.service

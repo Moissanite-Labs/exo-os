@@ -55,6 +55,9 @@ FIELDS: dict[str, tuple[type | tuple[type, ...], Any]] = {
     "surface.plain": (bool, lambda v: ""),
 }
 
+# Keys the base desktop config always binds (image/mkosi.extra/etc/skel/.config/hypr/hyprland.lua).
+RESERVED_KEYS = {"SUPER+W", "SUPER+F", "SUPER+ESCAPE"} | {f"SUPER+ALT+{i}" for i in range(1, 10)}
+
 APP_FIELDS = {"name", "command", "url", "class", "key", "workspace", "autostart"}
 
 
@@ -108,6 +111,9 @@ class Profile:
                     if app[field] in seen:
                         raise ProfileError(f"{field} {app[field]} is used by two apps")
                     seen.add(app[field])
+        taken = (keys | {self.data["surface"]["key"]}) & RESERVED_KEYS
+        if taken:
+            raise ProfileError(f"{sorted(taken)[0]} is kept for the desktop itself")
         if self.data["surface"]["key"] in keys:
             raise ProfileError(f"{self.data['surface']['key']} is the prompt key and an app key")
 

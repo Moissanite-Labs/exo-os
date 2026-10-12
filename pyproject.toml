@@ -13,6 +13,7 @@ dev = ["pytest>=8"]
 [project.scripts]
 exo-os = "exo_os.cli:main"
 exo-sysd = "exo_os.sysd.server:main"
+exo-os-setup = "exo_os.setup:main"
 
 [project.entry-points."exo.plugins"]
 exo-os = "exo_os.plugin:register"
