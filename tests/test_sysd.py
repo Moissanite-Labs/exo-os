@@ -34,7 +34,7 @@ def test_package_install_with_snap_pac():
     r = FakeRunner()
     out = Actions(r).package_install({"names": ["htop"]})
     assert out == {"installed": ["htop"], "pre": 11, "post": 12}
-    assert ["pacman", "-S", "--needed", "--noconfirm", "--", "htop"] in r.calls
+    assert r.calls.index(["pacman", "-Sy", "--noconfirm"]) < r.calls.index(["pacman", "-Su", "--needed", "--noconfirm", "--", "htop"])
     assert not any("create" in c for c in r.calls)
 
 
@@ -56,7 +56,7 @@ def test_unknown_package_refused_before_pacman_runs():
     r = FakeRunner()
     with pytest.raises(ActionError, match="not in the package repositories: nope"):
         Actions(r).package_install({"names": ["htop", "nope"]})
-    assert not any(c[:2] == ["pacman", "-S"] for c in r.calls)
+    assert not any(c[:2] == ["pacman", "-Su"] for c in r.calls)
 
 
 def test_snapshot_description_checked():

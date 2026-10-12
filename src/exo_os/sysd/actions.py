@@ -4,6 +4,9 @@ Each action takes checked arguments and runs fixed argv lists (never a shell str
 partitions, firmware, kernel options and reboots are deliberately absent: those stay a person's job
 (DESIGN.md §5.2). Package installs are snapshotted by snap-pac's pacman hook; when snap-pac is
 missing, exo-sysd takes the pre and post snapshots itself.
+
+Arch does not support partial upgrades (refreshing the package list, then installing one package
+against it), so an install refreshes the list and then installs with a full upgrade (-Su).
 """
 from __future__ import annotations
 
@@ -71,12 +74,13 @@ class Actions:
         for n in names:
             if not isinstance(n, str) or not PKG_RE.match(n):
                 raise ActionError(f"{n!r} is not a package name")
+        self._ok(["pacman", "-Sy", "--noconfirm"])
         missing = [n for n in names if self.runner(["pacman", "-Si", "--", n]).returncode != 0]
         if missing:
             raise ActionError(f"not in the package repositories: {', '.join(missing)}")
         own = not self._snap_pac()
         pre = self.snapshot_create({"description": f"before installing {' '.join(names)}"[:120]}) if own else None
-        self._ok(["pacman", "-S", "--needed", "--noconfirm", "--", *names])
+        self._ok(["pacman", "-Su", "--needed", "--noconfirm", "--", *names])
         post = self.snapshot_create({"description": f"after installing {' '.join(names)}"[:120]}) if own else None
         latest = self.snapshot_list({"limit": 2})["snapshots"] if not own else []
         return {"installed": names, "pre": pre["snapshot"] if pre else _num(latest, 1),

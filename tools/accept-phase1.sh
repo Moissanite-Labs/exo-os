@@ -75,7 +75,7 @@ result "profile-change-live" "$([[ $change == *Undo?* && $kb == *ara* ]] && echo
 
 # 4. memory with Chromium and three web apps
 for url in https://web.whatsapp.com/ https://mail.google.com/ https://drive.google.com/; do
-  as_exo setsid -f chromium --app="$url" >/dev/null 2>&1
+  as_exo "setsid -f chromium --app=$url </dev/null >/dev/null 2>&1"
 done
 sleep 45
 ssh_vm 'python3 - <<"PY"
