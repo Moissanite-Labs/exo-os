@@ -2,11 +2,13 @@ import pytest
 
 from exo_os import cli
 
+from conftest import make_exo_desktop
+
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("EXO_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(make_exo_desktop(tmp_path / "config")))
     monkeypatch.delenv("EXO_PRINCIPAL_STORE", raising=False)
     monkeypatch.delenv("EXO_PRINCIPAL", raising=False)
     monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)

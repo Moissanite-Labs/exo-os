@@ -9,6 +9,8 @@ from exo_os import timeline
 from exo_os.changes import ChangeEngine
 from exo_os.ledger import ExoLedgerSink
 
+from conftest import make_exo_desktop
+
 
 def test_a_day_in_plain_words(tmp_path, monkeypatch):
     monkeypatch.setenv("EXO_HOME", str(tmp_path / "home"))
@@ -16,7 +18,7 @@ def test_a_day_in_plain_words(tmp_path, monkeypatch):
     subprocess.run([sys.executable, "-m", "exo.cli", "init", "p", "--root", str(store)], check=True,
                    capture_output=True)
     sink = ExoLedgerSink(store, tmp_path / "home" / "keys" / "exo-os.key")
-    eng = ChangeEngine(store / "machine", tmp_path / "config", ledger=sink, checks=[])
+    eng = ChangeEngine(store / "machine", make_exo_desktop(tmp_path / "config"), ledger=sink, checks=[])
     eng.init(by="setup")
     eng.apply(eng.profile().set_value("display.scale", 1.25), "Screen size: 125%", by="person")
     eng.checks = [lambda c, p: (False, "no")]

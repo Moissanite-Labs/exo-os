@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 from . import paths
-from .changes import ChangeEngine
+from .changes import NOT_OURS, ChangeEngine
 from .ledger import open_sink
 
 CORE_PLUGINS = ["exo-gate", "exo-memory", "exo-context", "exo-os"]
@@ -70,7 +70,9 @@ def main() -> int:
         cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
     os.environ.setdefault("EXO_PRINCIPAL", principal)
     repo = paths.machine_repo()
-    if not (repo / ".git").exists():
+    if not paths.owns_desktop(paths.config_home()):
+        print(f"{NOT_OURS} The Exo store is set up; the machine profile is not.")
+    elif not (repo / ".git").exists():
         r = ChangeEngine(repo, paths.config_home(), ledger=open_sink(paths.store(), home)).init(by="setup")
         print(r.message)
     print(f"Exo store: {store}\nMachine repo: {repo}")

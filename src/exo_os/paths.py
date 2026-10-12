@@ -41,5 +41,19 @@ def config_home() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 
 
+DESKTOP_MARK = "exo/profile.lua"
+
+
+def owns_desktop(config: Path) -> bool:
+    """True when the Hyprland config here loads the file Exo OS renders, as the Exo OS base config does.
+
+    On any other desktop (Omarchy, a developer's own) Exo OS must not write config or reload Hyprland.
+    """
+    try:
+        return DESKTOP_MARK in (Path(config) / "hypr" / "hyprland.lua").read_text()
+    except OSError:
+        return False
+
+
 def state_home() -> Path:
     return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "exo-os"

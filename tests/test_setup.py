@@ -5,10 +5,12 @@ from exo.gate import load_policies
 
 from exo_os import setup
 
+from conftest import make_exo_desktop
+
 
 def test_setup_creates_store_rules_and_machine_repo(tmp_path, monkeypatch):
     monkeypatch.setenv("EXO_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(make_exo_desktop(tmp_path / "config")))
     monkeypatch.setenv("EXO_PRINCIPAL", "pat")
     monkeypatch.delenv("EXO_PRINCIPAL_STORE", raising=False)
     monkeypatch.setattr("exo_os.changes.DEFAULT_CHECKS", [])
@@ -25,3 +27,15 @@ def test_setup_creates_store_rules_and_machine_repo(tmp_path, monkeypatch):
     out = subprocess.run([sys.executable, "-m", "exo.cli", "log", "verify", "--root", str(store)],
                          capture_output=True, text=True)
     assert out.returncode == 0, out.stdout + out.stderr
+
+
+def test_setup_on_another_desktop_makes_the_store_only(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("EXO_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))  # no Exo OS base config here
+    monkeypatch.setenv("EXO_PRINCIPAL", "pat")
+    monkeypatch.delenv("EXO_PRINCIPAL_STORE", raising=False)
+    assert setup.main() == 0
+    store = tmp_path / "home" / "principals" / "pat"
+    assert (store / "policies" / "gates.yaml").exists() and not (store / "machine").exists()
+    assert not (tmp_path / "config").exists()
+    assert "not run by Exo OS" in capsys.readouterr().out

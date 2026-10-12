@@ -40,7 +40,9 @@ See `ROADMAP.md`.
     tools/vm-ssh.sh <command>              # run a command in the VM as root
     tools/accept-phase1.sh                 # the phase 1 acceptance checks
 
-On a machine running Exo OS (or any machine with Exo):
+On a machine running Exo OS. On any other desktop, `exo-os` changes nothing there and says so; the Exo store
+still works. A desktop counts as Exo OS when `~/.config/hypr/hyprland.lua` loads `exo/profile.lua`, as the
+image's base config does.
 
     exo-os show                            # the machine profile
     exo-os set keyboard.layouts us,ara,pk  # one change: checked, logged, undoable

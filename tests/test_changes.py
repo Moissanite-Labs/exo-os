@@ -2,12 +2,14 @@ import json
 import subprocess
 import sys
 
-from exo_os.changes import ChangeEngine
+from exo_os.changes import NOT_OURS, ChangeEngine
 from exo_os.ledger import ExoLedgerSink, MemorySink
+
+from conftest import make_exo_desktop
 
 
 def _engine(tmp_path, checks=None, ledger=None):
-    return ChangeEngine(tmp_path / "store" / "machine", tmp_path / "config", ledger=ledger or MemorySink(),
+    return ChangeEngine(tmp_path / "store" / "machine", make_exo_desktop(tmp_path / "config"), ledger=ledger or MemorySink(),
                         checks=checks if checks is not None else [])
 
 
@@ -88,7 +90,7 @@ def test_undo_with_nothing_to_undo(tmp_path):
 
 def test_dropped_rendered_file_is_removed(tmp_path):
     files = {"a.conf": "1", "b.conf": "2"}
-    eng = ChangeEngine(tmp_path / "m", tmp_path / "c", checks=[], renderer=lambda p: dict(files))
+    eng = ChangeEngine(tmp_path / "m", make_exo_desktop(tmp_path / "c"), checks=[], renderer=lambda p: dict(files))
     eng.init()
     assert (tmp_path / "c/b.conf").exists()
     del files["b.conf"]
@@ -103,7 +105,7 @@ def test_events_land_in_a_verifiable_exo_ledger(tmp_path, monkeypatch):
                           capture_output=True, text=True)
     assert made.returncode == 0, made.stdout + made.stderr
     sink = ExoLedgerSink(store, tmp_path / "home" / "keys" / "exo-os.key")
-    eng = ChangeEngine(store / "machine", tmp_path / "config", ledger=sink, checks=[])
+    eng = ChangeEngine(store / "machine", make_exo_desktop(tmp_path / "config"), ledger=sink, checks=[])
     eng.init()
     eng.apply(eng.profile().set_value("display.scale", 1.5), "Larger")
     rows = [e for e in sink.ledger.iter(kind="action")]
@@ -124,3 +126,16 @@ def test_unknown_keyboard_layout_is_put_back(tmp_path):
     assert not r.ok and r.reverted and "zz" in r.checks[-1]
     assert eng.profile().get("keyboard.layouts") == ["us"]
     assert eng.apply(eng.profile().set_value("keyboard.layouts", ["us", "ara", "pk"]), "Good layouts").ok
+
+
+def test_a_desktop_that_is_not_exo_os_is_left_alone(tmp_path):
+    config = tmp_path / "config"
+    (config / "hypr").mkdir(parents=True)
+    (config / "hypr/hyprland.lua").write_text('require("looknfeel")\n')  # someone else's desktop
+    ran, sink = [], MemorySink()
+    eng = ChangeEngine(tmp_path / "store" / "machine", config, ledger=sink,
+                       checks=[lambda c, p: ran.append(1) or (True, "ran")])
+    for r in (eng.init(), eng.apply(eng.profile().set_value("display.scale", 1.5), "Larger"), eng.redeploy()):
+        assert not r.ok and r.message == NOT_OURS
+    assert sorted(p.name for p in config.rglob("*")) == ["hypr", "hyprland.lua"]
+    assert not (tmp_path / "store").exists() and not ran and not sink.events

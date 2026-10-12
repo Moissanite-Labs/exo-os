@@ -10,6 +10,8 @@ from exo.core.plugins import PluginManager
 from exo.protocol import schema as s
 from exo.server.app import Dispatcher
 
+from conftest import make_exo_desktop
+
 
 GATE = Path(__file__).resolve().parents[1] / ".deps" / "exo" / "plugins"
 
@@ -17,7 +19,7 @@ GATE = Path(__file__).resolve().parents[1] / ".deps" / "exo" / "plugins"
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("EXO_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(make_exo_desktop(tmp_path / "config")))
     monkeypatch.delenv("EXO_PRINCIPAL_STORE", raising=False)
     monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
     monkeypatch.setattr("exo_os.changes.DEFAULT_CHECKS", [])

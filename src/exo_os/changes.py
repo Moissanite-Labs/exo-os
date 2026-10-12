@@ -26,10 +26,12 @@ from typing import Callable, Iterator
 
 from .checks import DEFAULT_CHECKS, Check
 from .ledger import NullSink, Sink
+from .paths import DESKTOP_MARK, owns_desktop
 from .profile import Profile
 from .render.hyprland import render as render_hyprland
 
 INIT_SUMMARY = "Set up the machine profile"
+NOT_OURS = "This desktop is not run by Exo OS, so I left it alone."
 Renderer = Callable[[Profile], dict[str, str]]
 GIT_ENV = {"GIT_AUTHOR_NAME": "Exo OS", "GIT_AUTHOR_EMAIL": "exo-os@localhost",
            "GIT_COMMITTER_NAME": "Exo OS", "GIT_COMMITTER_EMAIL": "exo-os@localhost"}
@@ -51,12 +53,14 @@ class Result:
 
 class ChangeEngine:
     def __init__(self, repo: Path, config_home: Path, *, ledger: Sink | None = None,
-                 checks: list[Check] | None = None, renderer: Renderer = render_hyprland) -> None:
+                 checks: list[Check] | None = None, renderer: Renderer = render_hyprland,
+                 owns: Callable[[Path], bool] = owns_desktop) -> None:
         self.repo = Path(repo)
         self.config_home = Path(config_home)
         self.ledger = ledger or NullSink()
         self.checks = DEFAULT_CHECKS if checks is None else checks
         self.renderer = renderer
+        self.owns = owns
 
     # -- reading
 
@@ -84,6 +88,8 @@ class ChangeEngine:
 
     def init(self, profile: Profile | None = None, by: str = "setup") -> Result:
         """Create the repo and apply the first profile (the default, or the one given)."""
+        if refused := self._refuse():
+            return refused
         self.repo.mkdir(parents=True, exist_ok=True)
         if not (self.repo / ".git").exists():
             self._git("init", "-q", "-b", "main")
@@ -92,6 +98,8 @@ class ChangeEngine:
     def apply(self, new: Profile, summary: str, *, by: str = "exo", undoes: str = "",
               force: bool = False) -> Result:
         new.validate()
+        if refused := self._refuse():
+            return refused
         if not (self.repo / ".git").exists() and summary != INIT_SUMMARY:
             first = self.init(by=by)  # record the starting point, so the first real change can be undone
             if not first.ok:
@@ -154,6 +162,12 @@ class ChangeEngine:
         return self.apply(self.profile(), "Put the desktop config back as the profile says", force=True)
 
     # -- internals
+
+    def _refuse(self) -> Result | None:
+        """Nothing is written, checked or reloaded unless this desktop is an Exo OS one."""
+        if self.owns(self.config_home):
+            return None
+        return Result(False, NOT_OURS, checks=[f"{self.config_home / 'hypr/hyprland.lua'} does not load {DESKTOP_MARK}"])
 
     def _planned_files(self, profile: Profile) -> dict[str, str]:
         files = {"machine.toml": profile.dumps()}
