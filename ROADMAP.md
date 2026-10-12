@@ -14,6 +14,17 @@ Rules for every phase:
 
 Time estimates are not given. The phases are ordered by dependency, not by calendar.
 
+## Status (2026-10-12, branch `phase-1`)
+
+Each line says what the acceptance script showed in the QEMU VM, not more.
+
+| Phase | Status |
+|---|---|
+| P1 VM image | `tools/accept-phase1.sh`: desktop, exod restart, store verifies in VM and on host, live profile change all pass. Chat passes on Exo's offline model only; **a real-model chat needs a test key (A)**. Memory measured: `docs/MEASUREMENTS.md`. |
+| P2 gated changes | `tools/accept-phase2.sh`: 5 of 5 (20 recorded changes, broken change reverts itself, one-command undo for profile and package changes, no root outside exo-sysd's list, no boot tools). **Not built:** booting an older snapshot from the boot menu. |
+| P3 surface | `tools/accept-phase3.sh`: 5 of 5 (app from a few letters, question answered, approval card through the gate, panel in the drawer, desktop works with exod stopped). **Not done:** Orca reading the card (untested); a memory budget from A to check against. |
+| P4 to P8 | Not started. |
+
 ```
  P0 design --> P1 VM image --> P2 gated changes --> P3 surface --> P4 security --> P5 voice + phone
                                                                                           |

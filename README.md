@@ -10,7 +10,7 @@ Exo OS stays one with Exo: same core, same protocol, no fork. Exo is a dependenc
 
 ## Status
 
-Phase 1 (a bootable image) is in progress on branch `phase-1`. Built and tested so far:
+Phases 1 to 3 are built on branch `phase-1` and pass their acceptance scripts in a VM, with the gaps listed in `ROADMAP.md` (Status). Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
   home, snapshots and the Exo store; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
@@ -23,7 +23,7 @@ Phase 1 (a bootable image) is in progress on branch `phase-1`. Built and tested 
   install packages (which asks first), placed by Exo's own gate.
 - **exo-sysd.** The one root process: four named actions, signed receipts.
 - **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client
-  (being built).
+  Approval cards in plain words.
 
 Not yet: rollback that boots an older snapshot, the sandbox and secrets layers, voice and phone clients.
 See `ROADMAP.md`.
