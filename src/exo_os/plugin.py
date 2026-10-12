@@ -4,6 +4,7 @@ Loaded by Exo through the `exo.plugins` entry point. The tools are named so Exo'
 the way DESIGN.md §5.2 wants without any change to Exo:
 
     machine_show, machine_changes_list      read          runs, logged
+    timeline_show                           read          runs, logged
     machine_set, machine_app_put            local_write   reversible: runs, logged, shows "Undo?"
     machine_undo, machine_app_unbind        unknown       costly-private: runs, logged
     app_open                                unknown       costly-private: runs, logged
@@ -138,6 +139,21 @@ def system_snapshots_list(args: dict, **kw: Any) -> str:
         raise _error(str(e)) from None
 
 
+def timeline_show(args: dict, **kw: Any) -> str:
+    from . import timeline
+
+    store = paths.store()
+    if store is None:
+        raise _error("There is no Exo store on this machine yet.")
+    try:
+        day = timeline.resolve_day(args.get("day"))
+    except ValueError:
+        raise _error("day must be today, yesterday or a date like 2026-10-12") from None
+    rows = timeline.read(store, day)
+    return json.dumps({"say": timeline.say(rows, day), "items": rows,
+                       "panel_hint": "a tasks panel with one line per item reads well"})
+
+
 def _schema(desc: str, props: dict[str, Any], required: list[str]) -> dict[str, Any]:
     return {"description": desc, "parameters": {"type": "object", "properties": props, "required": required,
                                                 "additionalProperties": False}}
@@ -188,6 +204,11 @@ TOOLS = [
         "Undo one package install: put the system's files back as they were at its 'before' snapshot. Home "
         "and the Exo store are not touched. Always asks the person first.",
         {"pre": {"type": "integer"}, "post": {"type": "integer"}}, ["pre", "post"])),
+    ("timeline_show", timeline_show, "low", _schema(
+        "What Exo did on a day, in plain words, from the person's signed record: changes to this computer and "
+        "the ones put back, installs, every time Exo asked and what the person answered, and what was blocked. "
+        "Use it for 'what did you do today?'.",
+        {"day": {"type": "string", "description": "today, yesterday, or YYYY-MM-DD"}}, [])),
     ("system_snapshots_list", system_snapshots_list, "low", _schema(
         "List system snapshots (taken before package installs and system changes).",
         {"limit": {"type": "integer", "minimum": 1, "maximum": 50}}, [])),

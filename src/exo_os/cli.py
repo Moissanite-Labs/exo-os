@@ -69,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("change", nargs="?")
     p.add_argument("--by", default="person")
     sub.add_parser("redeploy", help="write the desktop config again from the profile")
+    sub.add_parser("today", help="what Exo did today (or --day yesterday / YYYY-MM-DD)").add_argument(
+        "--day", default="today")
     a = sub.add_parser("app", help="apps on keys").add_subparsers(dest="app_cmd", required=True)
     p = a.add_parser("open")
     p.add_argument("name")
@@ -132,6 +134,14 @@ def _run(args: argparse.Namespace) -> int:
         return 0
     if args.cmd == "undo":
         return _print_result(eng.undo(args.change, by=args.by), args.json)
+    if args.cmd == "today":
+        from . import timeline
+
+        store = paths.store()
+        day = timeline.resolve_day(args.day)
+        rows = timeline.read(store, day) if store else []
+        print(json.dumps(rows, indent=2) if args.json else timeline.say(rows, day))
+        return 0
     if args.cmd == "redeploy":
         return _print_result(eng.redeploy(), args.json)
     if args.cmd == "system":
