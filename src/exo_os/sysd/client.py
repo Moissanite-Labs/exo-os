@@ -88,6 +88,22 @@ def _save_receipt(directory: Path, receipt: dict) -> Path:
     return destination
 
 
+def _archive_receipt(directory: Path, path: Path) -> None:
+    """Move a receipt that is confirmed in the ledger out of the scanned outbox; it is kept, not deleted."""
+    archive = directory / 'recorded'
+    archive.mkdir(exist_ok=True, mode=0o700)
+    if archive.is_symlink() or archive.stat().st_uid != os.geteuid():
+        raise OSError('recorded receipt directory must belong to the caller')
+    os.chmod(archive, 0o700)
+    os.replace(path, archive / path.name)
+    for folder in (archive, directory):
+        fd = os.open(folder, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
 @contextmanager
 def _outbox_lock(directory: Path):
     fd = os.open(directory / '.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
@@ -221,13 +237,24 @@ class SysdClient:
         return reply.get('result')
 
     def recover_pending(self) -> dict:
-        """Record authentic saved receipts only. Never connect to the helper or repeat actions."""
+        """Record authentic saved receipts only. Never connect to the helper or repeat actions.
+
+        A receipt confirmed in the ledger moves to `sysd-outbox/recorded/`, so later runs neither re-read it
+        nor report its signed audit fault again; `root_audit_errors` lists faults found in this run's records.
+        """
         from exo import crypto
 
         summary = {'recorded': [], 'already_recorded': [], 'rejected': [], 'errors': [], 'root_audit_errors': []}
         try:
-            public = self.trust_key if self.trust_key is not None else _trust_key(PUBLIC_KEY)
             directory = _outbox_dir()
+            try:
+                public = self.trust_key if self.trust_key is not None else _trust_key(PUBLIC_KEY)
+            except FileNotFoundError:
+                # The helper has never published a key, so it has never signed a receipt. With saved receipts
+                # present, an absent anchor stays an error: nothing can verify them.
+                if any(directory.glob('*.json')):
+                    raise
+                return summary
             with _outbox_lock(directory):
                 sink = open_sink(paths.store(), paths.exo_home())
                 recorded = _recorded_receipts(sink, public)
@@ -249,23 +276,28 @@ class SysdClient:
                         summary['rejected'].append({'path': str(path), 'error': str(e)})
                         continue
                     request_id = receipt['request_id']
-                    if receipt['audit_error']:
-                        summary['root_audit_errors'].append({'request_id': request_id, 'error': receipt['audit_error']})
                     if request_id in recorded:
                         if crypto.canonical(recorded[request_id]) != crypto.canonical(receipt):
                             summary['rejected'].append({'path': str(path), 'error': 'conflicting recorded receipt'})
-                        else:
-                            summary['already_recorded'].append(request_id)
-                        continue
-                    try:
-                        event_id = sink.append('system.action', {'receipt': receipt})
-                        if event_id is None:
-                            raise OSError('no principal ledger is available')
-                    except Exception as e:
-                        summary['errors'].append({'request_id': request_id, 'error': str(e)})
+                            continue
+                        newly_recorded = False
                     else:
+                        try:
+                            event_id = sink.append('system.action', {'receipt': receipt})
+                            if event_id is None:
+                                raise OSError('no principal ledger is available')
+                        except Exception as e:
+                            summary['errors'].append({'request_id': request_id, 'error': str(e)})
+                            continue
                         recorded[request_id] = receipt
-                        summary['recorded'].append(request_id)
-        except (OSError, ValueError, TypeError) as e:
+                        newly_recorded = True
+                    summary['recorded' if newly_recorded else 'already_recorded'].append(request_id)
+                    if newly_recorded and receipt['audit_error']:
+                        summary['root_audit_errors'].append({'request_id': request_id, 'error': receipt['audit_error']})
+                    try:
+                        _archive_receipt(directory, path)
+                    except OSError as e:
+                        summary['errors'].append({'request_id': request_id, 'error': f'could not move recorded receipt: {e}'})
+        except Exception as e:  # sqlite3.Error is not an OSError; reconcile must fail cleanly, never trace back
             summary['errors'].append({'error': str(e)})
         return summary
