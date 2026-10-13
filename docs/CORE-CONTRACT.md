@@ -79,12 +79,15 @@ usable. This is local routed-call accounting under trusted installed code; it
 does not control every same-UID process or the provider's account-wide bill.
 See [MODEL-SPEND.md](MODEL-SPEND.md).
 
-The optional witness state machine and transport are staged in a separate core draft, outside
-the current pin. That draft accepts signed checkpoints and commits a signed acknowledgment
-before returning it. Deploying a witness under independent control, delivering checkpoints and
-checking receipt freshness remain separate work. A copied checkpoint proves its signed prefix;
-it does not prove that no later history exists. Current-image acceptance and the remaining phase-4
-criteria still apply.
+The pinned core includes the optional witness state machine and transport. It accepts
+signed checkpoints and commits a signed acknowledgment before returning it. The OS
+stages an explicit administrator publisher, disabled by default, that delivers a
+verified checkpoint prefix and distinguishes saved receipts from challenged fresh
+status. Linux and image acceptance have not run for this publisher, and an endpoint
+under independent control has not been deployed. A copied checkpoint proves its
+signed prefix; it does not prove that no later history exists. See
+[WITNESS-PUBLISHER.md](WITNESS-PUBLISHER.md). Current-image acceptance and the
+remaining phase-4 criteria still apply.
 
 ## Protocol improvements needed from core
 

@@ -2,7 +2,7 @@
 
 `exo-witness-admin` exports a protected authority's checkpoint history to one
 explicitly enrolled witness. It is disabled by default. This branch pins core
-`b060974a514cf08c0765119e2e8d952682102a0c`, including the draft witness transport
+`2a2b663919af4dfaa1faa79f28c570fa5bf0808d`, including the draft witness transport
 and its public challenged-head API. It does not activate a witness in an existing
 image, deploy a remote service, or establish independent administration.
 
