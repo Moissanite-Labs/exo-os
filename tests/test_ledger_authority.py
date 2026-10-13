@@ -391,3 +391,31 @@ def test_image_login_and_socket_require_boot_provisioning():
     helper = (Path(__file__).resolve().parents[1] /
               "image/mkosi.profiles/vmtest/mkosi.extra/usr/local/bin/as-exo").read_text()
     assert "EXO_LEDGER_AUTHORITY=exo-os" in helper and "EXO_LEDGER_AUTHORITY_REQUIRED=1" in helper
+
+
+@pytest.mark.parametrize("alias", [False, True])
+def test_writer_keys_compare_decoded_material(stream, alias):
+    _, manifest, _, _ = stream
+    raw = copy.deepcopy(manifest)
+    entry = raw["streams"]["fixture"]
+    pub = entry["identity"]["writers"]["exo-os"]["pub"]
+    if alias:
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        pub = pub[:-2] + alphabet[alphabet.index(pub[-2]) | 1] + "="
+        assert crypto.unb64(pub) == crypto.unb64(entry["identity"]["writers"]["exo-os"]["pub"])
+    entry["identity"]["writers"]["other"] = {"pub": pub, "author": "other", "authors": ["other"]}
+    entry["callers"]["other"] = ["exo"]
+    with pytest.raises(AuthorityError, match="independently provisioned"):
+        policy.validate_manifest(raw)
+
+
+def test_distinct_writer_material_preserves_pinned_manifest(stream):
+    _, manifest, _, _ = stream
+    raw = copy.deepcopy(manifest)
+    entry = raw["streams"]["fixture"]
+    entry["identity"]["writers"]["other"] = {"pub": crypto.pubkey_b64(crypto.keygen()),
+                                                "author": "other", "authors": ["other"]}
+    entry["callers"]["other"] = ["exo"]
+    before = copy.deepcopy(raw)
+    assert policy.validate_manifest(raw) == before
+    assert raw == before

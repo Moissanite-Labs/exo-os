@@ -6,6 +6,7 @@ import re
 import stat
 from pathlib import Path
 
+from exo import crypto
 from exo.ledger_authority import AuthorityError, NAME, validate_identity
 
 from ..sandbox.policy import trusted_path
@@ -33,7 +34,7 @@ def validate_manifest(raw):
             raise AuthorityError("invalid projection binding")
         paths.add(path)
         identity = validate_identity(entry["identity"])
-        if len({writer["pub"] for writer in identity["writers"].values()}) != len(identity["writers"]):
+        if len({crypto.unb64(writer["pub"]) for writer in identity["writers"].values()}) != len(identity["writers"]):
             raise AuthorityError("writer keys must be independently provisioned")
         if identity["stream_id"] != stream or not isinstance(entry["callers"], dict):
             raise AuthorityError("stream identity mismatch")
