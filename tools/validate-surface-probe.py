@@ -5,7 +5,8 @@ import json
 import re
 import sys
 
-from phase3_input_evidence import native_repeat_delivered
+from phase3_input_evidence import (PROMPT_STAGES, native_external_panel_delivered, native_prompt_delivered,
+                                 native_repeat_delivered)
 
 
 def main() -> int:
@@ -19,10 +20,26 @@ def main() -> int:
         actual = json.load(sys.stdin)
     except (json.JSONDecodeError, UnicodeError):
         return 1
-    expected = {"probe": "exo-surface-gtk-v1", "backend": args.backend,
+    expected = {"probe": "exo-surface-gtk-v2", "backend": args.backend,
                 "layered": args.backend == "wayland-layer", "status": "PASS",
                 "gsk_renderer": "cairo" if args.backend == "wayland-layer" else "default"}
-    if not isinstance(actual, dict) or set(actual) != {*expected, "renderers", "held_f6"}:
+    if not isinstance(actual, dict) or set(actual) != {*expected, "renderers", "held_f6", "prompt_delivery",
+                                                    "external_panel_update"}:
+        return 1
+    external = actual.pop("external_panel_update")
+    if args.backend == "wayland-layer":
+        if not native_external_panel_delivered(external):
+            return 1
+    elif external != {"mode": "synthetic"}:
+        return 1
+    prompt = actual.pop("prompt_delivery")
+    if args.backend == "wayland-layer":
+        if (not isinstance(prompt, dict) or set(prompt) != {"mode", "checks"} or prompt["mode"] != "native"
+                or not isinstance(prompt["checks"], list) or len(prompt["checks"]) != len(PROMPT_STAGES)
+                or not all(native_prompt_delivered(row) for row in prompt["checks"])
+                or [row["stage"] for row in prompt["checks"]] != list(PROMPT_STAGES)):
+            return 1
+    elif prompt != {"mode": "synthetic"}:
         return 1
     held = actual.pop("held_f6")
     if args.backend == "wayland-layer":
