@@ -18,6 +18,7 @@ passwd --lock exo >/dev/null
 install -d -m 0700 /var/lib/exo/exo
 cp -rT /etc/skel /home/exo   # explicit: useradd did not copy the skeleton in the image build
 mkdir -p /home/exo/.config/hypr/exo
+mkdir -p /home/exo/Workspace
 /opt/exo/bin/python - <<'PY'
 from exo_os.profile import Profile
 from exo_os.render.hyprland import render

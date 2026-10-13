@@ -5,10 +5,17 @@ Wants=exo-os-setup.service
 
 [Service]
 ExecStart=/opt/exo/bin/exo serve
+WorkingDirectory=%h/Workspace
+Environment=EXO_TOOL_EXECUTOR=exo-os
+Environment=EXO_TOOL_EXECUTOR_REQUIRED=1
 Restart=always
 RestartSec=2
 # exod is the person's agent. It runs as the person, never as root; only exo-sysd runs as root.
 NoNewPrivileges=yes
+# Limit the combined daemon/tool tree; namespaces and per-call limits tighten each tool further.
+TasksMax=512
+MemoryMax=2G
+LimitCORE=0
 
 [Install]
 WantedBy=default.target

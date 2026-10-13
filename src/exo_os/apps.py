@@ -16,13 +16,18 @@ from .profile import Profile
 
 
 def launch_argv(app: dict[str, Any], profile: Profile) -> list[str]:
+    from .sandbox.desktop import COMMANDS, check_app, required
+
+    strict = required()
+    if strict:
+        check_app(app)
     if app.get("url"):
         scale = profile.get("display.text_scale")
-        argv = [os.environ.get("EXO_OS_BROWSER", "chromium"), f"--app={app['url']}"]
+        argv = ["/usr/bin/chromium" if strict else os.environ.get("EXO_OS_BROWSER", "chromium"), f"--app={app['url']}"]
         if scale != 1.0:
             argv.append(f"--force-device-scale-factor={scale:g}")
         return argv
-    return shlex.split(app["command"])
+    return [COMMANDS[app["command"]]] if strict else shlex.split(app["command"])
 
 
 def find_window(cls: str) -> str | None:
@@ -50,12 +55,23 @@ def open_app(profile: Profile, name: str, *, background: bool = False) -> str:
     app = profile.app(name)
     if app is None:
         raise KeyError(name)
+    argv = launch_argv(app, profile)  # validate before focus as well as before spawn
     address = find_window(app["class"]) if app.get("class") else None
     if address:
         if background:
             return f"{app['name']} is already open."
         focus(address)
         return f"Brought {app['name']} to the front."
-    subprocess.Popen(launch_argv(app, profile), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, start_new_session=True)
+    from .sandbox.desktop import required
+
+    if required():
+        # A project-local config/helper must never turn a desktop launch into host execution.
+        env = {key: os.environ[key] for key in ("HOME", "USER", "LOGNAME", "LANG", "DISPLAY", "WAYLAND_DISPLAY",
+               "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "XDG_CONFIG_HOME") if key in os.environ}
+        env["PATH"] = "/usr/bin:/bin"
+        options = {"cwd": "/", "env": env}
+    else:
+        options = {}
+    subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True, **options)
     return f"Opened {app['name']}."

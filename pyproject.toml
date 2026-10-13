@@ -19,6 +19,9 @@ exo-surface = "exo_os.surface.app:main"
 [project.entry-points."exo.plugins"]
 exo-os = "exo_os.plugin:register"
 
+[project.entry-points."exo.executors"]
+exo-os = "exo_os.sandbox.executor:create_executor"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
