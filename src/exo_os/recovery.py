@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import struct
 import subprocess
 import sys
@@ -260,6 +261,16 @@ class Recovery:
         entry.parent.mkdir(parents=True, exist_ok=True)
         # Publish entry last: partial failures never offer an incomplete recovery boot.
         self.run("btrfs", "subvolume", "snapshot", str(snapshot), str(clone))
+        # checkpoint runs while we hold pacman's lock on @. Its snapshot keeps
+        # that transient file, but the future boot must not inherit a stale lock.
+        # Remove only the copy, never the live lock or the read-only checkpoint.
+        copied_lock = clone / "var/lib/pacman/db.lck"
+        plain_path(copied_lock)
+        if copied_lock.exists():
+            secure_file(copied_lock)
+            if not stat.S_ISREG(copied_lock.stat().st_mode):
+                raise RecoveryError("Checkpoint pacman lock must be a regular file")
+            copied_lock.unlink()
         with boot.open("xb") as handle:
             handle.write(data)
             handle.flush()

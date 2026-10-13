@@ -47,6 +47,7 @@ actual=$(ssh_vm 'cat /sys/class/dmi/id/product_uuid' | tr '[:upper:]' '[:lower:]
 [[ $actual == "$EXO_OS_VM_UUID" ]] || { result identity 0 'Reboot reached a different machine'; exit 1; }
 ssh_vm 'timeout 120 systemctl is-system-running --wait'
 ssh_vm 'as-exo systemctl --user stop exod'
+ssh_vm 'test ! -e /var/lib/pacman/db.lck'
 root=$(ssh_vm 'findmnt -n -o FSROOT /')
 revision=$(ssh_vm 'cat /etc/exo-recovery-proof')
 original=$(ssh_vm "cat /.snapshots/exo-recovery/checkpoints/$id/root/etc/exo-recovery-proof")

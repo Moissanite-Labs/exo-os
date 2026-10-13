@@ -61,7 +61,14 @@ def image(tmp_path, monkeypatch):
         if args[:3] == ("btrfs", "subvolume", "snapshot"):
             source, target = map(Path, args[-2:])
             # Separate mount data do not belong to the native root snapshot.
-            shutil.copytree(source, target, ignore=shutil.ignore_patterns("home", "var"))
+            def separate_mounts(directory, names):
+                directory = Path(directory)
+                if directory == source:
+                    return ["home"] if "home" in names else []
+                if directory == source / "var/lib":
+                    return ["exo"] if "exo" in names else []
+                return []
+            shutil.copytree(source, target, ignore=separate_mounts, symlinks=True)
             if "-r" in args:
                 readonly.add(str(target))
             return ""
@@ -259,3 +266,37 @@ def test_image_exposes_manual_entrypoint_and_regular_uki_default():
     config = (project / "image/mkosi.extra/boot/loader/loader.conf").read_text()
     assert "default *.efi" in config and "timeout 5" in config and "editor no" in config
     assert "exo-os-recovery" in (project / "image/mkosi.postinst.chroot").read_text()
+
+
+def test_staging_removes_captured_pacman_lock_only_from_clone(image):
+    helper, root, snapshots, *_ = image
+    lock = root / "var/lib/pacman/db.lck"
+    lock.parent.mkdir(parents=True)
+    lock.write_text("live administrator lock")
+    lock.chmod(0o600)
+    checkpoint = helper.checkpoint()
+    saved = snapshots / "exo-recovery/checkpoints" / checkpoint["id"] / "root/var/lib/pacman/db.lck"
+    assert saved.read_text() == "live administrator lock"
+    helper.stage(checkpoint["id"])
+    cloned = snapshots / "exo-recovery/roots" / checkpoint["id"] / "var/lib/pacman/db.lck"
+    assert not cloned.exists()
+    assert lock.read_text() == "live administrator lock"
+    assert saved.read_text() == "live administrator lock"
+
+
+@pytest.mark.parametrize("kind", ["symlink", "directory"])
+def test_staging_refuses_unsafe_captured_pacman_lock(image, tmp_path, kind):
+    helper, root, _, esp, *_ = image
+    lock = root / "var/lib/pacman/db.lck"
+    lock.parent.mkdir(parents=True)
+    outside = tmp_path / "outside-lock"
+    outside.write_text("must survive")
+    if kind == "symlink":
+        lock.symlink_to(outside)
+    else:
+        lock.mkdir()
+    checkpoint = helper.checkpoint()
+    with pytest.raises(r.RecoveryError, match="Unsafe path|regular file"):
+        helper.stage(checkpoint["id"])
+    assert outside.read_text() == "must survive"
+    assert not list((esp / "loader/entries").glob("*.conf"))
