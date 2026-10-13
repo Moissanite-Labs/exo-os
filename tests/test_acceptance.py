@@ -242,6 +242,16 @@ def test_custom_acceptance_suites_add_the_provenance_result(tmp_path):
         assert f"accept_set_required_checks {workload_checks}" in (root / "tools" / script).read_text()
 
 
+def test_ledger_acceptance_checks_inactive_units_before_outage_probes():
+    script = (Path(__file__).resolve().parents[1] / "tools/accept-ledger.sh").read_text()
+    socket_check = 'test "$(systemctl is-active exo-ledger.socket)" = inactive'
+    service_check = 'test "$(systemctl is-active exo-ledger.service)" = inactive'
+    outage_probe = "run_probe --signer-unavailable"
+    assert "test ! -S /run/exo-ledger.sock" not in script
+    assert script.index(socket_check) < script.index(outage_probe)
+    assert script.index(service_check) < script.index(outage_probe)
+
+
 def test_packaging_hardens_modes_from_host_archives(tmp_path):
     root = tmp_path / "image-root"
     paths = {
