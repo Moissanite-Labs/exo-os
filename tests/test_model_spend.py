@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
+import shutil
 import sqlite3
 import stat
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,7 +23,9 @@ def store(tmp_path, monkeypatch):
     root = tmp_path / "store"
     root.mkdir()
     (root / "exo").mkdir(mode=0o700)
-    uid, gid = os.getuid(), os.getgid()
+    owner_uid, owner_gid = os.getuid(), os.getgid()
+    uid = owner_uid or 1000
+    gid = owner_gid or 1000
     monkeypatch.setattr(spend.os, "geteuid", lambda: 0)
     monkeypatch.setattr(spend.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=uid, pw_gid=gid))
     monkeypatch.setattr(spend, "trusted_path", lambda path, **kw: path)
@@ -29,10 +34,38 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setattr(spend, "_as_exo", lambda uid, gid, action, result=False: action())
     original = spend._node
     def local_owner(path, kind, mode, wanted_uid, wanted_gid):
-        return original(path, kind, mode, uid if wanted_uid == 0 else wanted_uid,
-                        gid if wanted_gid == 0 else wanted_gid)
+        expected_uid = owner_uid if wanted_uid in (0, uid) else wanted_uid
+        expected_gid = owner_gid if wanted_gid in (0, gid) else wanted_gid
+        return original(path, kind, mode, expected_uid, expected_gid)
     monkeypatch.setattr(spend, "_node", local_owner)
     return root
+
+
+def test_root_identity_is_never_accepted(store, monkeypatch):
+    monkeypatch.setattr(spend.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=0, pw_gid=0))
+    with pytest.raises(AuthorityError, match="cannot use the root identity"):
+        spend.ensure_boot(store=store)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="requires disposable root Linux test container")
+def test_as_exo_drops_identity_and_creates_owned_file():
+    account = pwd.getpwnam("nobody")
+    root = Path(tempfile.mkdtemp(prefix="exo-spend-", dir="/tmp"))
+    os.chown(root, account.pw_uid, account.pw_gid)
+    root.chmod(0o700)
+    target = root / "owned"
+    try:
+        def create():
+            target.write_text("owned")
+            return {"uid": os.geteuid(), "gid": os.getegid()}
+
+        identity = spend._as_exo(account.pw_uid, account.pw_gid, create, result=True)
+        info = target.stat()
+        assert identity == {"uid": account.pw_uid, "gid": account.pw_gid}
+        assert (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (
+            account.pw_uid, account.pw_gid, 0o600)
+    finally:
+        shutil.rmtree(root)
 
 
 def test_fresh_zero_policy_is_published_last_and_never_reseeded(store):
