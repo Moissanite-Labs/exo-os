@@ -93,6 +93,7 @@ class Panel:
     data: dict[str, Any] = field(default_factory=dict)
     reason: str = ""
     shown: bool = False  # the person has seen it (drives opened versus ignored)
+    chosen: str | None = None  # choice panel: the option already taken; a repeat click is a no-op
 
 
 @dataclass
@@ -266,6 +267,8 @@ class SurfaceModel:
             old.kind = b.kind or old.kind
             old.title = b.title or old.title
             old.text = b.text or old.text
+            if b.data:
+                old.chosen = None  # new options are a new question
             old.data = b.data or old.data
             old.reason = b.reason or old.reason
         else:
@@ -451,13 +454,14 @@ class SurfaceModel:
         """A choice button. ui.respond only teaches the learning loop; the core does not hand it to the
         running model, so the chosen label is also sent as the person's next message."""
         p = self.panels.get(panel_id)
-        if p is None:
+        if p is None or p.chosen is not None:
             return []
         out: list[Any] = [s.UiRespond(panel_id=panel_id, action="acted", value={"choice": option_id})]
         label = next((lab for oid, lab in panel_view(p)["options"] if oid == option_id), option_id)
         send = self._turn(label)
         if send is not None:
             out.append(send)
+            p.chosen = option_id  # a failed send leaves the choice open to try again
         return out
 
     # -- palette
@@ -679,7 +683,7 @@ def panel_view(p: Panel) -> dict[str, Any]:
                     opts.append((str(o.get("id", i)), str(o.get("label") or o.get("id", i))))
                 else:
                     opts.append((str(o), str(o)))
-            out.update(prompt=str(d.get("prompt") or ""), options=opts)
+            out.update(prompt=str(d.get("prompt") or ""), options=opts, chosen=p.chosen)
         elif p.kind == "chart":
             labels = [str(x) for x in d.get("labels") or []]
             values = [_num(v) for v in d.get("values") or []]

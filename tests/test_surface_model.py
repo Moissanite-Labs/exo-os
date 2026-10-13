@@ -240,6 +240,40 @@ def test_choice_acts_and_sends_the_label():
     assert panel_view(m.panels["p4"])["options"] == [("a", "Short"), ("Long", "Long")]
 
 
+def _choice(m, pid="p4"):
+    m.apply(ev(s.UiPanel(panel_id=pid, action="open", kind="choice",
+                         data={"prompt": "Send which?", "options": [{"id": "a", "label": "Short"}, "Long"]})))
+
+
+def test_a_second_click_on_a_choice_panel_does_nothing():
+    m = _model()
+    _choice(m)
+    assert len(m.choose("p4", "a")) == 2
+    assert m.choose("p4", "a") == []
+    assert m.choose("p4", "Long") == []  # another option is no different
+    assert [ln.text for ln in m.lines if ln.role == "you"] == ["Short"]
+    assert panel_view(m.panels["p4"])["chosen"] == "a"
+
+
+def test_a_choice_that_could_not_be_sent_stays_open():
+    m = _model()
+    m.set_connected(False)
+    _choice(m)
+    assert [type(b) for b in m.choose("p4", "a")] == [s.UiRespond]
+    assert panel_view(m.panels["p4"])["chosen"] is None
+    m.set_connected(True)
+    assert [type(b) for b in m.choose("p4", "a")] == [s.UiRespond, s.TurnSend]
+
+
+def test_new_options_on_a_chosen_panel_can_be_chosen_again():
+    m = _model()
+    _choice(m)
+    m.choose("p4", "a")
+    m.apply(ev(s.UiPanel(panel_id="p4", action="update", kind="choice", data={"options": ["Yes", "No"]})))
+    assert panel_view(m.panels["p4"])["chosen"] is None
+    assert len(m.choose("p4", "Yes")) == 2
+
+
 def test_panel_view_shapes():
     def view(kind, data, text="t"):
         return panel_view(Panel("p", kind, "T", text, data))
