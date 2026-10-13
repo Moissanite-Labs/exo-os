@@ -73,6 +73,7 @@ def image(tmp_path, monkeypatch):
     def run(*args):
         calls.append(args)
         if args[0] == "findmnt":
+            assert "--uniq" in args
             path = Path(args[args.index("--mountpoint") + 1])
             roots = {root: "/@", root / "home": "/@home", root / "var/lib/exo": "/@store", root / "var/lib/exo-sysd": "/@sysd", root / "var/lib/exo-egress": "/@egress", root / "var/lib/exo-ledger": "/@signer", snapshots: "/@snapshots"}
             row = {"target": str(path), "fstype": "vfat" if path == esp else "btrfs",
@@ -223,6 +224,7 @@ def test_root_esp_automount_is_activated_and_revalidated():
             activated = True
             return ""
         assert args[0] == "findmnt"
+        assert "--uniq" in args
         return json.dumps({"filesystems": [{"target": "/efi", "fstype": "vfat" if activated else "autofs"}]})
 
     helper = r.Recovery(root=Path("/"), esp=Path("/efi"), run=run)

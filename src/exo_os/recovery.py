@@ -138,7 +138,7 @@ class Recovery:
 
     def mount_row(self, path: Path, fields: str) -> dict:
         try:
-            data = json.loads(self.run("findmnt", "--json", "--mountpoint", str(path),
+            data = json.loads(self.run("findmnt", "--json", "--uniq", "--mountpoint", str(path),
                                        "--output", fields))
             rows = data["filesystems"]
             if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
