@@ -96,6 +96,7 @@ def setup(tmp_path, monkeypatch, certificates):
         bad_export = None
         def __init__(self):
             self.nonces = []
+            self.requests = []
         def export(self, config):
             out = io.BytesIO()
             worker.export_prefix(authority, out)
@@ -105,6 +106,7 @@ def setup(tmp_path, monkeypatch, certificates):
         def network(self, config, creds, spool, *, publish, nonce):
             self.calls += 1
             self.nonces.append(nonce)
+            self.requests.append((publish, spool))
             with host_snapshots(creds, spool, 0) as path:
                 client = WitnessClient(config["identity"], config["genesis"], config["witness_pub"],
                     **{k: config[k] for k in ("host", "port", "server_hostname", "server_cert_sha256", "timeout")},
@@ -180,7 +182,9 @@ def test_publish_fresh_and_cached_status_are_distinct_and_status_does_not_write(
     assert run(s)["evidence"]["receipt"]["seq"] == 1
     assert run(s, fresh=True)["state"] == "fresh_match_at_snapshot"
     assert (s.base / "current.json").read_bytes() == before
-    assert len(set(s.bridge.nonces)) == 3
+    assert len(set(s.bridge.nonces)) == 4
+    assert [publish for publish, _ in s.bridge.requests] == [False, False, True, False]
+    assert all(not spool for publish, spool in s.bridge.requests if not publish)
     assert b"PRIVATE_BODY" not in before
 
 
@@ -318,7 +322,9 @@ def test_post_commit_child_reply_failure_preserves_both_evidence_files(setup, fa
     before = {name: (s.base / name).read_bytes() for name in ("current.json", "previous.json")}
     original = s.bridge.network
     def fail(*args, **kwargs):
-        original(*args, **kwargs)
+        reply = original(*args, **kwargs)
+        if not kwargs["publish"]:
+            return reply
         if failure == "timeout":
             raise state.WitnessError("witness helper deadline exceeded", "unavailable")
         return b'{"receipt":'
@@ -502,6 +508,8 @@ def test_child_result_cannot_replace_prior_evidence(setup, reply):
     def alter(value):
         if reply == "unavailable":
             raise state.WitnessError("lost connection", "unavailable")
+        if reply in ("forged_receipt", "wrong_target") and value["receipt"] is None:
+            return value
         if reply == "forged_receipt":
             value["receipt"]["signature"] = "forged"
         elif reply == "wrong_target":
@@ -601,3 +609,105 @@ def test_real_network_worker_landlock_and_exec_roundtrip(tmp_path, certificates)
         server.close()
         thread.join(2)
         assert not thread.is_alive()
+
+def test_publish_refuses_regression_before_witness_can_repair_it(setup):
+    import sqlite3
+    s = setup
+    enroll(s)
+    append(s.authority)
+    run(s, publish=True)
+    before = {name: (s.base / name).read_bytes() for name in ("current.json", "previous.json")}
+    with sqlite3.connect(s.witness.path) as db:
+        db.execute("DELETE FROM witnessed WHERE seq>0")
+    with pytest.raises(state.WitnessError, match="regressed") as error:
+        run(s, publish=True)
+    assert error.value.state == "conflict"
+    assert s.witness.head()["seq"] == 0
+    assert s.bridge.requests[-1] == (False, b"")
+    assert sum(publish for publish, _ in s.bridge.requests) == 1
+    assert before == {name: (s.base / name).read_bytes() for name in before}
+
+def test_publish_conflicting_witness_fork_is_conflict_before_publication(setup, tmp_path):
+    s = setup
+    enroll(s)
+    append(s.authority)
+    fork = AuthorityJournal.provision(tmp_path / "fork.sqlite", s.policy["identity"],
+                                      {"agent": s.writer}, s.checkpoint_key)
+    checkpoint = append(fork, "fork")
+    s.witness.observe(checkpoint)
+    before = (s.base / "current.json").read_bytes()
+    with pytest.raises(state.WitnessError, match="conflicts") as error:
+        run(s, publish=True)
+    assert error.value.state == "conflict"
+    assert s.bridge.requests == [(False, b"")]
+    assert s.witness.head()["chain"] == checkpoint["chain"]
+    assert (s.base / "current.json").read_bytes() == before
+
+
+@pytest.mark.parametrize("damage", ["signature", "nonce", "replay", "receipt", "partial"])
+def test_parent_refuses_untrusted_prepublication_head_before_publish(setup, damage):
+    s = setup
+    enroll(s)
+    append(s.authority)
+    captured = []
+    s.bridge.reply = lambda reply: captured.append(copy.deepcopy(reply)) or reply
+    run(s, fresh=True)
+    s.bridge.requests.clear()
+    before = (s.base / "current.json").read_bytes()
+    def corrupt(reply):
+        if damage == "replay":
+            return captured[0]
+        if damage in ("nonce", "signature"):
+            reply["head"]["nonce" if damage == "nonce" else "sig"] = "a" * 64 if damage == "nonce" else "forged"
+        elif damage == "receipt":
+            reply["receipt"] = s.witness.head()
+        return reply
+    s.bridge.reply = corrupt
+    if damage == "partial":
+        original = s.bridge.network
+        def partial(*args, **kwargs):
+            original(*args, **kwargs)
+            return b'{"receipt":'
+        s.bridge.network = partial
+    with pytest.raises(state.WitnessError) as error:
+        run(s, publish=True)
+    assert error.value.state == "unavailable"
+    assert s.bridge.requests == [(False, b"")]
+    assert s.witness.head()["seq"] == 0
+    assert (s.base / "current.json").read_bytes() == before
+
+
+def test_parent_refuses_publication_when_challenges_collide(setup, monkeypatch):
+    s = setup
+    enroll(s)
+    append(s.authority)
+    monkeypatch.setattr(admin.secrets, "token_hex", lambda *args: "a" * 64)
+    with pytest.raises(state.WitnessError, match="distinct"):
+        run(s, publish=True)
+    assert s.bridge.requests == [(False, b"")]
+    assert s.witness.head()["seq"] == 0
+
+
+@pytest.mark.parametrize("race", [False, True])
+def test_worker_parent_death_guard_installs_sigkill_and_refuses_parent_race(monkeypatch, race):
+    calls = []
+    class Libc:
+        def prctl(self, *arguments):
+            calls.append(arguments)
+            return 0
+    monkeypatch.setattr(worker.sys, "platform", "linux")
+    monkeypatch.setattr(worker, "account", lambda _: (1001, 1002))
+    monkeypatch.setattr(worker.os, "geteuid", lambda: 1001)
+    monkeypatch.setattr(worker.os, "getuid", lambda: 1001)
+    monkeypatch.setattr(worker.os, "getegid", lambda: 1002)
+    monkeypatch.setattr(worker.os, "getgroups", lambda: [])
+    monkeypatch.setattr(worker.os, "getppid", lambda: 122 if race else 123)
+    monkeypatch.setattr(worker.ctypes, "CDLL", lambda *args, **kwargs: Libc())
+    monkeypatch.setattr(worker.resource, "getrlimit", lambda _: (1000, 1000))
+    monkeypatch.setattr(worker.resource, "setrlimit", lambda *args: None)
+    if race:
+        with pytest.raises(state.WitnessError, match="parent is no longer available"):
+            worker.restrict("network", 123)
+    else:
+        worker.restrict("network", 123)
+    assert calls[:2] == [(38, 1, 0, 0, 0), (1, 9, 0, 0, 0)]

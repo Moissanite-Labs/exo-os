@@ -116,10 +116,17 @@ automatically. A witness already ahead of the captured export refuses publicatio
 
 ## Durable evidence and failures
 
+Before publication, a query-only network child receives an empty checkpoint spool
+and a new parent-selected nonce. The root parent verifies the signed challenged
+head against the pinned identity, witness key and nonce, then compares it with the
+saved receipt and complete captured authority prefix. A regressed, conflicting or
+ahead witness refuses publication before any export is sent to a publication child.
+A successful preflight permits a separate network child to publish the captured
+prefix and query the resulting head with a distinct parent-selected nonce.
+
 The parent independently verifies the child's publication receipt against the exact
-pinned checkpoint. It also supplies a new random nonce and verifies the returned
-signed head envelope itself. Only an exact matching challenged head permits local
-receipt publication. If another publisher advances the witness during delivery,
+pinned checkpoint and verifies this second signed head envelope itself. Only an
+exact matching challenged head permits local receipt publication. If another publisher advances the witness during delivery,
 this command refuses local publication rather than chasing the new head.
 
 Evidence binds the identity/genesis hashes, witness key, exact checkpoint and receipt,
@@ -177,9 +184,12 @@ child results, replay, complete growing-prefix export, rollback/conflict, lost r
 bounded subprocesses and fsync failures. Root ownership is simulated on the host;
 these tests do not establish Linux kernel isolation.
 
-Three explicit Linux tests exercise real static UIDs/groups, no-network signer export,
-publisher denial of a synthetic signer key/socket, and full network-worker exec with
-Landlock and loopback mTLS. They require the future image,
+Four explicit Linux tests exercise real static UIDs/groups, no-network signer export,
+publisher denial of a synthetic signer key/socket, full network-worker exec with
+Landlock and loopback mTLS, and an installed worker in a separate session killed
+by Linux when its exact parent terminates. The parent-death test uses the fixed
+publisher UID, verifies the installed SIGKILL guard, and adopts/reaps the worker
+with bounded readiness and fallback cleanup. They require the future image,
 root and deliberate opt-in, and are skipped on the Mac host. Use a separate test
 runner with pytest and cryptography, with read-only access to the installed core/OS
 packages; production `/opt/exo` does not need test dependencies:
@@ -190,7 +200,7 @@ EXO_WITNESS_LINUX_ACCEPTANCE=1 /run/witness-test-runner/bin/python -m pytest \
   tests/test_witness_publisher.py::test_real_network_worker_landlock_and_exec_roundtrip -q
 ```
 
-A fourth opt-in case exercises the complete installed admin flow against the boot
+A fifth opt-in case exercises the complete installed admin flow against the boot
 authority's existing nonempty history. The outer boot harness must verify the raw
 image SHA256, start a disposable overlay with a new VM UUID, and supply all five
 explicit expectations below from its retained build evidence. `SOURCE_SHA256` is
@@ -218,9 +228,27 @@ head over the authenticated authority socket. The installed admin then initializ
 offline, executes the real no-network signer export and separate Landlock publisher,
 and verifies persisted previous/current evidence and two fresh status challenges.
 The synthetic server records the native signed challenge envelopes; the test verifies
-their signatures and four distinct nonces (publication preflight/final plus two status
-queries). Each command and server shutdown has a finite deadline. Live authority
-growth may honestly produce `fresh_witness_behind` after publication.
+their signatures and five distinct nonces: parent prepublication, client preflight,
+parent postpublication, and two fresh status queries. Both prepublication heads
+retain the prior receipt; the remaining three match the published receipt. The
+evidence also names each phase in `signed_head_observations`. Each command and
+server shutdown has a finite deadline. Live authority growth may honestly produce
+`fresh_witness_behind` after publication.
+
+The outer installed-flow process has one 700-second total deadline, including a
+reserved 16-second cleanup interval. Stdout is capped at 64 KiB and stderr at
+8 KiB; neither child stderr nor invalid response bodies are copied into errors.
+Failures retain only a fixed step, whitelisted error class, bounded CLI exit code
+and known admin-state enum. A `conflict` refusal remains visible while the probe
+returns nonzero. The outer runner validates this diagnostic record before showing
+it; arbitrary response fields, messages, paths and stderr remain redacted.
+Probe and CLI commands share the outer runner's new process group. Cancellation
+interrupts the active CLI collector and server cleanup. The runner kills the
+shared group if needed and reaps the probe process. Installed workers use separate sessions with
+`PR_SET_PDEATHSIG(SIGKILL)` and a parent-identity race check. Host tests verify
+the shared-group cleanup and guard calls; the separate-session kernel test
+remains an opt-in Linux check. This does not establish containment of arbitrary
+host processes in unrelated sessions.
 
 An existing enrollment directory or marker, including partial state or a dangling
 symlink, refuses this test. Only its exact private `/run` fixture is cleaned up;
