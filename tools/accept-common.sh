@@ -46,7 +46,19 @@ accept_start() {
   fi
   export here out
   export -f ssh_vm
-  echo "Exo OS phase $phase acceptance, $(date -u +%Y-%m-%dT%H:%M:%SZ), exo $(cut -c1-7 "$here/exo.pin"), exo-os $(git -C "$here" rev-parse --short HEAD)" | tee -a "$report"
+  local source_commit
+  if source_commit=$(git -C "$here" rev-parse HEAD 2>/dev/null); then
+    :
+  elif [[ -s $here/.EXO_OS_SOURCE_ID ]]; then
+    source_commit=$(tr -d '\n' < "$here/.EXO_OS_SOURCE_ID")
+  else
+    source_commit=${EXO_OS_SOURCE_COMMIT:-}
+  fi
+  if [[ ! $source_commit =~ ^[0-9a-f]{40}$ ]]; then
+    result prerequisites 0 'Source identity is missing; use a Git checkout or an archive with .EXO_OS_SOURCE_ID.'
+    exit 1
+  fi
+  echo "Exo OS phase $phase acceptance, $(date -u +%Y-%m-%dT%H:%M:%SZ), exo $(cut -c1-7 "$here/exo.pin"), exo-os ${source_commit:0:7}" | tee -a "$report"
   EXO_OS_VM_UUID=$("$here/.venv/bin/python" -c 'import uuid; print(uuid.uuid4())')
   export EXO_OS_VM_UUID
   local vm_args=(--mem "${EXO_OS_VM_MEM:-$memory}") extra_args=()

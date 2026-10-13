@@ -22,6 +22,10 @@ def source_digest(root: Path) -> str:
         relative = path.relative_to(root)
         if relative.parts[:2] == ("image", "out") or relative.parts[:2] == ("image", "mkosi.tools"):
             continue
+        # mkosi writes this host tools-tree metadata beside the excluded tools tree
+        # after the installed payload's manifest has already been prepared.
+        if relative.as_posix() == "image/mkosi.tools.manifest":
+            continue
         if "__pycache__" in relative.parts or path.suffix == ".pyc":
             continue
         if path.is_file() or path.is_symlink():

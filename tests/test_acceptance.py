@@ -111,6 +111,28 @@ def test_acceptance_normalizes_archive_group_write_modes(tmp_path):
     assert "source digest match build commit" in r.stdout
 
 
+def test_acceptance_works_from_git_free_source_archive(tmp_path):
+    body = '''git -C "$here" rev-parse HEAD > "$here/.EXO_OS_SOURCE_ID"
+    rm -rf "$here/.git"
+    accept_start 1 1024'''
+    r = run_harness(tmp_path, body)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "required command failed" not in r.stdout
+    assert "source digest match build commit" in r.stdout
+
+
+def test_acceptance_ignores_only_generated_tools_tree_manifest(tmp_path):
+    body = '''printf generated > "$here/image/mkosi.tools.manifest"
+    accept_start 1 1024'''
+    r = run_harness(tmp_path, body)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_acceptance_still_digests_other_image_manifests(tmp_path):
+    r = run_harness(tmp_path, 'printf changed > "$here/image/payload.manifest"; accept_start 1 1024')
+    assert r.returncode != 0 and "source or image configuration changed" in r.stdout
+
+
 @pytest.mark.parametrize("mode", ["0755", "0600"])
 def test_acceptance_still_checks_executable_and_read_modes(tmp_path, mode):
     r = run_harness(tmp_path, f'chmod {mode} "$here/src/fixture/__init__.py"; accept_start 1 1024')
