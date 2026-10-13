@@ -486,6 +486,9 @@ class SurfaceUI:
     def on_approval_result(self, request_id: str) -> None:
         self.render(self.model.approval_result(request_id))
 
+    def on_model_spend(self, value: Any) -> None:
+        self.render(self.model.model_spend(value))
+
     def on_event(self, ev: s.Event) -> None:
         self.render(self.model.apply(ev))
 

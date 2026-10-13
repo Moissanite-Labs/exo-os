@@ -58,6 +58,7 @@ class Listener(Protocol):
     def on_session(self, session: str) -> None: ...
     def on_approvals(self, rows: list[dict[str, Any]], through_seq: int) -> None: ...
     def on_approval_result(self, request_id: str) -> None: ...
+    def on_model_spend(self, value: Any) -> None: ...
     def on_event(self, ev: s.Event) -> None: ...
     def on_failed(self, code: str, message: str) -> None: ...
 
@@ -167,7 +168,9 @@ class Connection:
         try:
             if client is None or client is not self._client:
                 raise ConnectionError("exod is not reachable")
-            resp = await asyncio.wait_for(client.send(body), COMMAND_TIMEOUT)
+            # models.list also discovers provider metadata; its core deadline is 25 seconds.
+            timeout = max(COMMAND_TIMEOUT, 30.0) if isinstance(body, s.ModelsList) else COMMAND_TIMEOUT
+            resp = await asyncio.wait_for(client.send(body), timeout)
         except asyncio.CancelledError:
             if approval:
                 self.post(self.listener.on_approval_result, body.request_id)
@@ -186,6 +189,8 @@ class Connection:
         if not resp.ok and not quiet:
             err = resp.error
             self.post(self.listener.on_failed, err.code if err else "unknown", err.message if err else "")
+        if resp.ok and isinstance(body, s.ModelsList):
+            self.post(self.listener.on_model_spend, resp.result.get("spend"))
         if approval:
             try:
                 await self._snapshot(client)

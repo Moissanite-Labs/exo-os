@@ -38,6 +38,7 @@ PLAIN_ERRORS = {
     "forbidden": "You cannot answer that one here.",
     "session_locked": "This conversation is closed. Close the bar and open it again to start a new one.",
     "not_connected": NOT_RUNNING,
+    "model_spend_stopped": "Model work is stopped. Type budget to inspect spending and limits, then ask an administrator to review them.",
 }
 PLAIN_ERROR = "Something went wrong. Please try again."
 PLAIN_STOPS = {
@@ -110,6 +111,7 @@ class SurfaceModel:
         self.lines: list[Line] = []
         self.streaming: dict[str, str] = {}  # message_id -> text so far
         self.busy = False
+        self._spend_stopped = False
         self.shown_from = 0  # transcript lines before this were cleared from view when the bar hid
         self.outbox: list[Any] = []  # commands an event calls for (a panel closed unseen is "ignored")
         self.activity = ""  # what the running turn is doing, for the status line
@@ -165,6 +167,7 @@ class SurfaceModel:
 
     def _on_TurnStarted(self, b: s.TurnStarted) -> set[str]:
         self.busy = True
+        self._spend_stopped = False
         self.activity = WORKING if self.plain or not b.model else f"{WORKING} ({b.model})"
         return {"status", "transcript"}
 
@@ -204,7 +207,7 @@ class SurfaceModel:
                 self.lines.append(Line("exo", text.strip()))
         self.streaming.clear()
         self.busy = False
-        if b.stop_reason not in ("end", "tool_use"):
+        if b.stop_reason not in ("end", "tool_use") and not (b.stop_reason == "error" and self._spend_stopped):
             if self.plain:
                 self.lines.append(Line("note", PLAIN_STOPS.get(b.stop_reason, PLAIN_STOPS["error"])))
             else:
@@ -233,6 +236,8 @@ class SurfaceModel:
         return {"transcript"}
 
     def _on_Error(self, b: s.Error) -> set[str]:
+        if b.code == "model_spend_stopped":
+            self._spend_stopped = True
         self.lines.append(Line("error", self.error_text(b.code, b.message)))
         return {"transcript"}
 
@@ -403,6 +408,9 @@ class SurfaceModel:
         q = text.strip()
         if not q:
             return []
+        if self.question is None and q.casefold() in ("bud", "budget", "spend", "spending", "model spending", "model budget"):
+            return [Suggestion("spend", "Model spending and limits", "", strong=True),
+                    Suggestion("ask", "Ask Exo: " + q, q)]
         if not self.plain and q.startswith("/"):
             return [Suggestion("command", q, q, strong=True)]
         strong, weak = match_apps(q, [a["name"] for a in self.profile.data["apps"]])
@@ -420,6 +428,12 @@ class SurfaceModel:
         self.set_input("")
         if pick.kind == "app":
             return Action("open_app", pick.value)
+        if pick.kind == "spend":
+            if not self.connected:
+                self.lines.append(Line("error", NOT_RUNNING))
+                return Action("none")
+            self.lines.append(Line("you", "Show model spending and limits"))
+            return Action("send", command=s.ModelsList())
         if pick.kind == "command":
             name, _, args = text[1:].partition(" ")
             return Action("send", text, s.CommandRun(name=name, args=args, session=self.session))
@@ -442,6 +456,11 @@ class SurfaceModel:
         return {"transcript"}
 
     # -- errors and status
+
+    def model_spend(self, value: Any) -> set[str]:
+        from .spend import describe_spend
+        self.lines.append(Line("note", describe_spend(value)))
+        return {"transcript"}
 
     def error_text(self, code: str, message: str) -> str:
         if self.plain:
