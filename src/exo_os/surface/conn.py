@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import time
 from pathlib import Path
@@ -29,10 +30,16 @@ CLIENT = "exo-surface"
 CAPABILITIES = ["markdown", "diff"]
 THREAD_TITLE = "Desktop"
 BACKOFF_START, BACKOFF_MAX = 0.5, 10.0
+BACKOFF_RESET_AFTER = 30.0  # brief handshakes or immediately closing feeds do not reset retries
 # Resume a replay only if it is shorter than this; a longer gap starts from now (pending approvals are
 # still fetched with approvals.list, so nothing that needs an answer is skipped).
 REPLAY_MAX = 2000
 SAVE_EVERY = 2.0
+COMMAND_TIMEOUT = 10.0
+PROBE_EVERY = 15.0
+EVENT_LAG_TIMEOUT = 15.0
+LOG_EVERY = 60.0
+LOG = logging.getLogger(__name__)
 
 
 def socket_path() -> Path:
@@ -49,7 +56,8 @@ class Listener(Protocol):
 
     def on_connected(self, up: bool) -> None: ...
     def on_session(self, session: str) -> None: ...
-    def on_approvals(self, rows: list[dict[str, Any]]) -> None: ...
+    def on_approvals(self, rows: list[dict[str, Any]], through_seq: int) -> None: ...
+    def on_approval_result(self, request_id: str) -> None: ...
     def on_event(self, ev: s.Event) -> None: ...
     def on_failed(self, code: str, message: str) -> None: ...
 
@@ -79,9 +87,16 @@ class Connection:
         self.up: bool | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._client: Any = None
+        self._connected_at = 0.0
         self._task: asyncio.Task | None = None
         self._thread: threading.Thread | None = None
         self._saved_at = 0.0
+        self._commands: set[asyncio.Task] = set()
+        self._snapshot_lock = asyncio.Lock()
+        self._reconnect = asyncio.Event()
+        self._last_failure: tuple[type, str] | None = None
+        self._logged_at = 0.0
+        self._suppressed = 0
 
     # -- life
 
@@ -121,10 +136,17 @@ class Connection:
         quiet drops failures, for signals such as ui.respond that the person never asked for."""
         loop = self._loop
         if loop is None or self._client is None:
+            if isinstance(body, s.ApprovalRespond):
+                self.post(self.listener.on_approval_result, body.request_id)
             if not quiet:
                 self.post(self.listener.on_failed, "not_connected", "exod is not reachable")
             return
-        asyncio.run_coroutine_threadsafe(self._send(body, quiet), loop)
+        client = self._client
+        def schedule() -> None:
+            task = asyncio.create_task(self._send(body, quiet, client=client))
+            self._commands.add(task)
+            task.add_done_callback(self._commands.discard)
+        loop.call_soon_threadsafe(schedule)
 
     def send_turn(self, text: str, mode: str = "send") -> None:
         if self.session is None:
@@ -140,65 +162,160 @@ class Connection:
         self.send(s.UiRespond(panel_id=panel_id, action=action, value=value or {}),  # type: ignore[arg-type]
                   quiet=True)
 
-    async def _send(self, body: Any, quiet: bool = False) -> None:
-        client = self._client
+    async def _send(self, body: Any, quiet: bool = False, *, client: Any = None) -> None:
+        approval = isinstance(body, s.ApprovalRespond)
         try:
-            if client is None:
+            if client is None or client is not self._client:
                 raise ConnectionError("exod is not reachable")
-            resp = await client.send(body)
-        except Exception as exc:  # the link dropped mid-send; the follower will notice and reconnect
+            resp = await asyncio.wait_for(client.send(body), COMMAND_TIMEOUT)
+        except asyncio.CancelledError:
+            if approval:
+                self.post(self.listener.on_approval_result, body.request_id)
+            raise
+        except Exception as exc:
+            if approval:
+                self.post(self.listener.on_approval_result, body.request_id)
             if not quiet:
                 self.post(self.listener.on_failed, "not_connected", f"{type(exc).__name__}: {exc}")
+            # The reply may be lost after exod acted. Rejoin and query pending state; never resend.
+            if client is self._client:
+                self._reconnect.set()
             return
+        if approval:
+            self.post(self.listener.on_approval_result, body.request_id)
         if not resp.ok and not quiet:
             err = resp.error
             self.post(self.listener.on_failed, err.code if err else "unknown", err.message if err else "")
+        if approval:
+            try:
+                await self._snapshot(client)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._log_failure(exc)
+                self._reconnect.set()
 
     # -- the follow loop
+
+    def _log_failure(self, exc: Exception) -> None:
+        """Log the first error and the latest repeated failure once a minute, with a retry count."""
+        key = (type(exc), str(exc))
+        now = time.monotonic()
+        if self._last_failure is None or now - self._logged_at >= LOG_EVERY:
+            LOG.warning("exod connection failed: %s: %s (suppressed %d retries)",
+                        type(exc).__name__, exc, self._suppressed, exc_info=True)
+            self._last_failure, self._logged_at, self._suppressed = key, now, 0
+        else:
+            self._suppressed += 1
 
     async def _run(self) -> None:
         delay = BACKOFF_START
         while True:
-            if self.socket.exists():
-                client = self._client_factory(str(self.socket))
-                try:
+            client = None
+            try:
+                if self.socket.exists():
+                    client = self._client_factory(str(self.socket))
                     await self._follow(client)
-                    delay = BACKOFF_START  # it was up; a drop retries quickly
-                except asyncio.CancelledError:
-                    raise
-                except Exception:  # refused, reset, bad reply: all mean "not reachable now"
-                    pass
-                finally:
-                    self._client = None
-                    await client.aclose()
-            self._set_up(False)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._log_failure(exc)
+            finally:
+                was_stable = (self._client is not None
+                              and time.monotonic() - self._connected_at >= BACKOFF_RESET_AFTER)
+                self._client = None
+                self._set_up(False)
+                # An old answer must finish/cancel before the new pending snapshot rearms its card.
+                commands = list(self._commands)
+                for task in commands:
+                    task.cancel()
+                if commands:
+                    await asyncio.gather(*commands, return_exceptions=True)
+                if client is not None:
+                    try:
+                        await asyncio.wait_for(client.aclose(), COMMAND_TIMEOUT)
+                    except Exception as exc:
+                        self._log_failure(exc)
             self._save(force=True)
+            if was_stable:
+                delay = BACKOFF_START
             await asyncio.sleep(delay)
             delay = min(delay * 2, BACKOFF_MAX)
 
+    async def _call(self, client: Any, body: Any) -> dict[str, Any]:
+        return await asyncio.wait_for(client.call(body), COMMAND_TIMEOUT)
+
+    async def _snapshot(self, client: Any, head: int | None = None) -> None:
+        # Hold event delivery until the snapshot is posted. A resolution received during the query must
+        # follow its rows on GTK's queue, otherwise a stale row could reopen an already-resolved card.
+        async with self._snapshot_lock:
+            if head is None:
+                head = int((await self._call(client, s.Hello(client=CLIENT)))["seq"])
+            rows = (await self._call(client, s.ApprovalsList()))["approvals"]
+            if not isinstance(rows, list) or any(
+                not isinstance(row, dict) or not isinstance(row.get("request_id"), str)
+                or not row["request_id"] for row in rows
+            ):
+                raise ValueError("invalid approvals.list reply")
+            self.post(self.listener.on_approvals, rows, head)  # empty is authoritative too
+
     async def _follow(self, client: Any) -> None:
-        hello = await client.call(s.Hello(client=CLIENT, capabilities=CAPABILITIES))
-        head = int(hello.get("seq", 0))
+        hello = await self._call(client, s.Hello(client=CLIENT, capabilities=CAPABILITIES))
+        head = int(hello["seq"])
         await self._ensure_session(client)
         since = self._since(head)
+        self.seq = since  # an idle stream is caught up at its subscription cursor
+        self._reconnect.clear()
+        await self._snapshot(client, head)
         self._client = client
+        self._connected_at = time.monotonic()
         self._set_up(True)
-        rows = (await client.call(s.ApprovalsList())).get("approvals", [])
-        if rows:
-            self.post(self.listener.on_approvals, list(rows))
+        feed = asyncio.create_task(self._events(client, since))
+        probe = asyncio.create_task(self._probe(client))
+        reconnect = asyncio.create_task(self._reconnect.wait())
+        try:
+            done, _ = await asyncio.wait((feed, probe, reconnect), return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+            raise ConnectionError("event connection ended or needs reconciliation")
+        finally:
+            for task in (feed, probe, reconnect):
+                task.cancel()
+            await asyncio.gather(feed, probe, reconnect, return_exceptions=True)
+
+    async def _events(self, client: Any, since: int) -> None:
         async for ev in client.events(since=since, reconnect=False):
-            self.seq = ev.seq
-            self.post(self.listener.on_event, ev)
-            self._save()
+            async with self._snapshot_lock:
+                self.seq = ev.seq
+                self.post(self.listener.on_event, ev)
+                self._save()
+
+    async def _probe(self, client: Any) -> None:
+        behind_at: float | None = None
+        target = 0
+        while True:
+            await asyncio.sleep(PROBE_EVERY)
+            before_probe = self.seq
+            head = int((await self._call(client, s.Hello(client=CLIENT)))["seq"])
+            # Events can arrive while the hello reply is in flight. Its head may legitimately be
+            # lower than the cursor now, but cannot be lower than the cursor before the probe.
+            if head < before_probe:
+                raise ConnectionError("exod event sequence reset")
+            if behind_at is not None and self.seq >= target:
+                behind_at = None
+            if behind_at is None and head > self.seq:
+                behind_at, target = time.monotonic(), head
+            if behind_at is not None and time.monotonic() - behind_at >= EVENT_LAG_TIMEOUT:
+                raise TimeoutError("event stream did not catch up to exod")
 
     async def _ensure_session(self, client: Any) -> None:
         saved = self.state.get("session")
         if saved:
-            resp = await client.send(s.SessionResume(session=saved))
+            resp = await asyncio.wait_for(client.send(s.SessionResume(session=saved)), COMMAND_TIMEOUT)
             if resp.ok:
                 self._use_session(saved)
                 return
-        got = await client.call(s.SessionCreate(title=THREAD_TITLE))
+        got = await self._call(client, s.SessionCreate(title=THREAD_TITLE))
         self._use_session(got["session"]["id"])
 
     def _use_session(self, session: str) -> None:

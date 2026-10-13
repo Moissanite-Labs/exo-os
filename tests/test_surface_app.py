@@ -156,6 +156,15 @@ CHILD = textwrap.dedent('''
     ui.card._answer("allow")  # a key still held from the last answer: the new card is not armed yet
     assert len(sent) == n and ui.card.get_visible()
 
+    ui.card._key(None, A.Gdk.KEY_Escape, 0, None)  # dismissal works even before arming
+    pump()
+    assert len(sent) == n and not ui.card.get_visible()
+    assert model.approvals[-1].request_id == "a2" and not model.answer_check
+    ui.show()
+    pump()
+    assert ui.card.get_visible() and ui.card.summary.get_text() == "Delete everything?"
+    ui.card._answer("deny")
+    assert len(sent) == n  # reopening also gets the anti-misclick arm window
     ui.hide()
     pump()
     assert not ui.bar.get_visible() and not ui.drawer.get_visible()
