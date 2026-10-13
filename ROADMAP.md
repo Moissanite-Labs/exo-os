@@ -32,7 +32,7 @@ It withholds upstream payloads and ships with no allowed destinations; general r
 reviewed response adapters. The shared-core ledger authority now runs under a separate OS identity,
 with a persistent journal, root-pinned public identity and explicit fresh-image provisioning before login.
 Both normal verification commands detect modified or missing copies without repairing them first.
-The staged OS candidate pins core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d` and adds a
+The staged OS candidate pins core `cff62d1e1afbc861e410659f1f26f01afd1ed249` and adds a
 default-disabled witness publisher that requires explicit administrator action. Its host suite
 passes, but three Linux-specific tests remain unrun. Image delivery, booted-image checks, Linux
 enforcement, and an independent witness endpoint remain unverified; no phase status advances on

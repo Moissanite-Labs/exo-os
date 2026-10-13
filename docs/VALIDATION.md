@@ -1,7 +1,7 @@
 # Runtime and isolation validation
 
 Checks on 2026-10-13. The staged witness-publisher candidate pins Exo
-`2a2b663919af4dfaa1faa79f28c570fa5bf0808d`, as recorded in `exo.pin`.
+`cff62d1e1afbc861e410659f1f26f01afd1ed249`, as recorded in `exo.pin`.
 OS `67fe0c7` pins the protected spending policy; `8b02677` adds the VM-only boot
 timing fix below; `a3cdf74` adds the portable Linux spend-test fixture. The
 candidate pin includes the model-spend boundary, required executor/gate binding,
@@ -18,7 +18,8 @@ packaging fix has host coverage below; a new image and its acceptance remain pen
 
 | Check | Result | Boundary of evidence |
 |---|---|---|
-| Current witness and required-plugin packaging candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 579 passed, 20 skipped | OS `085db2e80624bb2a490069894cf35a646de7495c`, clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; includes production plugin-folder staging and a real `application.create()` with the required executor and plugins. Root ownership is simulated; Linux witness enforcement, new-image boot/acceptance and an independent endpoint remain unverified |
+| Current witness and required-plugin packaging candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 579 passed, 20 skipped | OS `2a14e31aaaeb3289a75315b85bd820ffd5fc3d99` with this pending pin update, clean isolated core `cff62d1e1afbc861e410659f1f26f01afd1ed249`; includes the installed-layout `application.create()` case and witness regressions. Root ownership is simulated; Linux witness enforcement, new-image boot/acceptance and an independent endpoint remain unverified |
+| Earlier witness and required-plugin packaging candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 579 passed, 20 skipped | OS `085db2e80624bb2a490069894cf35a646de7495c`, core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; includes production plugin-folder staging and a real `application.create()` with the required executor and plugins. Root ownership is simulated; Linux witness enforcement, new-image boot/acceptance and an independent endpoint remain unverified |
 | Earlier witness candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 576 passed, 20 skipped | OS `b03b79e4802d4f0d77a5b00c39af1b45b164220d` with a then-pending pin update to clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; includes witness alias-separation and malformed-response regressions. Root ownership is simulated; Linux enforcement, image delivery/boot and an independent endpoint remain unverified |
 | Earlier staged witness candidate host suite, macOS arm64, `.venv/bin/pytest -q` | 525 passed, 20 skipped | Staged source tree `a9401a6c7061ca44336fa451d5e911d94e580c15`, based on OS `e9cec25`, core `b060974a514cf08c0765119e2e8d952682102a0c`; includes 53 witness host cases and a real loopback mTLS protocol check. Root-ownership behavior is simulated. Three explicit Linux tests were not run; this does not establish Linux ownership/enforcement, image delivery or boot, or an independent endpoint |
 | Previous combined Linux arm64 suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 484 passed, 10 skipped | OS `25313dfc2ef1e6c09f46c1c0a1569c70ca23d2c2`, core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5`; includes private Broadway GTK and actual model-spend child UID/GID checks. Hyprland and nine namespace checks were skipped under the unchanged container policy; actual Wayland and deployment-kernel acceptance remain pending |
@@ -31,13 +32,13 @@ packaging fix has host coverage below; a new image and its acceptance remain pen
 | Historical Linux namespace run, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Earlier OS `5773dc4` and core `a915e62`; actual bubblewrap, Landlock and seccomp in a disposable privileged container with no host mounts |
 | Shared core authority, witness and read-only verification | 82 passed | Core `b3149a9`; durable commits, replay, independent receipt validation, canonical CLI corruption checks and concurrent verification |
 | Full core suite and plugins, macOS arm64, Python 3.13 | 1,434 core tests and 749 plugin tests passed | Core `b3149a9`; 65 core skips and one explicitly deselected external legacy-relay integration; all six plugins also passed separately |
-| Current core suite and six plugin suites, macOS arm64, Python 3.13 | 1,691 core tests passed, 65 skipped; 753 plugin tests passed | Clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; no deselection. Each plugin was run in its own pytest process because their local `conftest` imports collide when collected together. The core budget measures 15,989 lines against the unchanged 16,000 ceiling; these are source tests, not Linux/image acceptance |
+| Earlier core suite and six plugin suites, macOS arm64, Python 3.13 | 1,691 core tests passed, 65 skipped; 753 plugin tests passed | Clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; no deselection. Each plugin was run in its own pytest process because their local `conftest` imports collide when collected together. The core budget measures 15,989 lines against the unchanged 16,000 ceiling; these are historical source tests, not a core rerun at the new pin or Linux/image acceptance |
 | Earlier core suite and plugins, macOS arm64, Python 3.13 | 1,611 core tests and 753 plugin tests passed | Core `cb36a4a`; 65 core skips, no deselection; the core budget test measures 15,989 lines against a 16,000 ceiling; these are source tests, not independent security review or image acceptance |
 | Earlier core suite and plugins, macOS arm64, Python 3.13 | 1,581 core tests and 752 plugin tests passed | Core `11008a8`; 65 core skips, no deselection; all six plugins passed separately and together; the earlier budget test measured 15,982 lines |
 | systemd unit dependency graph | passed | Provision/socket/service/firstboot graph checked in Linux with unavailable image executable paths replaced only in temporary validation copies; actual first boot remains necessary |
-| Current Ruff `--select F`, `src tests` | passed | OS `085db2e`, Python static checks |
-| Current `bash -n tools/*.sh` | passed | OS `085db2e`, shell syntax, not a VM acceptance run |
-| Current `git diff --check` | passed | OS `085db2e` plus this documentation update; whitespace/conflict-marker check |
+| Current Ruff `--select F`, `src tests` | passed | OS `2a14e31`, Python static checks |
+| Current `bash -n tools/*.sh` | passed | OS `2a14e31`, shell syntax, not a VM acceptance run |
+| Current `git diff --check` | passed | OS `2a14e31` plus this pin and documentation update; whitespace/conflict-marker check |
 
 The full core run used an isolated checkout and a closed local bus address. The
 earlier `b3149a9` legacy-relay test was deselected because it autodetects an unrelated local
