@@ -105,8 +105,10 @@ accept_start() {
     result identity 0 'The connected machine is not the throwaway VM started by this run.'
     exit 1
   fi
-  accept_provenance
   accept_system_ready
+  # First-boot keyring initialization creates and removes lock files under
+  # /etc/pacman.d. Audit file modes only after those mutations have settled.
+  accept_provenance
 }
 
 accept_provenance() {
