@@ -26,6 +26,11 @@ CHECKS = (
     "missing_bwrap_fails_closed",
 )
 
+# Software CPU emulation can spend several seconds loading the sandbox worker.
+# The marker is still mandatory: a timeout before payload startup proves no cleanup.
+TIMEOUT_PROBE_SECONDS = 10
+TIMEOUT_DESCENDANT_DELAY_SECONDS = 15
+
 
 def emit(checks: list[dict[str, str]]) -> None:
     print(json.dumps({"checks": checks}, separators=(",", ":")))
@@ -140,19 +145,22 @@ def main() -> int:
             survived = workspace_probe / "timeout-survived"
             command = (
                 f"touch {shlex.quote(str(started))}; setsid sh -c "
-                + shlex.quote(f"sleep 2; touch {shlex.quote(str(survived))}")
+                + shlex.quote(f"sleep {TIMEOUT_DESCENDANT_DELAY_SECONDS}; touch {shlex.quote(str(survived))}")
                 + " & sleep 30"
             )
             try:
-                shell(command, replace(policy, timeout=1))
+                shell(command, replace(policy, timeout=TIMEOUT_PROBE_SECONDS))
             except SandboxError as exc:
                 assert "time limit" in str(exc), (
                     "execution failed for a reason other than timeout"
                 )
             else:
                 raise AssertionError("timeout did not stop the tool")
-            time.sleep(2.4)
-            assert started.exists() and not survived.exists(), (
+            time.sleep(TIMEOUT_DESCENDANT_DELAY_SECONDS + 0.4)
+            assert started.exists(), (
+                "timeout expired before payload startup; descendant cleanup was not exercised"
+            )
+            assert not survived.exists(), (
                 "detached grandchild survived timeout"
             )
             return "timeout killed a detached grandchild before its delayed write"
