@@ -152,7 +152,11 @@ the documented tools-tree options still pass through.
 Build a new x86-64 `vmtest` image and run `tools/accept-phase1.sh`,
 `tools/accept-phase2.sh`, `tools/accept-phase3.sh`, `tools/accept-isolation.sh`,
 `tools/accept-ledger.sh`, `tools/accept-recovery.sh`, and
-`tools/accept-model-spend.sh`. All seven suites are required. Those scripts
+`EXO_OS_VM_ACCEPTANCE=1 tools/accept-model-spend.sh --vm-acceptance --image-source <full-built-OS-commit>`.
+All seven suites are required. The spend harness records the committed tool
+revision separately from the named image source, revalidates spend state as
+root without restarting the boot-order unit, and retains the shared manifest,
+runtime digest and disposable-VM identity gates. Those scripts
 were strengthened here; their historical results do not transfer to this revision.
 Image boot, systemd socket activation, pacman/snapper on btrfs, current Hyprland,
 Orca, real-model chat, and hardware/soak behavior were not exercised in this run.

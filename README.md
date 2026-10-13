@@ -67,7 +67,8 @@ See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL
     tools/accept-phase1.sh                 # the phase 1 acceptance checks
     tools/accept-isolation.sh              # kernel isolation in a disposable booted image
     tools/accept-ledger.sh                 # protected signer, tamper detection and signer outage
-    tools/accept-model-spend.sh            # zero-paid offline model and persistent journal checks
+    EXO_OS_VM_ACCEPTANCE=1 tools/accept-model-spend.sh --vm-acceptance --image-source <full-built-OS-commit>
+                                            # zero-paid offline model and journal checks
     tools/accept-recovery.sh               # checkpoint, reboot into recovery and verify persistence
 
 On a machine running Exo OS. On any other desktop, `exo-os` changes nothing there and says so; the Exo store

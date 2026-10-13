@@ -14,6 +14,7 @@ from pathlib import Path
 
 POLICY = Path("/var/lib/exo/model-spend/policy.json")
 JOURNAL = Path("/var/lib/exo/model-spend/exo/journal.sqlite")
+PRICED_POLICY_ROOT = Path("/run")
 SESSION = Path("/tmp/model-spend-acceptance-session")
 REPLY = "Offline spend acceptance reply."
 LIVE = ("zero_policy", "offline_turn", "mutable_caps_refused", "paid_route_no_http",
@@ -138,7 +139,10 @@ def main() -> int:
                 from exo.core.models.router import Router
                 from exo.core.types import Message
                 seen = []
-                client = httpx.AsyncClient(transport=httpx.MockTransport(lambda req: seen.append(req)))
+                def no_http(request):
+                    seen.append(request)
+                    raise AssertionError("unpriced route reached mock HTTP")
+                client = httpx.AsyncClient(transport=httpx.MockTransport(no_http))
                 router = Router(roles={"main": ["paid:m"]}, providers={"paid": {
                     "transport": "openai", "base_url": "https://api.openai.com/v1"}},
                     catalog={}, env={}, client=client)
@@ -165,7 +169,7 @@ def main() -> int:
                 from exo.core.models.router import Router
                 from exo.core.types import Message
                 policy_path = Path(os.environ["EXO_OS_VM_PRICED_POLICY"])
-                assert policy_path.parent.parent == Path("/run")
+                assert policy_path.parent.parent == PRICED_POLICY_ROOT
                 priced = decode_policy(policy_path.read_bytes())
                 ref = "native:gpt-4.1-2025-04-14"
                 assert priced["principal"] == raw["principal"] == "exo"
@@ -174,7 +178,10 @@ def main() -> int:
                 assert set(priced["routes"]) == {ref}
                 assert SpendJournal.inspect(priced)["state"] == "ready"
                 seen = []
-                client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: seen.append(request)))
+                def no_http(request):
+                    seen.append(request)
+                    raise AssertionError("zero-cap route reached mock HTTP")
+                client = httpx.AsyncClient(transport=httpx.MockTransport(no_http))
                 original = os.environ["EXO_MODEL_SPEND_POLICY"]
                 try:
                     os.environ["EXO_MODEL_SPEND_POLICY"] = str(policy_path)

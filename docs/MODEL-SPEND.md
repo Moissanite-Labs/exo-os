@@ -48,8 +48,10 @@ priced check uses a temporary root-owned policy under `/run` with the same
 journal identity and leaves the persistent policy byte-for-byte unchanged.
 Another offline turn verifies the known refusals did not freeze the journal.
 A separate synthetic uncertainty then checks stopped status across a daemon
-restart. The suite makes no paid call and gives no evidence of real provider
-billing accuracy.
+restart. The persistence check re-runs `exo-model-spend-admin ensure-boot` as
+root without restarting its boot-order service, then restarts only `exod` and
+checks the journal UUID and policy hash. The suite makes no paid call and gives
+no evidence of real provider billing accuracy.
 
 This boundary covers Exo's routed model calls in the installed trusted core.
 Installed providers and plugins, plus other processes under the `exo` UID, are
@@ -60,8 +62,14 @@ rollback, but this design cannot detect a coherent rollback of the entire
 persistent store and its journal. Independent billing evidence or a remote
 witness would be needed for that claim.
 
-Verification before enabling paid use: run `tools/accept-model-spend.sh` on an
-image built from the current pin and source, and `tools/accept-isolation.sh` for
+Verification before enabling paid use: run
+`EXO_OS_VM_ACCEPTANCE=1 tools/accept-model-spend.sh --vm-acceptance --image-source <full-built-OS-commit>`
+against a disposable `vmtest` image. The clean committed harness revision is
+recorded separately from the named image revision. For a tools-only harness
+correction, the existing image can be reused only if the installed and local
+build manifests, pinned core, runtime/image digest and throwaway VM identity
+still match; the corrected tools do not replace installed runtime files. Run
+`tools/accept-isolation.sh` for
 tool denial of both policy and journal. Recovery persistence is checked by
 `tools/accept-recovery.sh`. The VM acceptance script changes only its
 disposable overlay and leaves the test journal stopped by its synthetic fixture.

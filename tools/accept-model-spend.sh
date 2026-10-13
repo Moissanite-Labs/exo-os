@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # Protected zero-spend acceptance in a provenance-matched disposable vmtest VM.
 set -Eeuo pipefail
+
+# A tools-only harness revision can inspect an earlier image only when the
+# operator names that exact image and the installed runtime digest still matches.
+[[ $# == 3 && ${1:-} == --vm-acceptance && ${2:-} == --image-source \
+   && ${3:-} =~ ^[0-9a-f]{40}$ && ${EXO_OS_VM_ACCEPTANCE:-} == 1 ]] || {
+  echo 'requires --vm-acceptance --image-source FULL_40_HEX_HASH and EXO_OS_VM_ACCEPTANCE=1' >&2
+  exit 2
+}
+image_source=$3
+
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$here/image/out"
 report="$out/accept-model-spend.txt"
@@ -13,7 +23,46 @@ result() {
   echo "$line" | tee -a "$report"
 }
 source "$here/tools/accept-common.sh"
+if [[ $(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true) == "$here" ]]; then
+  harness_source=$(git -C "$here" rev-parse HEAD)
+  [[ -z $(git -C "$here" status --porcelain) ]] || {
+    echo 'model-spend harness source must be a clean committed checkout' >&2
+    exit 2
+  }
+elif [[ -s $here/.EXO_OS_SOURCE_ID ]]; then
+  harness_source=$(tr -d '\n' < "$here/.EXO_OS_SOURCE_ID")
+else
+  echo 'model-spend harness source must be a Git checkout or archive with .EXO_OS_SOURCE_ID' >&2
+  exit 2
+fi
+[[ $harness_source =~ ^[0-9a-f]{40}$ ]] || {
+  echo 'model-spend harness source identifier is malformed' >&2
+  exit 2
+}
+manifest="$out/extra/opt/exo/EXO_OS_BUILD.json"
+[[ -s $manifest ]] || {
+  echo 'the selected image build manifest is missing' >&2
+  exit 2
+}
+if ! "$here/.venv/bin/python" - "$manifest" "$image_source" <<'PY_IMAGE_SOURCE'
+import json
+import sys
+
+try:
+    with open(sys.argv[1]) as stream:
+        built = json.load(stream)
+    valid = (built.get("schema") == 2 and built.get("build_profile") == "vmtest"
+             and built.get("exo_os_commit") == sys.argv[2])
+except (OSError, ValueError, AttributeError):
+    valid = False
+raise SystemExit(0 if valid else 1)
+PY_IMAGE_SOURCE
+then
+  echo "model-spend acceptance requires a vmtest image manifest built from $image_source" >&2
+  exit 2
+fi
 accept_start model-spend 2048
+echo "      image source: $image_source; model-spend harness source: $harness_source" | tee -a "$report"
 accept_set_required_checks 11
 wait_exod() {
   local ready=0
@@ -89,7 +138,7 @@ PY")
 run_probe() {
   local mode=$1 rc=0 output parsed
   shift
-  output=$(as_exo "EXO_OS_VM_ACCEPTANCE=1 EXO_OS_VM_PRICED_POLICY=$priced_policy /opt/exo/bin/python /tmp/probe-model-spend.py --vm-acceptance $mode") || rc=$?
+  output=$(as_exo "EXO_OS_VM_ACCEPTANCE=1 EXO_OS_VM_PRICED_POLICY=$priced_policy EXO_MODEL_SPEND_REQUIRED=1 EXO_MODEL_SPEND_POLICY=/var/lib/exo/model-spend/policy.json /opt/exo/bin/python /tmp/probe-model-spend.py --vm-acceptance $mode") || rc=$?
   printf '%s\n' "$output" > "$out/model-spend-probe${mode:+-stopped}.json"
   if [[ $rc == 0 || $rc == 1 ]] && parsed=$(printf '%s\n' "$output" | "$here/.venv/bin/python" -c '
 import json,sys
@@ -110,12 +159,14 @@ for item in checks:
 
 before=$(ssh_vm 'exo-model-spend-admin status' | "$here/.venv/bin/python" -c 'import json,sys; print(json.load(sys.stdin)["journal_id"])')
 run_probe '' zero_policy offline_turn mutable_caps_refused paid_route_no_http priced_zero_cap_no_http offline_after_refusal
-ssh_vm 'systemctl restart exo-model-spend-provision.service; systemctl is-active --quiet exo-model-spend-provision.service'
+# Re-run the root administrator validator directly. Restarting this boot-order
+# unit tears down ordered greetd and the live exo user session.
+ssh_vm 'exo-model-spend-admin ensure-boot'
 as_exo 'systemctl --user restart exod.service'
 wait_exod
 after=$(ssh_vm 'exo-model-spend-admin status' | "$here/.venv/bin/python" -c 'import json,sys; print(json.load(sys.stdin)["journal_id"])')
 policy_hash_after=$(ssh_vm 'sha256sum /var/lib/exo/model-spend/policy.json | cut -d " " -f 1')
-result persistent-id "$([[ $before == "$after" && $policy_hash_before == "$policy_hash_after" ]] && echo 1 || echo 0)" 'the same journal UUID and persistent zero-default policy survived both restarts'
+result persistent-id "$([[ $before == "$after" && $policy_hash_before == "$policy_hash_after" ]] && echo 1 || echo 0)" 'the same journal UUID and persistent zero-default policy survived root revalidation and daemon restart'
 
 # Simulate an uncertain incurred call only in this disposable VM. This is a
 # deliberate fixture, not evidence that any provider charged the account.
