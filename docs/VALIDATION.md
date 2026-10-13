@@ -14,6 +14,7 @@ not establish a booted current image or a successful recovery reboot.
 
 | Check | Result | Boundary of evidence |
 |---|---|---|
+| Current combined Linux arm64 suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 484 passed, 10 skipped | OS `25313dfc2ef1e6c09f46c1c0a1569c70ca23d2c2`, core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5`; includes private Broadway GTK and actual model-spend child UID/GID checks. Hyprland and nine namespace checks were skipped under the unchanged container policy; actual Wayland and deployment-kernel acceptance remain pending |
 | macOS arm64, Python 3.14, `.venv/bin/pytest -q` | 465 passed, 17 skipped | OS working tree `3f40ffe` plus updated `exo.pin`, core `cb36a4a`; all host tests pass against the exact published core dependency, including the CoreRuntime compatibility aliases; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
 | macOS arm64, Python 3.14, `.venv/bin/pytest -q` | 464 passed, 16 skipped | OS `67fe0c7`, core `11008a8`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
 | Accessibility stack Linux arm64 main suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 482 passed, 10 skipped | OS `2b55be925279443163df6f30c022fef0ae00de3b`, core `11008a8bdf6a3c8dee2900434ca0a57054300bc8`; includes a passing private Broadway GTK smoke for focus transitions, bounded reading view, approval details and simulated held-key events. This historical run does not establish AT-SPI, Orca or Wayland behavior, and was not against the new core pin |
@@ -48,6 +49,13 @@ The pinned core now contains the required-executor argument-binding and gate-loa
 follow-up (`52b4418`) and passes its source tests. Independent security review of
 that follow-up and current-image boot/acceptance are still pending; these host
 counts do not establish OS activation.
+
+The combined Linux log is retained at
+`image/out/validation-25313df-cb36a4a/linux.log`, SHA256
+`c7ff3956f97e0c2aa538a3aa1f1f8a3ee5f70d058fe1ed0776cf07fe2f285408`.
+The tested OS tree is `bfbafa5ee5d2d6c7e263fb22fb8b98987c5e15fb`.
+This run includes the shared surface probe and the new required-executor pin;
+its private display does not establish screen-reader or real-compositor behavior.
 
 The Linux runner creates a disposable container with two CPUs and 2 GiB of RAM.
 It copies an explicit source list and archives the pinned core commit, installs
