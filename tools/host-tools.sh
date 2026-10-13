@@ -132,4 +132,4 @@ done
 "$generation/bin/python3" -I -c 'import pefile, peutils, ordlookup, mkosi'
 printf 'validated\n' > "$generation/.complete"
 python3 "$(dirname "$0")/host-tools-generation.py" publish "$PREFIX" "$generation"
-echo "installed ${#urls[@]} packages into $PREFIX/root"
+echo "installed ${#urls[@]} packages into $generation/root; published through $PREFIX/current"
