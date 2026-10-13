@@ -28,6 +28,9 @@ id exo-ledger >/dev/null 2>&1 || useradd --system --gid exo-ledger --no-create-h
 install -d -m 0755 /var/lib/exo-ledger
 id exo >/dev/null 2>&1 || useradd --create-home --groups wheel,exo-sys,video,input --shell /bin/bash exo
 passwd --lock exo >/dev/null
+# Git archives can supply this existing parent as 0775; creating its child does
+# not reset the parent's mode. Repart needs a root-controlled @store source.
+install -d -o root -g root -m 0755 /var/lib/exo
 install -d -m 0700 /var/lib/exo/exo /var/lib/exo-sysd
 cp -rT /etc/skel /home/exo   # explicit: useradd did not copy the skeleton in the image build
 mkdir -p /home/exo/.config/hypr/exo
@@ -68,8 +71,9 @@ if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
 placeholder = store / ".keep"
 if placeholder.exists() or placeholder.is_symlink():
     info = placeholder.lstat()
+    # The checked-in empty placeholder is 0644; git archive can emit it as 0664.
     if (not stat.S_ISREG(info.st_mode) or info.st_size != 0
-            or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o644):
+            or info.st_uid != 0 or stat.S_IMODE(info.st_mode) not in (0o644, 0o664)):
         raise RuntimeError("unexpected fresh image store placeholder")
     placeholder.unlink()
 

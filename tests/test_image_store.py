@@ -1,5 +1,7 @@
 """Exercise the final postinstall store check without building or booting an image."""
 import os
+import shlex
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -35,14 +37,36 @@ def store(tmp_path):
     return path
 
 
-@pytest.mark.parametrize("placeholder", [False, True])
-def test_postinstall_leaves_only_empty_principal_skeleton(store, monkeypatch, placeholder):
-    if placeholder:
+@pytest.mark.parametrize("placeholder_mode", [None, 0o644, 0o664])
+def test_postinstall_leaves_only_empty_principal_skeleton(store, monkeypatch, placeholder_mode):
+    if placeholder_mode is not None:
         (store / ".keep").touch()
-        (store / ".keep").chmod(0o644)
+        (store / ".keep").chmod(placeholder_mode)
     finalize_store(store, monkeypatch)
     assert list(store.iterdir()) == [store / "exo"]
     assert not list((store / "exo").iterdir())
+    assert (store / "exo").stat().st_mode & 0o777 == 0o700
+
+
+def test_postinstall_normalizes_archive_store_parent_before_contract(store, monkeypatch):
+    source = POSTINSTALL.read_text()
+    normalize = "install -d -o root -g root -m 0755 /var/lib/exo"
+    skeleton = "install -d -m 0700 /var/lib/exo/exo /var/lib/exo-sysd"
+    assert source.index(normalize) < source.index(skeleton) < source.index("<<'STORE'")
+    store.chmod(0o775)
+    (store / ".keep").touch()
+    (store / ".keep").chmod(0o664)
+    with monkeypatch.context() as preflight:
+        with pytest.raises(RuntimeError, match="root-owned"):
+            finalize_store(store, preflight)
+    # Run the exact mode operation against the host fixture; root ownership is
+    # supplied by mkosi's namespace and modeled by finalize_store on the host.
+    command = shlex.split(normalize.replace("-o root -g root ", ""))
+    command[-1] = str(store)
+    subprocess.run(command, check=True)
+    assert store.stat().st_mode & 0o777 == 0o755
+    finalize_store(store, monkeypatch)
+    assert list(store.iterdir()) == [store / "exo"]
     assert (store / "exo").stat().st_mode & 0o777 == 0o700
 
 
@@ -80,7 +104,7 @@ def test_postinstall_rejects_unexpected_placeholder(store, monkeypatch, artifact
         placeholder.symlink_to(store / "missing")
     else:
         placeholder.touch()
-        placeholder.chmod({"owner": 0o644, "group_writable": 0o664,
+        placeholder.chmod({"owner": 0o644, "group_writable": 0o660,
                            "other_writable": 0o646, "unexpected_mode": 0o600}[artifact])
     with pytest.raises(RuntimeError, match="placeholder"):
         finalize_store(store, monkeypatch, untrusted_owner=placeholder if artifact == "owner" else None)
