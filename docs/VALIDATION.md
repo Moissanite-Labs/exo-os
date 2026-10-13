@@ -9,13 +9,17 @@ CoreRuntime/application composition split, and the witness transport implementat
 The publisher is disabled by default and requires explicit administrator action.
 Results below name the source and dependency they exercised. Host tests do not
 establish Linux enforcement, a booted candidate image, an independent witness
-endpoint, or a successful recovery reboot. A separate image build in progress at
-OS `eb50e7c` and core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5` excludes this
-witness candidate; its evidence does not transfer here.
+endpoint, or a successful recovery reboot. The earlier `vmtest` image at OS
+`eb50e7c` and core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5` booted and
+passed 12 ledger checks, then reached two model-spend checks before acceptance
+stopped on missing installed required-plugin packaging. That run was archived,
+not a seven-suite pass, and excludes this witness candidate. The staged plugin
+packaging fix has host coverage below; a new image and its acceptance remain pending.
 
 | Check | Result | Boundary of evidence |
 |---|---|---|
-| Current witness candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 576 passed, 20 skipped | OS `b03b79e4802d4f0d77a5b00c39af1b45b164220d` with the pending `exo.pin` update to clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; includes witness alias-separation and malformed-response regressions. Root ownership is simulated; Linux enforcement, image delivery/boot and an independent endpoint remain unverified |
+| Current witness and required-plugin packaging candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 579 passed, 20 skipped | OS `085db2e80624bb2a490069894cf35a646de7495c`, clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; includes production plugin-folder staging and a real `application.create()` with the required executor and plugins. Root ownership is simulated; Linux witness enforcement, new-image boot/acceptance and an independent endpoint remain unverified |
+| Earlier witness candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 576 passed, 20 skipped | OS `b03b79e4802d4f0d77a5b00c39af1b45b164220d` with a then-pending pin update to clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; includes witness alias-separation and malformed-response regressions. Root ownership is simulated; Linux enforcement, image delivery/boot and an independent endpoint remain unverified |
 | Earlier staged witness candidate host suite, macOS arm64, `.venv/bin/pytest -q` | 525 passed, 20 skipped | Staged source tree `a9401a6c7061ca44336fa451d5e911d94e580c15`, based on OS `e9cec25`, core `b060974a514cf08c0765119e2e8d952682102a0c`; includes 53 witness host cases and a real loopback mTLS protocol check. Root-ownership behavior is simulated. Three explicit Linux tests were not run; this does not establish Linux ownership/enforcement, image delivery or boot, or an independent endpoint |
 | Previous combined Linux arm64 suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 484 passed, 10 skipped | OS `25313dfc2ef1e6c09f46c1c0a1569c70ca23d2c2`, core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5`; includes private Broadway GTK and actual model-spend child UID/GID checks. Hyprland and nine namespace checks were skipped under the unchanged container policy; actual Wayland and deployment-kernel acceptance remain pending |
 | macOS arm64, Python 3.14, `.venv/bin/pytest -q` | 465 passed, 17 skipped | OS working tree `3f40ffe` plus updated `exo.pin`, core `cb36a4a`; all host tests pass against the exact published core dependency, including the CoreRuntime compatibility aliases; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
@@ -31,9 +35,9 @@ witness candidate; its evidence does not transfer here.
 | Earlier core suite and plugins, macOS arm64, Python 3.13 | 1,611 core tests and 753 plugin tests passed | Core `cb36a4a`; 65 core skips, no deselection; the core budget test measures 15,989 lines against a 16,000 ceiling; these are source tests, not independent security review or image acceptance |
 | Earlier core suite and plugins, macOS arm64, Python 3.13 | 1,581 core tests and 752 plugin tests passed | Core `11008a8`; 65 core skips, no deselection; all six plugins passed separately and together; the earlier budget test measured 15,982 lines |
 | systemd unit dependency graph | passed | Provision/socket/service/firstboot graph checked in Linux with unavailable image executable paths replaced only in temporary validation copies; actual first boot remains necessary |
-| Ruff `--select F`, `src tests` | passed | Python static checks |
-| `bash -n tools/*.sh` | passed | Shell syntax, not a VM acceptance run |
-| `git diff --check` | passed | Whitespace/conflict-marker check |
+| Current Ruff `--select F`, `src tests` | passed | OS `085db2e`, Python static checks |
+| Current `bash -n tools/*.sh` | passed | OS `085db2e`, shell syntax, not a VM acceptance run |
+| Current `git diff --check` | passed | OS `085db2e` plus this documentation update; whitespace/conflict-marker check |
 
 The full core run used an isolated checkout and a closed local bus address. The
 earlier `b3149a9` legacy-relay test was deselected because it autodetects an unrelated local
