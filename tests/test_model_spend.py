@@ -9,8 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from exo.core.models.spend import SpendDenied
 from exo.ledger_authority import AuthorityError
+from exo.model_spend import SpendDenied, SpendJournal
 
 from exo_os import spend
 
@@ -48,6 +48,52 @@ def test_fresh_zero_policy_is_published_last_and_never_reseeded(store):
     policy.write_text(json.dumps(first))
     assert spend.ensure_boot(store=store)["daily_usd"] == "12"
     assert spend.inspect(store=store)["journal_id"] == first["journal_id"]
+
+
+def test_zero_cap_priced_native_route_refuses_before_mock_http_and_offline_remains_usable(store, monkeypatch):
+    import asyncio
+
+    import httpx
+    from exo.core.models.fake import RuleFake
+    from exo.core.models.openai_chat import OpenAIChatProvider
+    from exo.core.models.router import Router
+    from exo.core.types import Message
+
+    monkeypatch.delenv("EXO_MODEL_SPEND_POLICY", raising=False)
+    monkeypatch.delenv("EXO_MODEL_SPEND_REQUIRED", raising=False)
+    raw = spend.ensure_boot(store=store)
+    ref = "native:gpt-4.1-2025-04-14"
+    priced = {**raw, "routes": {ref: {
+        "contract": "text-tokens-v1", "transport": "openai", "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4.1-2025-04-14", "input_bound": 1_047_576, "max_output": 100,
+        "input": "1", "output": "10", "cache_read": "1", "cache_write": "1"}}}
+    seen = []
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: seen.append(request)))
+    router = Router(roles={"main": [ref]}, providers={"native": {
+        "transport": "openai", "base_url": "https://api.openai.com/v1"}},
+        catalog={}, env={}, client=client, spend_config=priced)
+    assert type(router.credentials("native")[0].provider) is OpenAIChatProvider
+
+    async def call():
+        try:
+            return [event async for event in router.stream("main", [Message.user("blocked")], [])]
+        finally:
+            await client.aclose()
+
+    event = asyncio.run(call())[-1]
+    assert event.kind == "error" and not event.retryable and not seen
+    assert event.attempts == [{"route": ref, "outcome": "spend_refused"}]
+    assert "day model-spend cap" in (event.error or "")
+    assert SpendJournal.inspect(priced)["state"] == "ready"
+
+    offline = Router(roles={"main": ["fake:scripted"]}, catalog={}, env={}, spend_config=raw,
+                     instances={"fake": RuleFake({"reply": "still offline"})})
+    async def offline_call():
+        return [event async for event in offline.stream("main", [Message.user("hello")], [])]
+    assert asyncio.run(offline_call())[-1].kind == "done"
+    assert SpendJournal.inspect(raw)["state"] == "offline"
+    with sqlite3.connect(raw["journal"]) as db:
+        assert db.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == 0
 
 
 def test_missing_and_partial_state_never_auto_recreate(store):

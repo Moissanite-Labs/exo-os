@@ -60,7 +60,7 @@ spend_journal_probe() {
 import json
 from pathlib import Path
 import sys
-from exo.core.models.spend import SpendJournal
+from exo.model_spend import SpendJournal
 
 policy = json.loads(Path('/var/lib/exo/model-spend/policy.json').read_text())
 marker = 'recovery-acceptance-' + sys.argv[2]
@@ -100,7 +100,7 @@ id=$(echo "$checkpoint" | "$here/.venv/bin/python" -c 'import json,sys; print(js
 egress_journal_probe reserve
 # A record committed after the older system snapshot must stay in the protected history.
 authority_probe append
-# A zero-cost journal stop AFTER the checkpoint must remain after older-root boot.
+# A synthetic review stop AFTER the checkpoint must remain after older-root boot.
 # The VM has no paid route, key, or HTTP call in this recovery proof.
 spend_journal_probe freeze "$id"
 signer_identity_before=$(ssh_vm 'sha256sum /var/lib/exo-ledger/manifest.json | cut -d " " -f 1')

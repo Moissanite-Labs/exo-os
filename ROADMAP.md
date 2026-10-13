@@ -124,7 +124,8 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
   4. Editing or deleting a ledger row is detected by `exo log verify`.
   5. If the sandbox cannot start, the tool does not run.
   6. The zero-cap policy refuses every paid route before HTTP, while the exact offline fake still works.
-     A stopped journal keeps budget status and transcripts readable; a nonzero cap breach still needs
+     Known unpriced or over-cap requests refuse only that request. A stopped journal keeps budget status
+     and transcripts readable after uncertain incurred spend; a nonzero cap breach still needs
      a deliberate paid test with prices and limits chosen by A.
 - **Needs from A:** decision D6 (secrets). A daily and monthly spend cap per principal.
 

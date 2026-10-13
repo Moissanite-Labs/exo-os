@@ -8,6 +8,9 @@ monthly USD ceilings of `"0"`, no priced routes, and no paid destination or key.
 The exact installed `RuleFake` remains available offline. Every routed paid
 provider is refused before HTTP until an operator explicitly installs a priced
 route and caps in the root policy.
+Known unpriced or invalid requests refuse only that request. They leave the
+offline model and journal usable. A call that may have incurred an uncertain
+charge stops later admission until the principal reviews the journal.
 
 | Path | Owner and mode | Purpose |
 |---|---|---|
@@ -39,8 +42,14 @@ the protected policy. Daily and monthly caps should be conservative, with
 room for every possible reservation. Review pending reservations and the
 provider bill before any journal reconciliation. A stopped journal remains
 readable for status and transcript access; generation and tool execution stop.
-The OS acceptance suite exercises the offline path and mocked HTTP refusal.
-It makes no paid call and gives no evidence of real provider billing accuracy.
+The OS acceptance suite exercises the offline path, a known unpriced refusal,
+and a priced native route rejected by the zero cap before mocked HTTP. The
+priced check uses a temporary root-owned policy under `/run` with the same
+journal identity and leaves the persistent policy byte-for-byte unchanged.
+Another offline turn verifies the known refusals did not freeze the journal.
+A separate synthetic uncertainty then checks stopped status across a daemon
+restart. The suite makes no paid call and gives no evidence of real provider
+billing accuracy.
 
 This boundary covers Exo's routed model calls in the installed trusted core.
 Installed providers and plugins, plus other processes under the `exo` UID, are
@@ -55,4 +64,4 @@ Verification before enabling paid use: run `tools/accept-model-spend.sh` on an
 image built from the current pin and source, and `tools/accept-isolation.sh` for
 tool denial of both policy and journal. Recovery persistence is checked by
 `tools/accept-recovery.sh`. The VM acceptance script changes only its
-disposable overlay and leaves the test journal stopped afterward.
+disposable overlay and leaves the test journal stopped by its synthetic fixture.

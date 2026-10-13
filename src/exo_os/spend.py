@@ -13,9 +13,8 @@ import stat
 import sys
 from pathlib import Path
 
-from exo.core.models.spend import SpendJournal
-from exo.core.models.spend_policy import _pairs, _validate
 from exo.ledger_authority import AuthorityError
+from exo.model_spend import SpendJournal, decode_policy, validate_policy
 
 from .ledgerd import admin as ledger_admin
 from .ledgerd.policy import STATE as SIGNER_STATE
@@ -87,7 +86,7 @@ def _policy(path: Path, journal: Path, principal: str) -> dict:
     if path.stat().st_size > 65536:
         raise AuthorityError("model-spend policy exceeds the size limit")
     try:
-        raw = _validate(json.loads(path.read_bytes(), object_pairs_hook=_pairs))
+        raw = decode_policy(path.read_bytes())
     except (OSError, ValueError, TypeError, KeyError, RecursionError) as exc:
         raise AuthorityError("model-spend policy is invalid") from exc
     if raw["principal"] != principal or raw["journal"] != str(journal):
@@ -171,7 +170,7 @@ def ensure_boot(principal: str = PRINCIPAL, *, store: Path = STORE, signer: Path
     _node(journal, stat.S_IFREG, 0o600, uid, gid)
     raw = {"principal": principal, "journal": str(journal), "journal_id": identity,
            "daily_usd": "0", "monthly_usd": "0", "routes": {}}
-    _validate(raw)
+    validate_policy(raw)
     _fsync(user_dir)
     # Publish the root-controlled policy last. A crash before this point leaves
     # partial state which ensure_boot deliberately refuses on the next boot.

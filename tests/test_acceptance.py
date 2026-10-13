@@ -231,7 +231,7 @@ def test_custom_acceptance_suites_add_the_provenance_result(tmp_path):
     for index, (script, workload_checks, expected) in enumerate((
         ("accept-isolation.sh", 12, 13),
         ("accept-recovery.sh", 9, 10),
-        ("accept-model-spend.sh", 9, 10),
+        ("accept-model-spend.sh", 11, 12),
         ("accept-ledger.sh", 11, 12),
         ("accept-phase3.sh", 6, 7),
     )):
