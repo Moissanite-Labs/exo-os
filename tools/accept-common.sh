@@ -30,8 +30,19 @@ accept_wait_ssh() {
   "$here/.venv/bin/python" "$here/tools/accept-wait-ssh.py" "$timeout" "$expected" "$@"
 }
 
+accept_system_ready() {
+  local state rc=0
+  state=$(ssh_vm "timeout $ready_timeout systemctl is-system-running --wait") || rc=$?
+  if ((rc != 0)) || [[ $state != running ]]; then
+    ssh_vm 'systemctl is-system-running; systemctl list-jobs --no-pager; systemctl --failed --no-pager' >&2 || true
+    result readiness 0 "systemd did not reach running within ${ready_timeout}s (last state: ${state:-unavailable})."
+    exit 1
+  fi
+}
+
 accept_start() {
   local phase=$1 memory=$2 connected=0 boot_timeout=${EXO_OS_VM_BOOT_TIMEOUT:-180}
+  ready_timeout=${EXO_OS_VM_READY_TIMEOUT:-300}
   required_checks=6
   [[ $phase != 2 ]] || required_checks=7
   mkdir -p "$out"
@@ -42,6 +53,10 @@ accept_start() {
   }
   if [[ ! $boot_timeout =~ ^[1-9][0-9]{0,2}$ ]] || ((boot_timeout > 900)); then
     result prerequisites 0 'EXO_OS_VM_BOOT_TIMEOUT must be a positive integer no greater than 900 seconds.'
+    exit 1
+  fi
+  if [[ ! $ready_timeout =~ ^[1-9][0-9]{0,2}$ ]] || ((ready_timeout > 900)); then
+    result prerequisites 0 'EXO_OS_VM_READY_TIMEOUT must be a positive integer no greater than 900 seconds.'
     exit 1
   fi
   export here out
@@ -85,7 +100,7 @@ accept_start() {
     exit 1
   fi
   accept_provenance
-  ssh_vm 'timeout 120 systemctl is-system-running --wait'
+  accept_system_ready
 }
 
 accept_provenance() {

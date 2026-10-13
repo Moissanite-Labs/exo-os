@@ -46,6 +46,7 @@ def run_harness(tmp_path, body, *, ssh_body=None, image=True, extra_env=None):
         elif [[ $* == *EXO_PIN* ]]; then cat "$here/exo.pin";
         elif [[ $* == *EXO_OS_BUILD.json* ]]; then cat "$here/image/out/extra/opt/exo/EXO_OS_BUILD.json";
         elif [[ $* == *base64* ]]; then echo ok;
+        elif [[ $* == *is-system-running* ]]; then echo running;
         else return 0; fi'''
     script = f"""
 here={shlex.quote(str(here))}
@@ -156,6 +157,45 @@ def test_offline_surface_acceptance_rejects_missing_or_live_roles(models, expect
 def test_acceptance_rejects_invalid_boot_timeout_before_starting_vm(tmp_path):
     r = run_harness(tmp_path, "accept_start 1 1024", extra_env={"EXO_OS_VM_BOOT_TIMEOUT": "0"})
     assert r.returncode != 0 and "must be a positive integer" in r.stdout
+
+
+def test_acceptance_rejects_invalid_system_readiness_timeout_before_starting_vm(tmp_path):
+    r = run_harness(tmp_path, "accept_start 1 1024", extra_env={"EXO_OS_VM_READY_TIMEOUT": "0"})
+    assert r.returncode != 0 and "EXO_OS_VM_READY_TIMEOUT must be a positive integer" in r.stdout
+
+
+def test_acceptance_applies_configured_readiness_budget(tmp_path):
+    ssh = '''if [[ $* == *product_uuid* ]]; then echo "$EXO_OS_VM_UUID";
+    elif [[ $* == *EXO_PIN* ]]; then cat "$here/exo.pin";
+    elif [[ $* == *EXO_OS_BUILD.json* ]]; then cat "$here/image/out/extra/opt/exo/EXO_OS_BUILD.json";
+    elif [[ $* == *base64* ]]; then echo ok;
+    elif [[ $* == *is-system-running* ]]; then
+      [[ $* == *"timeout 270 systemctl is-system-running --wait"* ]] && echo running; fi'''
+    r = run_harness(tmp_path, "accept_start 1 1024", ssh_body=ssh,
+                    extra_env={"EXO_OS_VM_READY_TIMEOUT": "270"})
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_acceptance_rejects_degraded_system_after_readiness_wait(tmp_path):
+    ssh = '''if [[ $* == *product_uuid* ]]; then echo "$EXO_OS_VM_UUID";
+    elif [[ $* == *EXO_PIN* ]]; then cat "$here/exo.pin";
+    elif [[ $* == *EXO_OS_BUILD.json* ]]; then cat "$here/image/out/extra/opt/exo/EXO_OS_BUILD.json";
+    elif [[ $* == *base64* ]]; then echo ok;
+    elif [[ $* == *is-system-running* ]]; then echo degraded; return 1; fi'''
+    r = run_harness(tmp_path, "accept_start 1 1024; echo FALSE_PASS", ssh_body=ssh)
+    assert r.returncode != 0 and "readiness: systemd did not reach running" in r.stdout
+    assert "FALSE_PASS" not in r.stdout
+
+
+def test_acceptance_rejects_unready_system_even_if_ssh_succeeds(tmp_path):
+    ssh = '''if [[ $* == *product_uuid* ]]; then echo "$EXO_OS_VM_UUID";
+    elif [[ $* == *EXO_PIN* ]]; then cat "$here/exo.pin";
+    elif [[ $* == *EXO_OS_BUILD.json* ]]; then cat "$here/image/out/extra/opt/exo/EXO_OS_BUILD.json";
+    elif [[ $* == *base64* ]]; then echo ok;
+    elif [[ $* == *is-system-running* ]]; then echo starting; fi'''
+    r = run_harness(tmp_path, "accept_start 1 1024; echo FALSE_PASS", ssh_body=ssh)
+    assert r.returncode != 0 and "last state: starting" in r.stdout
+    assert "FALSE_PASS" not in r.stdout
 
 
 def test_stalled_ssh_probe_cannot_extend_boot_deadline(tmp_path):

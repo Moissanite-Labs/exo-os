@@ -83,7 +83,7 @@ fi
 [[ $ready == 1 ]] || { result reboot 0 'Recovery did not become ready within the reboot deadline'; exit 1; }
 actual=$(ssh_vm 'cat /sys/class/dmi/id/product_uuid' | tr '[:upper:]' '[:lower:]')
 [[ $actual == "$EXO_OS_VM_UUID" ]] || { result identity 0 'Reboot reached a different machine'; exit 1; }
-ssh_vm 'timeout 120 systemctl is-system-running --wait'
+accept_system_ready
 ssh_vm 'test "$(as-exo systemctl --user is-enabled exod.service 2>/dev/null || true)" = masked'
 ssh_vm 'test ! -e /var/lib/pacman/db.lck'
 root=$(ssh_vm 'findmnt -n -o FSROOT /')
