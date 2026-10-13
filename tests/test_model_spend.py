@@ -258,3 +258,133 @@ def test_unit_graph_requires_spend_before_login():
         content = (image / rel).read_text()
         assert "Environment=EXO_MODEL_SPEND_REQUIRED=1" in content
         assert "Environment=EXO_MODEL_SPEND_POLICY=/var/lib/exo/model-spend/policy.json" in content
+
+
+@pytest.mark.parametrize("failure", [SystemExit(0), KeyboardInterrupt()])
+@pytest.mark.parametrize("result", [False, True])
+def test_as_exo_baseexception_never_escapes_or_reports_success(monkeypatch, tmp_path, failure, result):
+    for name in ("setgroups", "setgid", "setuid"):
+        monkeypatch.setattr(spend.os, name, lambda *args: None)
+    parent = os.getpid()
+    escaped = tmp_path / "escaped"
+    def action():
+        raise failure
+    try:
+        with pytest.raises(AuthorityError, match="validation or provisioning failed"):
+            spend._as_exo(1000, 1000, action, result=result)
+    except BaseException:
+        if os.getpid() != parent:
+            escaped.write_text("child resumed caller")
+            os._exit(0)
+        raise
+    assert not escaped.exists()
+
+
+def test_published_policy_link_survives_interrupted_cleanup(store, monkeypatch):
+    unlink = Path.unlink
+    def fail(path, *args, **kwargs):
+        if path.name.startswith(".policy-"):
+            raise OSError("post-publication cleanup interrupted")
+        return unlink(path, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", fail)
+        with pytest.raises(OSError, match="cleanup interrupted"):
+            spend.ensure_boot(store=store)
+    state = store / "model-spend"
+    policy = state / "policy.json"
+    before = policy.read_bytes()
+    assert policy.stat().st_nlink == 2
+    repaired = spend.ensure_boot(store=store)
+    assert policy.read_bytes() == before
+    assert repaired["journal_id"] == json.loads(before)["journal_id"]
+    assert policy.stat().st_nlink == 1
+    assert {p.name for p in state.iterdir()} == {"policy.json", "exo"}
+
+
+@pytest.mark.parametrize("fault", ["wrong_inode", "wrong_inode_two_links", "owner", "group", "mode", "symlink",
+                                   "nlink", "extra", "bad_name", "too_long", "missing_policy"])
+def test_policy_cleanup_rejects_unverified_leftovers(store, monkeypatch, fault):
+    raw = spend.ensure_boot(store=store)
+    state = store / "model-spend"
+    policy = state / "policy.json"
+    leftover = state / ".policy-0123456789abcdef"
+    if fault in ("wrong_inode", "wrong_inode_two_links"):
+        leftover.write_bytes(policy.read_bytes())
+        leftover.chmod(0o644)
+        if fault == "wrong_inode_two_links":
+            os.link(policy, store / "policy-other")
+            os.link(leftover, store / "temporary-other")
+    elif fault == "symlink":
+        leftover.symlink_to(policy)
+    else:
+        os.link(policy, leftover)
+        if fault == "mode":
+            leftover.chmod(0o600)
+        elif fault == "nlink":
+            os.link(policy, store / "third-link")
+        elif fault == "extra":
+            os.link(policy, state / ".policy-fedcba9876543210")
+        elif fault == "bad_name":
+            leftover.rename(state / ".policy-0123456789abcdeF")
+        elif fault == "too_long":
+            leftover.rename(state / (".policy-" + "0" * 17))
+        elif fault == "missing_policy":
+            policy.unlink()
+        elif fault in ("owner", "group"):
+            original = Path.lstat
+            def wrong_owner(path):
+                info = original(path)
+                if path == leftover:
+                    values = list(info)
+                    values[4 if fault == "owner" else 5] += 1
+                    return os.stat_result(values)
+                return info
+            monkeypatch.setattr(Path, "lstat", wrong_owner)
+    before = {p.name for p in state.iterdir()}
+    with pytest.raises(AuthorityError):
+        spend.ensure_boot(store=store)
+    assert {p.name for p in state.iterdir()} == before
+    if fault == "missing_policy":
+        assert not policy.exists()
+    else:
+        assert json.loads(policy.read_bytes())["journal_id"] == raw["journal_id"]
+
+
+def test_status_accepts_verified_publication_link_without_removing_or_syncing(store, monkeypatch):
+    raw = spend.ensure_boot(store=store)
+    policy = store / "model-spend/policy.json"
+    leftover = policy.with_name(".policy-0123456789abcdef")
+    os.link(policy, leftover)
+    before = policy.read_bytes()
+    monkeypatch.setattr(spend, "_fsync", lambda *args: pytest.fail("inspection must not fsync"))
+    assert spend.inspect(store=store)["journal_id"] == raw["journal_id"]
+    assert leftover.exists() and policy.stat().st_nlink == 2
+    assert policy.read_bytes() == before
+
+
+def test_cleanup_waits_for_valid_original_journal(store):
+    spend.ensure_boot(store=store)
+    policy = store / "model-spend/policy.json"
+    leftover = policy.with_name(".policy-0123456789abcdef")
+    os.link(policy, leftover)
+    (store / "model-spend/exo/journal.sqlite").write_bytes(b"corrupt")
+    with pytest.raises((SpendDenied, sqlite3.DatabaseError)):
+        spend.ensure_boot(store=store)
+    assert leftover.exists()
+
+
+@pytest.mark.parametrize("fault", ["drop", "serialize", "oversized", "write"])
+def test_as_exo_refuses_child_setup_and_output_failures(monkeypatch, tmp_path, fault):
+    for name in ("setgroups", "setgid", "setuid"):
+        monkeypatch.setattr(spend.os, name, lambda *args: None)
+    if fault == "drop":
+        monkeypatch.setattr(spend.os, "setuid", lambda *args: (_ for _ in ()).throw(OSError("drop failed")))
+    if fault == "write":
+        monkeypatch.setattr(spend.os, "write", lambda *args: (_ for _ in ()).throw(OSError("pipe failed")))
+    called = tmp_path / "called"
+    def action():
+        called.touch()
+        return object() if fault == "serialize" else "x" * 65536 if fault == "oversized" else {}
+    with pytest.raises(AuthorityError, match="validation or provisioning failed"):
+        spend._as_exo(1000, 1000, action, result=True)
+    assert called.exists() == (fault != "drop")

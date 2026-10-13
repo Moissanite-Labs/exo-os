@@ -31,8 +31,15 @@ starting a model turn or opening an approval card.
 On every later boot the service checks the existing policy, fixed principal and
 journal path, journal UUID, exact owners and modes, and the ledger/store mount
 identity. Missing, partial, symlinked, misowned or inconsistent state refuses
-startup. It does not recreate the journal or restore a default policy. Repair
-requires a deliberate administrator procedure with the daemon stopped and
+startup. A crash after atomic policy publication can leave one `.policy-` file
+with exactly 16 lowercase hexadecimal characters. Boot activation removes it
+only after validating the published policy and original journal, and only if
+it is a root-owned regular `0644` file with the policy's exact device/inode and
+both have link count two. Status may inspect this verified state without removing
+the link. Unrelated entries, other hard links, or a crash before publication
+still require explicit repair. This cleanup does not change policy bytes,
+ceilings or the journal UUID. It does not recreate the journal or restore a
+default policy. Repair requires a deliberate administrator procedure with the daemon stopped and
 preserved evidence. This repository does not expose cap editing, journal reset,
 or resume through an agent tool.
 
