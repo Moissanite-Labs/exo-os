@@ -29,6 +29,32 @@ with journal.connect() as db:
 assert row == (request["request_id"], fingerprint, None), row
 PY_EGRESS_JOURNAL
 }
+authority_probe() {
+  ssh_vm "as-exo /opt/exo/bin/python - $1" <<'PY_AUTHORITY'
+import json
+from pathlib import Path
+import sys
+import uuid
+from exo.ledger_authority.factory import open_authority, open_writable_ledger
+ledger_path = Path('/var/lib/exo/exo/principals/exo/ledger.sqlite')
+proof = Path('/home/exo/.exo-recovery-authority.json')
+authority = open_authority(ledger_path, 'exo-os')
+if sys.argv[1] == 'append':
+    assert not proof.exists(), 'recovery proof already exists'
+    operation = uuid.uuid4().hex
+    with open_writable_ledger(ledger_path, 'exo-os') as ledger:
+        event = ledger.append('note', {'recovery_acceptance': operation}, operation_id=operation)
+    record = authority.lookup(operation)
+    assert record['event'] == event
+    proof.write_text(json.dumps({'operation': operation, 'record': record, 'identity': authority.identity}))
+else:
+    assert sys.argv[1] == 'check'
+    saved = json.loads(proof.read_text())
+    assert saved['identity'] == authority.identity, 'authority identity changed across system recovery'
+    assert authority.lookup(saved['operation']) == saved['record'], 'post-checkpoint committed record disappeared'
+    assert authority.head()['seq'] >= saved['record']['checkpoint']['seq']
+PY_AUTHORITY
+}
 result() {
   local line
   if [[ $2 == 1 ]]; then pass=$((pass + 1)); line="PASS  $1  $3"; else fail=$((fail + 1)); line="FAIL  $1  $3"; fi
@@ -36,7 +62,7 @@ result() {
 }
 source "$here/tools/accept-common.sh"
 accept_start recovery 2048
-accept_set_required_checks 7
+accept_set_required_checks 8
 boot_timeout=${EXO_OS_VM_BOOT_TIMEOUT:-180}
 accept_keyring
 # Keep daemon/runtime SQLite/WAL writes out of durable-data hash comparisons.
@@ -46,6 +72,7 @@ ssh_vm 'test "$(as-exo systemctl --user is-enabled exod.service 2>/dev/null || t
 ssh_vm 'as-exo /opt/exo/bin/exo-os system status >/dev/null'
 # Start once so both startup validation and the persistent journal exist pre-snapshot.
 ssh_vm 'systemctl start exo-egress.service; systemctl is-active --quiet exo-egress.service'
+ssh_vm 'systemctl start exo-ledger.service; systemctl is-active --quiet exo-ledger.service'
 old_boot=$(ssh_vm 'cat /proc/sys/kernel/random/boot_id')
 ssh_vm 'test ! -e /etc/exo-recovery-proof; printf old-system > /etc/exo-recovery-proof'
 checkpoint=$(ssh_vm 'exo-os-recovery checkpoint')
@@ -53,6 +80,10 @@ id=$(echo "$checkpoint" | "$here/.venv/bin/python" -c 'import json,sys; print(js
 [[ $id =~ ^[0-9a-f]{32}$ ]]
 # Reserve only after the older snapshot exists; rolling this back could resend.
 egress_journal_probe reserve
+# A record committed after the older system snapshot must stay in the protected history.
+authority_probe append
+signer_identity_before=$(ssh_vm 'sha256sum /var/lib/exo-ledger/manifest.json | cut -d " " -f 1')
+signer_keys_before=$(ssh_vm 'find /var/lib/exo-ledger/private -type f -name "*.key" -exec sha256sum {} + | LC_ALL=C sort | sha256sum')
 # Newer data must survive selection of an older system snapshot.
 ssh_vm 'printf newer-home > /home/exo/exo-recovery-proof; printf newer-store > /var/lib/exo/exo-recovery-proof; printf broken-system > /etc/exo-recovery-proof'
 # A real helper receipt made AFTER the checkpoint must survive the older boot.
@@ -94,6 +125,13 @@ home=$(ssh_vm 'cat /home/exo/exo-recovery-proof; findmnt -n -o FSROOT /home')
 store=$(ssh_vm 'cat /var/lib/exo/exo-recovery-proof; findmnt -n -o FSROOT /var/lib/exo')
 store_after=$(ssh_vm 'find /var/lib/exo/exo -type f -exec sha256sum {} + | LC_ALL=C sort | sha256sum')
 result current-data "$([[ $home == newer-home/@home && $store == newer-store/@store && $store_before == "$store_after" ]] && echo 1 || echo 0)" "home/store mount original subvolumes; principal store hashes unchanged"
+signer_mount=$(ssh_vm 'findmnt -n -o FSROOT /var/lib/exo-ledger')
+signer_identity_after=$(ssh_vm 'sha256sum /var/lib/exo-ledger/manifest.json | cut -d " " -f 1')
+signer_keys_after=$(ssh_vm 'find /var/lib/exo-ledger/private -type f -name "*.key" -exec sha256sum {} + | LC_ALL=C sort | sha256sum')
+ssh_vm 'systemctl restart exo-ledger.service; systemctl is-active --quiet exo-ledger.service'
+authority_probe check
+signer_mode=$(ssh_vm 'stat -c "%a %U %G" /var/lib/exo-ledger /var/lib/exo-ledger/private')
+result persistent-signer "$([[ $signer_mount == /@signer && $signer_identity_before == "$signer_identity_after" && $signer_keys_before == "$signer_keys_after" && $signer_mode == $'755 root root\n700 exo-ledger exo-ledger' ]] && echo 1 || echo 0)" "mounted @signer; independent public identity, private keys and post-checkpoint committed record survive older boot and signer restart"
 helper_mount=$(ssh_vm 'findmnt -n -o FSROOT /var/lib/exo-sysd')
 helper_key_after=$(ssh_vm 'sha256sum /var/lib/exo-sysd/sysd.key | cut -d " " -f 1')
 helper_audit_after=$(ssh_vm 'sha256sum /var/lib/exo-sysd/audit.log | cut -d " " -f 1')

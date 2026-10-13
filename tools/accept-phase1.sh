@@ -2,7 +2,7 @@
 # Phase 1 acceptance (ROADMAP.md): boot the built image (vmtest profile) and check, with no manual steps:
 #   1. it reaches a desktop: greetd logs the person in, Hyprland runs (screenshot saved)
 #   2. exod starts at login, comes back after being killed, and an offline RuleFake chat completes
-#   3. the store made in the VM verifies with `exo log verify` in the VM and in plain Exo on this host
+#   3. the store verifies against the signer in the VM and an independently copied public checkpoint on this host
 #   4. memory (PSS per process) with Chromium and three web apps open is written down
 # Results: image/out/accept-phase1.txt. Exit code 0 only if checks 1 to 3 pass (4 is a measurement).
 # The ROADMAP's real-provider chat criterion remains pending an authorized test key/spend cap.
@@ -86,19 +86,75 @@ result "exod-restarts" "$([[ $state == active && $pid2 != 0 && $pid2 != "$pid1" 
   "before kill pid=$pid1, after pid=$pid2 ($state)"
 accept_offline_chat
 
-# 3. store verifies in the VM and on this host
+# 3. Stop writers and export a coherent store copy plus independently root-pinned public evidence.
+# The host has no signer socket or private service keys. Its portable verifier checks the
+# exported signed prefix, without claiming a fresh off-machine witness.
+as_exo systemctl --user stop exod
 vm_verify=$(as_exo /opt/exo/bin/exo log verify 2>&1 | tail -1)
+# Obtain the trust pin directly from the protected root manifest, independently of
+# the exo-owned export directory. A substituted copy cannot nominate its own key.
+ssh_vm 'cat /var/lib/exo-ledger/manifest.json' | "$here/.venv/bin/python" -c '
+import json,sys
+manifest=json.load(sys.stdin)
+entries=[entry for entry in manifest["streams"].values()
+         if entry["ledger_path"] == "/var/lib/exo/exo/principals/exo/ledger.sqlite"]
+assert len(entries) == 1, "expected exactly one protected projection binding"
+json.dump(entries[0]["identity"],sys.stdout)
+' > "$out/authority-identity.json"
+export_dir=$(ssh_vm 'as-exo /opt/exo/bin/python -' <<'PY_PORTABLE'
+import json
+import shutil
+import sqlite3
+import tempfile
+from pathlib import Path
+from exo.ledger_authority.factory import open_authority
+from exo.ledger_authority.verify import verify_files
+
+source = Path('/var/lib/exo/exo/principals/exo')
+authority = open_authority(source / 'ledger.sqlite')
+head = authority.head()
+destination = Path(tempfile.mkdtemp(prefix='exo-portability-'))
+shutil.copytree(source, destination / 'exo', symlinks=True,
+                ignore=shutil.ignore_patterns('ledger.sqlite', 'ledger.sqlite-wal', 'ledger.sqlite-shm'))
+# SQLite backup takes a coherent read snapshot, even if the source uses WAL.
+with sqlite3.connect((source / 'ledger.sqlite').as_uri() + '?mode=ro', uri=True) as original:
+    with sqlite3.connect(destination / 'exo/ledger.sqlite') as copy:
+        original.backup(copy)
+(destination / 'identity.json').write_text(json.dumps(authority.identity))
+with (destination / 'checkpoints.jsonl').open('w') as output:
+    checkpoint = authority.head(0)
+    output.write(json.dumps(checkpoint) + '\n')
+    while checkpoint['seq'] < head['seq']:
+        records = authority.read_since(checkpoint['seq'], min(64, head['seq'] - checkpoint['seq']))
+        assert records, 'authority checkpoint export stopped before captured head'
+        for record in records:
+            checkpoint = record['checkpoint']
+            output.write(json.dumps(checkpoint) + '\n')
+    assert checkpoint == head and authority.head() == head, 'writer advanced during portable export'
+assert verify_files(destination / 'exo/ledger.sqlite', destination / 'identity.json',
+                    destination / 'checkpoints.jsonl')['ok'], 'exported snapshot does not match signed history'
+print(destination)
+PY_PORTABLE
+)
+[[ $export_dir =~ ^/tmp/exo-portability-[A-Za-z0-9_]+$ ]]
 rm -rf "$out/store-copy" && mkdir -p "$out/store-copy"
-ssh_vm 'tar -C /var/lib/exo/exo/principals -cf - exo' | tar -C "$out/store-copy" -xf -
-host_verify=$("$here/.venv/bin/exo" log verify --root "$out/store-copy/exo" 2>&1 | tail -1)
-rows=$("$here/.venv/bin/python" -c "
-import sqlite3,sys; c=sqlite3.connect('$out/store-copy/exo/ledger.sqlite')
-print(c.execute('select count(*) from events').fetchone()[0])" 2>/dev/null || echo '?')
+ssh_vm "tar -C $export_dir -cf - ." | "$here/.venv/bin/python" -c '
+import sys,tarfile
+with tarfile.open(fileobj=sys.stdin.buffer,mode="r|") as archive:
+    archive.extractall(sys.argv[1],filter="data")
+' "$out/store-copy"
+host_verify=$("$here/.venv/bin/python" -m exo.ledger_authority.verify \
+  --ledger "$out/store-copy/exo/ledger.sqlite" --identity "$out/authority-identity.json" \
+  --checkpoints "$out/store-copy/checkpoints.jsonl" 2>&1 | tail -1)
+rows=$("$here/.venv/bin/python" -c 'import sqlite3,sys
+with sqlite3.connect(sys.argv[1]) as db: print(db.execute("select count(*) from events").fetchone()[0])' \
+  "$out/store-copy/exo/ledger.sqlite")
 vm_ok=0; host_ok=0
 if echo "$vm_verify" | accept_verify; then vm_ok=1; fi
 if echo "$host_verify" | accept_verify; then host_ok=1; fi
 result "store-portable" "$([[ $vm_ok == 1 && $host_ok == 1 ]] && echo 1 || echo 0)" \
-  "vm: $vm_verify | host: $host_verify | ledger rows: $rows"
+  "vm: $vm_verify | host signed prefix: $host_verify | ledger rows: $rows; public identity copied separately over authenticated VM connection"
+as_exo systemctl --user start exod
 
 # machine profile change inside the VM, end to end: rendered, Hyprland verified and reloaded, logged
 change=$(as_exo /opt/exo/bin/exo-os set keyboard.layouts us,ara,pk 2>&1)
