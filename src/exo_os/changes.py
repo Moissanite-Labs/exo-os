@@ -8,6 +8,11 @@ The life of one change (DESIGN.md §5.3, for the parts that run as the person):
     pass      git commit; ledger: change.applied with the diff; the person sees one line and "Undo?"
     fail      everything is put back as it was; ledger: change.reverted; "That did not work, so I put it back."
 
+A failed check is not the only way to fail: if git, the ledger or the disk fails after the write, the change is
+put back the same way (commit, files, live session), change.reverted is recorded, and the error is raised.
+A proposed change therefore always ends as applied or reverted. The profile is read and changed under the
+change lock (`change`), so two overlapping changes cannot overwrite each other.
+
 The machine repo is a git repo (default <store>/machine). It holds machine.toml and a copy of every
 rendered file under rendered/, so `git log` is the history of the machine and each commit is a
 readable diff. Undo is a new change that restores the profile from before the one being undone, so
@@ -19,6 +24,7 @@ import difflib
 import fcntl
 import os
 import subprocess
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -61,6 +67,7 @@ class ChangeEngine:
         self.checks = DEFAULT_CHECKS if checks is None else checks
         self.renderer = renderer
         self.owns = owns
+        self._held = threading.local()  # this thread already holds the lock (it is re-entrant)
 
     # -- reading
 
@@ -72,7 +79,10 @@ class ChangeEngine:
         if not (self.repo / ".git").exists():
             return []
         fmt = "%h%x1f%cI%x1f%s%x1f%b%x1e"
-        out = self._git("log", f"-{limit}", f"--format={fmt}").stdout
+        log = self._git("log", f"-{limit}", f"--format={fmt}", check=False)
+        if log.returncode != 0:  # a repo with no commit yet (the first init was put back)
+            return []
+        out = log.stdout
         items = []
         for rec in filter(None, (r.strip() for r in out.split("\x1e"))):
             cid, ts, subject, body = (rec.split("\x1f") + [""] * 4)[:4]
@@ -90,10 +100,20 @@ class ChangeEngine:
         """Create the repo and apply the first profile (the default, or the one given)."""
         if refused := self._refuse():
             return refused
-        self.repo.mkdir(parents=True, exist_ok=True)
-        if not (self.repo / ".git").exists():
-            self._git("init", "-q", "-b", "main")
-        return self.apply(profile or self.profile(), INIT_SUMMARY, by=by, force=True)
+        with self._lock():
+            if not (self.repo / ".git").exists():
+                self._git("init", "-q", "-b", "main")
+            return self.apply(profile or self.profile(), INIT_SUMMARY, by=by, force=True)
+
+    def change(self, build: Callable[[Profile], tuple[Profile, str]], *, by: str = "exo") -> Result:
+        """Read the profile, build the new one from it and apply it, all under the change lock, so that
+        overlapping changes (two sessions, or the agent and `exo-os set`) cannot overwrite each other.
+        `build(profile)` returns `(new_profile, summary)`; a ProfileError it raises passes through."""
+        if refused := self._refuse():
+            return refused
+        with self._lock():
+            new, summary = build(self.profile())
+            return self.apply(new, summary, by=by)
 
     def apply(self, new: Profile, summary: str, *, by: str = "exo", undoes: str = "",
               force: bool = False) -> Result:
@@ -128,50 +148,60 @@ class ChangeEngine:
             proposed = self.ledger.append("change.proposed", {"summary": summary, "by": by, "diff": diff,
                                                               "undoes": undoes})
             backup = self._snapshot(new_files)
-            self._write(new_files)
+            head = self._head()
             notes: list[str] = []
-            for check in self.checks:
-                try:
-                    ok, note = check(self.config_home, new)
-                except Exception as e:  # a crashing check is a failed check
-                    ok, note = False, f"{getattr(check, '__name__', 'check')} crashed: {e}"
-                notes.append(note)
-                if not ok:
-                    self._restore(backup)
-                    for again in self.checks:  # bring the live session back to the old files
-                        try:
-                            again(self.config_home, None)
-                        except Exception:
-                            pass
-                    self.ledger.append("change.reverted", {"summary": summary, "by": by, "check": note,
-                                                           "proposed": proposed})
-                    return Result(False, "That did not work, so I put it back.", diff=diff, checks=notes,
-                                  reverted=True)
-            self._git("add", "-A")
-            body = f"by: {by}" + (f"\nundoes: {undoes}" if undoes else "")
-            self._git("commit", "-q", "--allow-empty", "-m", summary, "-m", body)
-            change = self._git("rev-parse", "--short", "HEAD").stdout.strip()
-            self.ledger.append("change.applied", {"summary": summary, "by": by, "change": change, "diff": diff,
-                                                  "undoes": undoes, "checks": notes, "proposed": proposed})
+            try:
+                self._write(new_files)
+                for check in self.checks:
+                    try:
+                        ok, note = check(self.config_home, new)
+                    except Exception as e:  # a crashing check is a failed check
+                        ok, note = False, f"{getattr(check, '__name__', 'check')} crashed: {e}"
+                    notes.append(note)
+                    if not ok:
+                        self._put_back(backup, head, summary, by, note, proposed)
+                        return Result(False, "That did not work, so I put it back.", diff=diff, checks=notes,
+                                      reverted=True)
+                self._git("add", "-A")
+                body = f"by: {by}" + (f"\nundoes: {undoes}" if undoes else "")
+                self._git("commit", "-q", "--allow-empty", "-m", summary, "-m", body)
+                change = self._git("rev-parse", "--short", "HEAD").stdout.strip()
+                self.ledger.append("change.applied", {"summary": summary, "by": by, "change": change, "diff": diff,
+                                                      "undoes": undoes, "checks": notes, "proposed": proposed})
+            except BaseException as exc:
+                # Anything after the write (git, the ledger, a full disk) puts the machine back and says so:
+                # a proposed change always ends as applied or reverted, never as a live change nobody recorded.
+                self._put_back(backup, head, summary, by, f"{type(exc).__name__}: {exc}", proposed)
+                raise
             return Result(True, f"{summary}. Undo?", change=change, diff=diff, checks=notes)
 
     def undo(self, change: str | None = None, *, by: str = "exo") -> Result:
-        """Put the profile back to how it was before `change` (default: the latest change)."""
-        hist = self.history(200)
-        if len(hist) < 2:
-            return Result(False, "There is nothing to undo.")
-        target = hist[0] if change is None else next((h for h in hist if h["change"].startswith(change)), None)
-        if target is None:
-            return Result(False, f"I could not find change {change}.")
-        parent = self._git("rev-parse", "--short", f"{target['change']}^", check=False)
-        if parent.returncode != 0:
-            return Result(False, "That was the first setup; there is nothing before it.")
-        old = Profile.loads(self._git("show", f"{parent.stdout.strip()}:machine.toml").stdout)
-        return self.apply(old, f"Undo: {target['summary']}", by=by, undoes=target["change"])
+        """Put the profile back to how it was before `change` (default: the latest change that changed something,
+        so a redeploy, which changes nothing, is not what gets undone)."""
+        if refused := self._refuse():
+            return refused
+        with self._lock():
+            hist = self.history(200)
+            if len(hist) < 2:
+                return Result(False, "There is nothing to undo.")
+            if change is None:
+                target = next((h for h in hist if self._changed(h["change"])), hist[0])
+            else:
+                target = next((h for h in hist if h["change"].startswith(change)), None)
+            if target is None:
+                return Result(False, f"I could not find change {change}.")
+            parent = self._git("rev-parse", "--short", f"{target['change']}^", check=False)
+            if parent.returncode != 0:
+                return Result(False, "That was the first setup; there is nothing before it.")
+            old = Profile.loads(self._git("show", f"{parent.stdout.strip()}:machine.toml").stdout)
+            return self.apply(old, f"Undo: {target['summary']}", by=by, undoes=target["change"])
 
     def redeploy(self) -> Result:
         """Write the current rendered files again (after a person or a package touched them)."""
-        return self.apply(self.profile(), "Put the desktop config back as the profile says", force=True)
+        if refused := self._refuse():
+            return refused
+        with self._lock():
+            return self.apply(self.profile(), "Put the desktop config back as the profile says", force=True)
 
     # -- internals
 
@@ -180,6 +210,36 @@ class ChangeEngine:
         if self.owns(self.config_home):
             return None
         return Result(False, NOT_OURS, checks=[f"{self.config_home / 'hypr/hyprland.lua'} does not load {DESKTOP_MARK}"])
+
+    def _head(self) -> str | None:
+        """The commit HEAD points at, or None while the repo has no commit."""
+        out = self._git("rev-parse", "--verify", "-q", "HEAD", check=False)
+        return out.stdout.strip() or None if out.returncode == 0 else None
+
+    def _changed(self, commit: str) -> bool:
+        """Did this commit change any file? (The first commit, with no parent, counts as a change.)"""
+        return self._git("diff", "--quiet", f"{commit}^", commit, check=False).returncode != 0
+
+    def _put_back(self, backup: dict[Path, bytes | None], head: str | None, summary: str, by: str, why: str,
+                  proposed: object) -> None:
+        """Undo a change that was written: the commit if one was made, the files, the live session; then
+        record change.reverted. Best effort throughout, so the caller can go on to report what went wrong."""
+        if head is not None:  # drops a commit that went in before the failure, and an index left by a failed one
+            self._git("reset", "-q", "--hard", head, check=False)
+        else:
+            self._git("update-ref", "-d", "HEAD", check=False)
+            self._git("read-tree", "--empty", check=False)
+        self._restore(backup)
+        for again in self.checks:  # bring the live session back to the old files
+            try:
+                again(self.config_home, None)
+            except Exception:
+                pass
+        try:
+            self.ledger.append("change.reverted", {"summary": summary, "by": by, "check": why,
+                                                   "proposed": proposed})
+        except Exception:
+            pass  # the ledger itself may be what failed; the original error is still raised
 
     def _planned_files(self, profile: Profile) -> dict[str, str]:
         files = {"machine.toml": profile.dumps()}
@@ -243,10 +303,15 @@ class ChangeEngine:
 
     @contextmanager
     def _lock(self) -> Iterator[None]:
+        if getattr(self._held, "on", False):  # already held by this thread (change -> apply, undo -> apply)
+            yield
+            return
         self.repo.mkdir(parents=True, exist_ok=True)
         with open(self.repo.parent / f".{self.repo.name}.lock", "w") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
+            self._held.on = True
             try:
                 yield
             finally:
+                self._held.on = False
                 fcntl.flock(fh, fcntl.LOCK_UN)

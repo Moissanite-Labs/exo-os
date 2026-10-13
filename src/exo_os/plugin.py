@@ -23,7 +23,7 @@ from typing import Any
 from . import apps, paths
 from .changes import ChangeEngine
 from .ledger import open_sink
-from .profile import FIELDS, ProfileError
+from .profile import FIELDS, Profile, ProfileError
 from .words import LABELS, set_summary, value_words
 
 PLUGIN_MANIFEST = {"name": "exo-os", "version": "0.1.0",
@@ -66,34 +66,32 @@ def machine_show(args: dict, **kw: Any) -> str:
 
 def machine_set(args: dict, **kw: Any) -> str:
     path, value = args["setting"], args["value"]
-    eng = _engine()
     try:
-        new = eng.profile().set_value(path, value)
+        return _result(_engine().change(lambda prof: (prof.set_value(path, value), set_summary(path, value)),
+                                        by=_by(kw)))
     except ProfileError as e:
         raise _error(f"Not changed: {e}") from None
-    return _result(eng.apply(new, set_summary(path, value), by=_by(kw)))
 
 
 def machine_app_put(args: dict, **kw: Any) -> str:
     app = {k: args[k] for k in ("name", "url", "command", "key", "workspace", "autostart") if args.get(k) is not None}
-    eng = _engine()
-    prof = eng.profile()
-    verb = "Changed" if prof.app(app.get("name", "")) else "Added"
+
+    def build(prof: Profile) -> tuple[Profile, str]:
+        verb = "Changed" if prof.app(app.get("name", "")) else "Added"
+        return prof.put_app(app), f"{verb} {app['name']}" + (f" on {app['key']}" if app.get("key") else "")
+
     try:
-        new = prof.put_app(app)
+        return _result(_engine().change(build, by=_by(kw)))
     except ProfileError as e:
         raise _error(f"Not changed: {e}") from None
-    return _result(eng.apply(new, f"{verb} {app['name']}" + (f" on {app['key']}" if app.get("key") else ""),
-                             by=_by(kw)))
 
 
 def machine_app_unbind(args: dict, **kw: Any) -> str:
-    eng = _engine()
     try:
-        new = eng.profile().drop_app(args["name"])
+        return _result(_engine().change(lambda prof: (prof.drop_app(args["name"]), f"Removed {args['name']}"),
+                                        by=_by(kw)))
     except ProfileError as e:
         raise _error(f"Not changed: {e}") from None
-    return _result(eng.apply(new, f"Removed {args['name']}", by=_by(kw)))
 
 
 def machine_changes_list(args: dict, **kw: Any) -> str:
