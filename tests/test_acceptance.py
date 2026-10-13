@@ -404,3 +404,98 @@ def test_complete_acceptance_passes_and_cleans_up(tmp_path):
     ssh = None
     r = run_harness(tmp_path, "accept_start 1 1024; pass=6; accept_finish", ssh_body=ssh)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+KEYRING_UNIT = (Path(__file__).resolve().parents[1]
+                / "image/mkosi.extra/usr/lib/systemd/system/exo-os-pacman-init.service")
+
+
+def keyring_ssh(tmp_path, **unit):
+    """Answer `systemctl show` like systemd would for a unit in the given state; no sleeping."""
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    (bin_dir / "sleep").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "systemctl").write_text(
+        '#!/bin/sh\n# systemctl show -p PROP --value UNIT\n'
+        'case "$3" in ActiveState) echo "$FAKE_ACTIVE";; Result) echo "$FAKE_RESULT";; '
+        'ExecMainExitTimestampMonotonic) echo "$FAKE_EXIT";; esac\n')
+    for tool in ("sleep", "systemctl"):
+        (bin_dir / tool).chmod(0o755)
+    env = " ".join(f"{k}={shlex.quote(v)}" for k, v in
+                   {"FAKE_ACTIVE": unit["active"], "FAKE_RESULT": unit["result"], "FAKE_EXIT": unit["exit"]}.items())
+    return f'''if [[ $* == *"sh -c"*"systemctl show"* ]]; then PATH={shlex.quote(str(bin_dir))}:$PATH {env} sh -c "$*";
+    else return 0; fi'''
+
+
+@pytest.mark.parametrize("state", [
+    # skipped by its condition (marker already present): inactive, but never ran
+    dict(active="inactive", result="success", exit="0"),
+    # still running its second command: a oneshot is "activating", never "active"
+    dict(active="activating", result="success", exit="0"),
+    dict(active="activating", result="success", exit="123456"),
+    dict(active="failed", result="exit-code", exit="123456"),
+])
+def test_keyring_wait_fails_unless_the_unit_ran_and_succeeded(tmp_path, state):
+    r = run_harness(tmp_path, "accept_keyring; echo FALSE_PASS", ssh_body=keyring_ssh(tmp_path, **state))
+    assert r.returncode != 0 and "FALSE_PASS" not in r.stdout
+    assert "keyring: The first-boot keyring unit did not run" in r.stdout
+
+
+def test_keyring_wait_passes_after_a_successful_run(tmp_path):
+    r = run_harness(tmp_path, "accept_keyring; echo REACHED",
+                    ssh_body=keyring_ssh(tmp_path, active="inactive", result="success", exit="123456"))
+    assert r.returncode == 0 and "REACHED" in r.stdout, r.stdout + r.stderr
+
+
+def test_keyring_wait_requires_the_keyring_file(tmp_path):
+    body = keyring_ssh(tmp_path, active="inactive", result="success", exit="123456").replace(
+        "else return 0; fi", "elif [[ $* == *trustdb.gpg* ]]; then return 1; else return 0; fi")
+    r = run_harness(tmp_path, "accept_keyring; echo FALSE_PASS", ssh_body=body)
+    assert r.returncode != 0 and "FALSE_PASS" not in r.stdout
+
+
+def test_image_carries_no_pacman_keyring(tmp_path):
+    root = Path(__file__).resolve().parents[1] / "image"
+    assert not (root / "mkosi.extra/etc/pacman.d/gnupg").exists()
+    # The first-boot unit runs until its marker exists, so postinstall must leave no keyring behind.
+    unit = KEYRING_UNIT.read_text()
+    assert "ConditionPathExists=!/etc/pacman.d/gnupg/exo-os-populated" in unit
+    assert unit.index("--populate") < unit.index("ExecStartPost=/usr/bin/touch /etc/pacman.d/gnupg/exo-os-populated")
+    lines = [ln for ln in (root / "mkosi.postinst.chroot").read_text().splitlines()
+             if ln.startswith("rm -rf") and "/etc/pacman.d/gnupg" in ln]
+    assert len(lines) == 1
+    fake = tmp_path / "etc/pacman.d/gnupg"
+    fake.mkdir(parents=True)
+    (fake / "trustdb.gpg").write_text("baked in\n")
+    (fake / "private-keys-v1.d").mkdir()
+    r = subprocess.run(["sh", "-c", lines[0].replace("/etc/pacman.d/gnupg", str(fake))],
+                       text=True, capture_output=True)
+    assert r.returncode == 0, r.stderr
+    assert not fake.exists()
+    assert (tmp_path / "etc/pacman.d").is_dir()
+
+
+def test_keyring_wait_fails_when_the_private_key_predates_the_boot(tmp_path):
+    # The unit can succeed on a keyring baked into the image: pacman-key --init keeps an existing secret key.
+    body = keyring_ssh(tmp_path, active="inactive", result="success", exit="123456").replace(
+        "else return 0; fi", "elif [[ $* == *btime* ]]; then return 1; else return 0; fi")
+    r = run_harness(tmp_path, "accept_keyring; echo FALSE_PASS", ssh_body=body)
+    assert r.returncode != 0 and "FALSE_PASS" not in r.stdout
+    assert "baked into the image" in r.stdout
+
+
+def test_keyring_key_age_check_compares_with_boot_time(tmp_path):
+    # Run the real remote command against stand-in /proc/stat and gpg output.
+    cmd = next(ln for ln in HARNESS.read_text().splitlines() if ln.lstrip().startswith("fresh_key="))
+    cmd = cmd.split("=", 1)[1].strip().strip("'")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gpg").write_text('#!/bin/sh\necho "sec:u:255:22:ABCDEF:$KEY_TIME:::u:::scESC:::+:::23::0:"\n')
+    (bin_dir / "gpg").chmod(0o755)
+    stat = tmp_path / "stat"
+    stat.write_text("cpu 1 2 3\nbtime 1000000\n")
+    cmd = cmd.replace("/proc/stat", str(stat))
+    for key_time, ok in (("1000030", True), ("999950", True), ("900000", False)):
+        r = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True,
+                           env={"PATH": f"{bin_dir}:/usr/bin:/bin", "KEY_TIME": key_time})
+        assert (r.returncode == 0) is ok, (key_time, r.stderr)

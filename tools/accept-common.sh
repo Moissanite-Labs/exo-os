@@ -211,7 +211,20 @@ print("ok")'
 }
 
 accept_keyring() {
-  ssh_vm 'timeout 120 sh -c '\''until [ -e /etc/pacman.d/gnupg/trustdb.gpg ] && ! systemctl is-active -q exo-os-pacman-init; do sleep 2; done'\'''
+  # exo-os-pacman-init.service is a oneshot: systemd reports it "activating" while it runs, and
+  # "inactive" both after a successful run and when its condition skipped it. Wait for a recorded
+  # successful run on this boot, not for a keyring. Then check the private key itself was made on this
+  # boot: `pacman-key --init` keeps a secret key it finds, so a keyring baked into the image would let
+  # the unit succeed without ever making this machine's own key.
+  local wait fresh_key
+  wait='u=exo-os-pacman-init.service; n=0; until [ "$(systemctl show -p ActiveState --value $u)" = inactive ] && [ "$(systemctl show -p Result --value $u)" = success ] && [ "$(systemctl show -p ExecMainExitTimestampMonotonic --value $u)" != 0 ]; do n=$((n+1)); [ $n -le 60 ] || exit 1; sleep 2; done'
+  fresh_key='b=$(grep ^btime /proc/stat | cut -d" " -f2); c=$(gpg --homedir /etc/pacman.d/gnupg --with-colons -K | grep ^sec: | head -n 1 | cut -d: -f6); [ -n "$c" ] && [ "$c" -ge $((b - 60)) ]'
+  if ! ssh_vm "sh -c '$wait'" || ! ssh_vm 'test -s /etc/pacman.d/gnupg/trustdb.gpg && test -e /etc/pacman.d/gnupg/exo-os-populated' \
+      || ! ssh_vm "sh -c '$fresh_key'"; then
+    ssh_vm 'systemctl show -p ConditionResult,ActiveState,Result,ExecMainExitTimestampMonotonic exo-os-pacman-init.service; ls -ld /etc/pacman.d/gnupg' >&2 || true
+    result keyring 0 'The first-boot keyring unit did not run and finish on this boot, left no populated keyring, or its private key was made before this boot (a keyring baked into the image).'
+    exit 1
+  fi
 }
 
 accept_verify() {
