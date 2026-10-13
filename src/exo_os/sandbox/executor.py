@@ -11,7 +11,7 @@ from .runner import SANDBOX_TOOLS, run
 # App definition writes are deliberately absent: a command there would execute outside the sandbox.
 CONTROL_TOOLS = frozenset({"machine_show", "machine_changes_list", "machine_set", "machine_undo",
                            "machine_app_unbind", "app_open", "system_package_install", "system_snapshot_undo",
-                           "system_snapshots_list", "timeline_show"})
+                           "system_snapshots_list", "timeline_show", "credential_request"})
 
 
 class LinuxExecutor:

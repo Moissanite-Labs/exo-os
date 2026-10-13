@@ -13,6 +13,13 @@ for b in exo exo-os exo-surface exo-os-setup exo-os-recovery; do ln -sf "/opt/ex
 
 # The person. Phase 1 has one account with automatic login; onboarding will create it in later phases.
 getent group exo-sys >/dev/null || groupadd --system exo-sys
+# Static broker principal; the desktop account receives no credential files.
+getent group exo-egress >/dev/null || groupadd --system exo-egress
+id exo-egress >/dev/null 2>&1 || useradd --system --gid exo-egress --no-create-home \
+    --home-dir /var/lib/exo-egress --shell /usr/bin/nologin exo-egress
+# Repart copies this root-controlled source into persistent @egress. On boot,
+# StateDirectory changes its ownership after the required mount is present.
+install -d -m 0700 /var/lib/exo-egress
 id exo >/dev/null 2>&1 || useradd --create-home --groups wheel,exo-sys,video,input --shell /bin/bash exo
 passwd --lock exo >/dev/null
 install -d -m 0700 /var/lib/exo/exo /var/lib/exo-sysd
