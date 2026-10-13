@@ -130,5 +130,14 @@ operation through the authenticated signer after the older-root boot and service
 restart. Key material is never copied into acceptance reports.
 Any missing prerequisite, malformed output, wrong VM or missed reboot fails.
 A successful host fixture test is not evidence of an actual boot. The report is
-`image/out/accept-recovery.txt` when this script is run; this implementation has
-not yet passed a real VM reboot.
+`image/out/accept-recovery.txt` when this script is run.
+
+On 2026-10-13, the older `5a86e3b` image with core `cff62d1` passed all ten checks
+through an actual older-root reboot. Current home/store, signer history, helper
+audit, model-spend stop and synthetic egress reservation survived. The first
+attempt ended in host OOM and remains retained separately.
+
+The built `7170b3d` image still needs its own recovery acceptance. Witness receipt
+persistence, power-loss behavior and hardware/soak checks remain unrun. Exact
+identities, report hashes and limits are in
+[VALIDATION.md](VALIDATION.md#historical-image-5a86e3b).

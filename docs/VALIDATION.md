@@ -1,24 +1,209 @@
 # Runtime and isolation validation
 
-Checks on 2026-10-13. The staged witness-publisher candidate pins Exo
-`cff62d1e1afbc861e410659f1f26f01afd1ed249`, as recorded in `exo.pin`.
-OS `67fe0c7` pins the protected spending policy; `8b02677` adds the VM-only boot
-timing fix below; `a3cdf74` adds the portable Linux spend-test fixture. The
-candidate pin includes the model-spend boundary, required executor/gate binding,
-CoreRuntime/application composition split, and the witness transport implementation.
+Checks recorded on 2026-10-13. The `7170b3d` `vmtest` image built successfully
+and passed a read-only image audit. Fresh VM acceptance is incomplete: phase 3
+passed seven checks and failed one. Its core pin
+is unchanged from the older `5a86e3b` image, but that image's passing suites do
+not transfer to this build.
+
+## Current image evidence
+
+| Identity | SHA256 or commit |
+|---|---|
+| Built OS | `7170b3d96ec20a335d16a4f683904b9de47f3937` |
+| Pinned core | `cff62d1e1afbc861e410659f1f26f01afd1ed249` |
+| Raw image SHA256 | `8fd413b1a105e500512ba3a8089f9df28043d6bf9fd5db58dc2f7fad140e156f` |
+| Runtime/image source digest | `d5eeb7d65f3c3a77f4339ccf61bad1e0fea9883d9ad57ea55dfe4aba9dce30d9` |
+| Committed acceptance harness | `b5e92912e221fa167312839c073d42efa7da48be` |
+
+Build exit status is `0`. The read-only audit reports `PASS`, including modes on
+1,657 protected paths, the embedded core pin and build manifest. Its service-only
+Cairo override is confined to `vmtest`. Production rendering is unchanged.
+Evidence is retained under `image/out/build-7170b3d/build-provenance/` and
+`image/out/build-7170b3d/audit-7170b3d-cff62d1/`. These establish the built artifact,
+not successful completion of desktop, isolation, spending, recovery or witness acceptance.
+
+| Fresh-image check | Status |
+|---|---|
+| Phase 3, harness `b5e9291` | Failed: 7 passed, 1 failed, harness exit `1` |
+| Ledger, zero-paid spending, recovery, phases 1–2 and isolation | Pending |
+| Native AT-SPI accessibility and four witness kernel cases and one installed-flow case | Pending |
+| Witness receipts through normal and older-root reboot | Pending |
+| Loaded browser pages, memory and Urdu pixels | Pending |
+
+### Fresh phase-3 attempt
+
+The report dated `2026-10-13T14:11:56Z` names the `7170b3d` image and separate
+`b5e9291` harness. Its successful checks cover provenance, fake-only model routes,
+palette app launch, a question answer, explicit F6 review followed by Y for the
+exact pending request, a drawer panel and app launch with exod stopped. The
+installed approval flow resolved allow and installed `htop`.
+
+The GTK probe failed at line 147 after five seconds waiting for a visible
+unsolicited drawer with the bar active and entry focus retained. The attempt did
+not capture actual failing visibility/focus state, so its cause remains unknown.
+The probe stopped before the native held-F6 test. The installed F6/Y result does
+not establish all approval adversarial checks or that unreached repeat coverage.
+
+Retained screenshots show readable palette text, the pending approval card,
+review details/buttons and the answer. Normal and offline launch each recorded
+valid exact `foot` window counts from 0 to 1. A timed-out intermediate IPC
+observation remains invalid evidence. These observations do not measure actual
+app startup latency. Surface PSS was 60 MiB, labelled MB by the script. No
+memory-budget conclusion follows.
+
+The failed report and logs remain in
+`image/out/build-7170b3d/acceptance-7170b3d-cff62d1/06-phase3-attempt1-b5e9291/`.
+Report `accept-phase3.txt` SHA256:
+`332bb956ecd10b6770f24059f27b1592ea04e95f04583177ba1ceb9545a0eec7`.
+Any further state diagnostic is separate evidence and does not replace this run.
+
+### Later focus diagnostics on the same raw image
+
+These tools-only diagnostics used the unchanged `7170b3d` raw image and core
+`cff62d1`. They neither installed a runtime repair nor passed phase-3 acceptance.
+The original seven-pass, one-fail report remains the acceptance result.
+
+Attempt 08 observed a local GTK focus target while `Gtk.Window.is_active()` was
+false. Attempt 10 delivered the full `exo focus marker` through actual keyboard
+input with that GTK flag false. The flag is informational. It cannot establish
+keyboard delivery on its own. Those observations did not test typing across a
+panel update.
+
+Attempt 14 used the shared version-2 observer against the old installed runtime.
+It failed actual typing during an unsolicited panel update. Attempt 16 added
+input-state observation to that stage. All 16 physical keys arrived. The panel
+callback changed the selection from empty to `[0, 4]` over the `exo ` prefix.
+The next key, `f`, replaced that selection. The final entry and model text were
+`focus marker`, rather than `exo focus marker`. This identifies text selection
+loss in that diagnostic. It does not retrospectively identify the original
+attempt's unrecorded state.
+
+The trace is retained at
+`16-panel-update-diagnostic-attempt1-7d7f559/evidence/out/panel-update-input-trace.json`
+under the current acceptance directory. No runtime or acceptance-probe repair
+was installed for that diagnostic. Full surface restoration was not confirmed
+within 30 seconds. QEMU was then stopped. The raw backing image was unchanged.
+Neither this shutdown nor the diagnostic establishes successful restoration.
+
+### Source repairs awaiting a fresh build
+
+The selected source repairs cover the test budget (PR 84), spending across a
+fork and crash (85), decoded writer keys (86), witness publication checks (89),
+build receipts (90), complete host generations (92), and focus lifecycle and
+version-2 observation (94). Their inclusion in a local composition is source
+work, not evidence that they run in the `7170b3d` image.
+
+The local combined candidate is `adce2fa`, which adds only the `e41f22c`
+documentation merge to `da7588a`. Selected repair heads are in its ancestry.
+No GitHub merge or new native image build is claimed. The macOS focus candidate
+at runtime `a048a58` with the later documentation-only `e41f22c` recorded 754 passing tests,
+21 skipped and five timing failures in 455.55 seconds.
+Independent full Linux ARM host validation of the frozen source candidate
+remains pending. Native witness acceptance requires four kernel cases and one
+installed-flow case, five cases total. All five remain pending on the fresh image.
+
+The core pin remains `cff62d1`. OS work tracked in issues 16 and 18 awaits the
+stable shared-core authority/cursor contract tracked in core issue 109.
+Credential issue 71 and sandbox issue 22 require decisions. This record assumes
+no ruling on either issue.
+
 The publisher is disabled by default and requires explicit administrator action.
-Results below name the source and dependency they exercised. Host tests do not
-establish Linux enforcement, a booted candidate image, an independent witness
-endpoint, or a successful recovery reboot. The earlier `vmtest` image at OS
-`eb50e7c` and core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5` booted and
-passed 12 ledger checks, then reached two model-spend checks before acceptance
-stopped on missing installed required-plugin packaging. That run was archived,
-not a seven-suite pass, and excludes this witness candidate. The staged plugin
-packaging fix has host coverage below; a new image and its acceptance remain pending.
+No endpoint under independent administration is deployed. Real paid-model chat
+and a deliberate paid cap test need a test key, prices and limits. Orca speech,
+voice/phone clients, accessible keycaps, onboarding, spare-hardware trial,
+phone authentication, weeks of soak and a working-machine trial remain
+unverified. Build or host results do not close those criteria.
+
+## Historical image `5a86e3b`
+
+These reports were produced on 2026-10-13 in x86-64 QEMU/TCG `vmtest` guests.
+They apply only to the identified older artifact. Counts include each suite's
+provenance check. The five successful suites total 47 passing checks.
+
+| Identity | SHA256 or commit |
+|---|---|
+| Built OS | `5a86e3ba39d359e4e747d30cd0f9c50050775c22` |
+| Pinned core | `cff62d1e1afbc861e410659f1f26f01afd1ed249` |
+| Raw image SHA256 | `8564b1e5c2cba0a79e3adba996304139247a9060f76941f6d6e5e028dac83ee1` |
+| Runtime/image source digest | `18929bcb026b4a209755984998c0cf35b32e8c8d8183e12f9163d0c3892795c8` |
+
+| Suite | Report result | Evidence and limit |
+|---|---|---|
+| Protected ledger | 12 passed, 0 failed | Installed signer, projection verification, tamper and outage checks. No off-machine witness |
+| Model spend | 12 passed, 0 failed | Tools-only harness `e26775fefdaecf93936759e31dd52cc930edcdf8`. Offline fake turns, mocked HTTP refusals, persistent UUID/stop and readable transcripts. No paid request |
+| Recovery | 10 passed, 0 failed | Actual older-root reboot. Current home/store, signer, helper, stopped spending journal and synthetic egress reservation retained. Original root preserved |
+| Phase 1 | 6 passed, 0 failed | Wayland desktop, daemon restart, offline chat, portable signed prefix through sequence 7 and live profile change. Three Chromium windows were visually blank |
+| Phase 2 | 7 passed, 0 failed | 20 applied changes, 19 commits with diffs, 39 added ledger rows. Automatic revert, profile/package undo, root refusals and no boot tools. Signed prefix through sequence 49 |
+| Phase 3 | 3 passed, 5 failed. Harness failed | App launch, approval, drawer, offline launch and GTK checks failed |
+| Isolation | 12 passed, 1 failed. Harness failed | Spending-state oracle assumed Bash `is_error` proved access. Raw outcome missing, so neither spending-state denial nor disclosure is confirmed |
+
+Reports remain under `image/out/build-5a86e3b/acceptance-5a86e3b-cff62d1/`.
+Only the result summary and artifact identifiers are recorded here. Raw logs,
+VM overlays, firmware and private state are not published.
+
+| Relative report | SHA256 |
+|---|---|
+| `01-ledger-attempt1/accept-ledger.txt` | `a7747ad2f7ef4f9311330ba4af4c8bafad106f28a2f79fe4daee0f2070560d12` |
+| `02-model-spend-attempt2-e267/accept-model-spend.txt` | `b0c9440a701e7545430787eded33da9dd66f85a3e786e8ae12776ad07a0cc707` |
+| `03-recovery-attempt2/accept-recovery.txt` | `be4cb74a5b2daf05312811440675aafe5e038bcd482bb2ee63e001901e5cca18` |
+| `04-phase1-attempt1/accept-phase1.txt` | `cc91704340d2c0b1c962b2c70aa6a8bff3186ba4e027e18b4b79d59ac21ea0f4` |
+| `05-phase2-attempt1/accept-phase2.txt` | `38366fa24db9c87a8e18bbf44baaae151c5a5868becc8c4f4fe303ac44a56e8a` |
+| `06-phase3-attempt1/accept-phase3.txt` | `5e20cb0d60fe0e2b3366c2d1ab06e4ded10705681abb0375d797e028b80a3010` |
+| `07-isolation-attempt1/accept-isolation.txt` | `37edadab0d83a78f3baef467421d15204f027f502d9648e15128f62fbe2bc677` |
+
+The first spending attempt exited `1`: its probe omitted the required protected
+policy environment, and a boot-order service restart disrupted the desktop.
+Report SHA256: `b761d1bf78fbbbc11f4655c1e1774fe2ef2001ffba1a9749f7937b78b1116ae4`.
+Its corrected tools-only retry retained the installed image identity and digest.
+
+The first recovery attempt exited `255` after host OOM killed QEMU at a forced
+3072 MiB guest allocation. Report SHA256:
+`23f74c1cd361ce02265d9692e369231e70db81f39d591f79f9149c47e2d5908c`.
+The successful retry used recovery's declared 2048 MiB default. Both failed
+attempts remain retained and are excluded from the successful-suite count.
+
+The old phase-3 diagnosis recorded missing surface glyphs and a delayed allow.
+Source review found that ordinary Y/N typing could enter approval. The retained
+VM logs do not establish the exact keystroke that caused the delayed allow.
+
+The phase-1 Chromium figures are launch-only measurements in
+[MEASUREMENTS.md](MEASUREMENTS.md). The phase-3 approval fix is included in the
+new image. The corrected isolation oracle is in the committed harness. Neither
+fix changes the status of its historical failed run.
+
+### Renderer diagnostic on the older image
+
+Attempt 4 compared baseline, a temporary service-only Cairo override and restored
+baseline on the same `5a86e3b` image. At 20 seconds the baseline and restored
+prompt screenshots were visually blank and byte-identical, SHA256
+`f9e4422c74f48d63866cb3e42263baba355a1b4877d1d036e6d6950f2314a9f4`.
+Cairo showed readable placeholder and palette text, including `Termi`,
+`Open Terminal` and `Ask Exo: Termi`.
+
+All three arms observed exact `foot` counts from 0 to 1 through recorded IPC
+queries. This diagnostic does not measure actual launch latency. It justified
+the `vmtest` service override, not a production-renderer or hardware claim.
+Fresh-image prompt, approval details/buttons, drawer, browser and Urdu visual
+review remain required.
+
+| Artifact in `08-rendering-diagnostic-attempt4/` | SHA256 |
+|---|---|
+| `diagnose-rendering.txt` | `eac18c33311cf85e1613e1156cc185c476069ec494deac58012759e69fa352f2` |
+| `files-portable.sha256` | `38d97c0a36de11b16f56d49f437e805126b75b8969e84529794250870d638db9` |
+
+## Host checks and older image evidence
+
+Host tests establish behavior in their stated source/environment. They do not
+establish deployment-kernel enforcement, a booted new image or an independent
+endpoint. The earlier `eb50e7c`/core `cb36a4a` image passed twelve ledger checks,
+then stopped after two spending checks on missing required-plugin packaging.
+That archived attempt is not a seven-suite pass.
 
 | Check | Result | Boundary of evidence |
 |---|---|---|
-| Current witness and required-plugin packaging candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 579 passed, 20 skipped | OS `2a14e31aaaeb3289a75315b85bd820ffd5fc3d99` with this pending pin update, clean isolated core `cff62d1e1afbc861e410659f1f26f01afd1ed249`; includes the installed-layout `application.create()` case and witness regressions. Root ownership is simulated; Linux witness enforcement, new-image boot/acceptance and an independent endpoint remain unverified |
+| Reviewed tools-only readiness draft, macOS arm64, Python 3.13, `python -m pytest -q` | 707 passed, 21 skipped | Draft based on `7170b3d`, core `cff62d1`. Now committed as harness `b5e9291`. Recorded checks cover Python static analysis/compile, shell syntax and whitespace. Runtime/image digest unchanged. Fresh native VM checks remain pending |
+| Earlier witness and required-plugin packaging candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 579 passed, 20 skipped | OS `2a14e31aaaeb3289a75315b85bd820ffd5fc3d99` with the then-pending pin update, clean isolated core `cff62d1e1afbc861e410659f1f26f01afd1ed249`. Includes the installed-layout `application.create()` case and witness regressions. Root ownership is simulated. Linux witness enforcement, new-image boot/acceptance and an independent endpoint remain unverified |
 | Earlier witness and required-plugin packaging candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 579 passed, 20 skipped | OS `085db2e80624bb2a490069894cf35a646de7495c`, core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; includes production plugin-folder staging and a real `application.create()` with the required executor and plugins. Root ownership is simulated; Linux witness enforcement, new-image boot/acceptance and an independent endpoint remain unverified |
 | Earlier witness candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 576 passed, 20 skipped | OS `b03b79e4802d4f0d77a5b00c39af1b45b164220d` with a then-pending pin update to clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; includes witness alias-separation and malformed-response regressions. Root ownership is simulated; Linux enforcement, image delivery/boot and an independent endpoint remain unverified |
 | Earlier staged witness candidate host suite, macOS arm64, `.venv/bin/pytest -q` | 525 passed, 20 skipped | Staged source tree `a9401a6c7061ca44336fa451d5e911d94e580c15`, based on OS `e9cec25`, core `b060974a514cf08c0765119e2e8d952682102a0c`; includes 53 witness host cases and a real loopback mTLS protocol check. Root-ownership behavior is simulated. Three explicit Linux tests were not run; this does not establish Linux ownership/enforcement, image delivery or boot, or an independent endpoint |
@@ -32,14 +217,14 @@ packaging fix has host coverage below; a new image and its acceptance remain pen
 | Historical Linux namespace run, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Earlier OS `5773dc4` and core `a915e62`; actual bubblewrap, Landlock and seccomp in a disposable privileged container with no host mounts |
 | Shared core authority, witness and read-only verification | 82 passed | Core `b3149a9`; durable commits, replay, independent receipt validation, canonical CLI corruption checks and concurrent verification |
 | Full core suite and plugins, macOS arm64, Python 3.13 | 1,434 core tests and 749 plugin tests passed | Core `b3149a9`; 65 core skips and one explicitly deselected external legacy-relay integration; all six plugins also passed separately |
-| Current core suite and six plugin suites, macOS arm64, Python 3.13 | 1,738 core tests passed, 65 skipped; 753 plugin tests passed | Clean isolated core `cff62d1e1afbc861e410659f1f26f01afd1ed249`, with core and TUI imports verified from that checkout; no deselection. Each plugin ran in its own pytest process. The core budget measures 15,992 lines against the unchanged 16,000 ceiling; these are source tests, not independent review or Linux/image acceptance |
+| Earlier pinned-core suite and six plugin suites, macOS arm64, Python 3.13 | 1,738 core tests passed, 65 skipped. 753 plugin tests passed | Clean isolated core `cff62d1e1afbc861e410659f1f26f01afd1ed249`, with core and TUI imports verified from that checkout. No deselection. Each plugin ran in its own pytest process. The core budget measures 15,992 lines against the unchanged 16,000 ceiling. These are source tests, not independent review or Linux/image acceptance |
 | Earlier core suite and six plugin suites, macOS arm64, Python 3.13 | 1,691 core tests passed, 65 skipped; 753 plugin tests passed | Clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; no deselection. Each plugin was run in its own pytest process because their local `conftest` imports collide when collected together. The core budget measured 15,989 lines against the unchanged 16,000 ceiling; these are historical source tests, not Linux/image acceptance |
 | Earlier core suite and plugins, macOS arm64, Python 3.13 | 1,611 core tests and 753 plugin tests passed | Core `cb36a4a`; 65 core skips, no deselection; the core budget test measures 15,989 lines against a 16,000 ceiling; these are source tests, not independent security review or image acceptance |
 | Earlier core suite and plugins, macOS arm64, Python 3.13 | 1,581 core tests and 752 plugin tests passed | Core `11008a8`; 65 core skips, no deselection; all six plugins passed separately and together; the earlier budget test measured 15,982 lines |
 | systemd unit dependency graph | passed | Provision/socket/service/firstboot graph checked in Linux with unavailable image executable paths replaced only in temporary validation copies; actual first boot remains necessary |
-| Current Ruff `--select F`, `src tests` | passed | OS `2a14e31`, Python static checks |
-| Current `bash -n tools/*.sh` | passed | OS `2a14e31`, shell syntax, not a VM acceptance run |
-| Current `git diff --check` | passed | OS `2a14e31` plus this pin and documentation update; whitespace/conflict-marker check |
+| Earlier Ruff `--select F`, `src tests` | passed | OS `2a14e31`, Python static checks |
+| Earlier `bash -n tools/*.sh` | passed | OS `2a14e31`, shell syntax, not a VM acceptance run |
+| Earlier `git diff --check` | passed | OS `2a14e31` plus the then-pending pin and documentation update. Whitespace/conflict-marker check |
 
 The full core run used an isolated checkout and a closed local bus address. The
 earlier `b3149a9` legacy-relay test was deselected because it autodetects an unrelated local
@@ -57,8 +242,8 @@ callback. The test now waits for both readiness and a session; all 21 connection
 tests and the full OS suite passed. Runtime connection behavior was unchanged.
 The pinned core now contains the required-executor argument-binding and gate-loading
 follow-up (`52b4418`) and passes its source tests. Independent security review of
-that follow-up and current-image boot/acceptance are still pending; these host
-counts do not establish OS activation.
+that follow-up remains separate from image acceptance. These host counts alone
+do not establish OS activation.
 
 The combined Linux log is retained at
 `image/out/validation-25313df-cb36a4a/linux.log`, SHA256
@@ -83,7 +268,7 @@ The historical nine-pass isolation run used no supplementary groups. The
 dedicated Colima VM's AppArmor restriction on unprivileged user namespaces had
 caused bubblewrap to refuse startup; for that historical disposable test only,
 the restriction was disabled and then restored, and refusal was checked again
-after restoration. In the current run the restored value remained `1`: root
+after restoration. In the recorded namespace rerun the restored value remained `1`: root
 bubblewrap setup succeeded, while UID 65534 could neither write the nested UID
 map nor configure loopback. The rerun therefore recorded one pass and eight
 environment-blocked checks. No system setting or image policy was changed. The
@@ -211,17 +396,17 @@ the host toolchain. Dependency resolution still includes `textual>=1`.
 
 ## Still required
 
-Build a new x86-64 `vmtest` image and run `tools/accept-phase1.sh`,
-`tools/accept-phase2.sh`, the named Phase 3 invocation below, `tools/accept-isolation.sh`,
-`tools/accept-ledger.sh`, `tools/accept-recovery.sh`, and
-`EXO_OS_VM_ACCEPTANCE=1 tools/accept-model-spend.sh --vm-acceptance --image-source <full-built-OS-commit>`.
-All seven suites are required. The spend harness records the committed tool
-revision separately from the named image source, revalidates spend state as
-root without restarting the boot-order unit, and retains the shared manifest,
-runtime digest and disposable-VM identity gates. Those scripts
-were strengthened here; their historical results do not transfer to this revision.
-Image boot, systemd socket activation, pacman/snapper on btrfs, current Hyprland,
-Orca, real-model chat, and hardware/soak behavior were not exercised in this run.
+Build the selected source candidate, record its identity and audit it, then run
+all seven main suites on that fresh image: phase 1, phase 2,
+the named phase-3 invocation below, isolation, ledger, recovery and model spend.
+The corrected harness records its revision separately from the built image,
+retaining the VM identity, core pin and source-digest gates. Historical passes
+do not transfer. Native AT-SPI, the four witness kernel cases and one installed-flow case and
+receipt persistence need their separate fresh-image checks.
+
+Real-model chat, loaded-web-app memory, Orca, Urdu visual review and hardware/soak
+behavior remain unverified. The historical suites above include actual boot,
+Wayland, service activation, package changes and recovery within their limits.
 
 Kernel tests establish the stated tool-process boundary on the tested Linux
 runner, not consent enforcement inside sysd or separation of all desktop
@@ -229,12 +414,19 @@ processes. The credentialed-action service passes synthetic local TLS tests;
 no live API or credential provisioning was exercised. General response adapters
 and current-image validation of the staged, disabled-by-default witness publisher
 and independent endpoint deployment remain integration work. The protected
-OS signer is implemented and source-tested; its fresh image has not yet completed
-the runtime acceptance suite.
+OS signer has historical VM ledger/recovery evidence. The new image has not yet
+completed runtime acceptance.
 See [CORE-CONTRACT.md](CORE-CONTRACT.md).
-No working machine was migrated. Shared core changes are developed separately
-in [Exo PR 70](https://github.com/aska-digital/exo/pull/70); another development
-checkout is not modified by these checks.
+The OS repository has no hosted workflow run or successful CI claim for these
+results. Hosted core checks failed before test steps because of account billing.
+Independent review remains separate from local test results. No working machine
+was migrated. Shared core changes are developed separately
+in [executor binding PR 91](https://github.com/aska-digital/exo/pull/91),
+[model spending PR 87](https://github.com/aska-digital/exo/pull/87),
+[witness transport PR 88](https://github.com/aska-digital/exo/pull/88) and
+[authority-key alias fix PR 95](https://github.com/aska-digital/exo/pull/95),
+all included in the `cff62d1` pin. Another development checkout is not modified
+by these checks.
 
 ## Diagnostic image evidence
 

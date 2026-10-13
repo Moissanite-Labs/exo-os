@@ -79,6 +79,13 @@ usable. This is local routed-call accounting under trusted installed code; it
 does not control every same-UID process or the provider's account-wide bill.
 See [MODEL-SPEND.md](MODEL-SPEND.md).
 
+Image `7170b3d` with core `cff62d1` has build and read-only audit evidence.
+Fresh VM acceptance is incomplete: phase 3 failed its shared GTK probe after
+seven passing checks. The other six suites remain pending. The older `5a86e3b` ledger, zero-paid spending,
+recovery and phase-1/2 results apply only to that image. Its surface and isolation
+suites failed. Exact identities and limits are in
+[VALIDATION.md](VALIDATION.md#current-image-evidence).
+
 The pinned core includes the optional witness state machine and transport. It accepts
 signed checkpoints and commits a signed acknowledgment before returning it. The OS
 stages an explicit administrator publisher, disabled by default, that delivers a

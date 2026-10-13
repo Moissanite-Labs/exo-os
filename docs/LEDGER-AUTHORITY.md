@@ -105,6 +105,13 @@ in a fresh disposable VM. `tools/accept-phase1.sh` exports a coherent SQLite bac
 and checks it in plain core on the host, using public identity obtained separately
 from the protected root manifest. Neither check constitutes a deployed witness.
 
+The older `5a86e3b` image with core `cff62d1` passed twelve ledger checks and
+preserved post-checkpoint signer identity/history through an actual older-root
+reboot. Phase 1 verified a portable signed prefix through sequence 7. Phase 2
+verified sequence 49. These are historical results. Ledger acceptance on the
+built `7170b3d` image, independent witness deployment and four witness kernel cases and one installed-flow case remain pending. See
+[VALIDATION.md](VALIDATION.md#historical-image-5a86e3b).
+
 ## Independent witness handoff
 
 `exo-ledger-admin export-checkpoints` emits genesis even for an empty stream,

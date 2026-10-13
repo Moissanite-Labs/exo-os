@@ -12,8 +12,10 @@ Exo OS stays one with Exo: same core, same protocol, no fork. Exo is a dependenc
 
 The initial phases 1–3 passed their earlier VM checks, with the gaps in `ROADMAP.md`.
 The current runtime adds recoverable approvals, authenticated root receipts, compulsory isolated tool
-execution and administrator boot recovery. A fresh image is being validated; earlier VM results are
-not evidence for this revision. Built:
+execution and administrator boot recovery. The `7170b3d` image with core `cff62d1` has
+built successfully and passed its read-only image audit. Fresh VM acceptance is incomplete:
+phase 3 passed seven checks and failed its GTK probe. Results from the earlier `5a86e3b` image do not transfer to it. See
+[current validation](docs/VALIDATION.md#current-image-evidence). Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
   home, snapshots, the Exo store, protected ledger, helper audit and egress history; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
@@ -47,11 +49,12 @@ not evidence for this revision. Built:
   ceilings and no priced routes. The offline fake model remains usable. Missing or altered spend state
   blocks login; status stays readable after an accounting stop. See [model spend](docs/MODEL-SPEND.md).
 
-Still required: current-image boot/recovery acceptance, general API response adapters, independent
+Still required: fresh-image acceptance, real-model chat, loaded-web-app memory,
+native accessibility and Urdu visual checks, general API response adapters, independent
 witness deployment, voice and phone clients, and the hardware trials in `ROADMAP.md`.
 This branch pins the draft witness transport and adds optional explicit administrator
 [witness delivery](docs/WITNESS-PUBLISHER.md). Enrollment remains disabled by default;
-an independently administered endpoint and Linux image acceptance remain unconfigured.
+an independently administered endpoint remains unconfigured. Installed witness Linux acceptance is pending.
 Isolation covers model tool processes. Installed providers/plugins and the person's other desktop
 applications remain trusted; this is not a claim of separation between every same-user process.
 See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL-ISOLATION.md).

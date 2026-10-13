@@ -184,7 +184,7 @@ child results, replay, complete growing-prefix export, rollback/conflict, lost r
 bounded subprocesses and fsync failures. Root ownership is simulated on the host;
 these tests do not establish Linux kernel isolation.
 
-Four explicit Linux tests exercise real static UIDs/groups, no-network signer export,
+Four Linux kernel cases exercise real static UIDs/groups, no-network signer export,
 publisher denial of a synthetic signer key/socket, full network-worker exec with
 Landlock and loopback mTLS, and an installed worker in a separate session killed
 by Linux when its exact parent terminates. The parent-death test uses the fixed
@@ -196,8 +196,9 @@ packages; production `/opt/exo` does not need test dependencies:
 
 ```sh
 EXO_WITNESS_LINUX_ACCEPTANCE=1 /run/witness-test-runner/bin/python -m pytest \
-  tests/test_witness_linux.py \
-  tests/test_witness_publisher.py::test_real_network_worker_landlock_and_exec_roundtrip -q
+  tests/test_witness_linux.py::test_real_uid_split_denies_export_network_and_publisher_signer_access \
+  tests/test_witness_publisher.py::test_real_network_worker_landlock_and_exec_roundtrip \
+  tests/test_witness_linux.py::test_installed_separate_session_worker_dies_with_exact_parent -q
 ```
 
 A fifth opt-in case exercises the complete installed admin flow against the boot
@@ -257,6 +258,9 @@ discard with the overlay. Run it last on a fresh disposable VM. Its single JSON
 evidence record is printed with `-s`; retain it with the outer raw-image hash and
 boot UUID proof. This synthetic loopback test establishes no independent endpoint.
 
-Real image build/boot, full worker Landlock execution, power-loss/old-image persistence
-and independent remote deployment remain separate acceptance work. No current-image
-or independent-witness deployment claim follows from host test success.
+The `7170b3d` image has build and read-only audit evidence. Installed witness
+acceptance remains pending. The four kernel cases and one installed-flow case, receipt persistence through
+normal and older-root reboots, full worker Landlock execution, power-loss behavior
+and independent remote deployment remain separate checks. Unrelated historical
+VM suites do not establish witness behavior. See
+[VALIDATION.md](VALIDATION.md#current-image-evidence).
