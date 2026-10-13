@@ -149,7 +149,15 @@ class Connection:
             task = asyncio.create_task(self._send(body, quiet, client=client))
             self._commands.add(task)
             task.add_done_callback(self._commands.discard)
+            if isinstance(body, s.ApprovalRespond):
+                # A task cancelled before its first step never enters _send's try, so _send cannot report
+                # the answer as finished. Without this the card stays hidden in "answering" for good.
+                task.add_done_callback(lambda t: self._answer_cancelled(t, body.request_id))
         loop.call_soon_threadsafe(schedule)
+
+    def _answer_cancelled(self, task: asyncio.Task, request_id: str) -> None:
+        if task.cancelled():
+            self.post(self.listener.on_approval_result, request_id)
 
     def send_turn(self, text: str, mode: str = "send") -> None:
         if self.session is None:
@@ -181,8 +189,7 @@ class Connection:
             timeout = max(COMMAND_TIMEOUT, 30.0) if isinstance(body, s.ModelsList) else COMMAND_TIMEOUT
             resp = await asyncio.wait_for(client.send(body), timeout)
         except asyncio.CancelledError:
-            if approval:
-                self.post(self.listener.on_approval_result, body.request_id)
+            # An approval answer's result is posted once, by schedule()'s done callback.
             if quiet:
                 self._log_dropped(body, "cancelled")
             raise

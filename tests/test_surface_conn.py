@@ -781,3 +781,69 @@ def test_panel_signal_cancelled_in_flight_leaves_a_trace(paths, caplog):
         c.stop()  # tearing the link down cancels the answer still in flight
     _assert_one_drop_logged(caplog, "p1", "ignored", "cancelled")
     assert not [call for call in rec.calls if call[0] == "failed"]
+
+
+def test_answer_cancelled_before_it_starts_is_still_reported(paths):
+    """A click that lands in the same loop iteration as a reconnect creates its send task just as the
+    link is torn down. The task is cancelled before its first step, so _send never runs; the card must
+    still leave "answering" and come back from exod's pending list."""
+    sock, state = paths
+    sock.touch()
+    daemon = FakeDaemon()
+    holder = {}
+
+    def factory(socket):
+        client = daemon.client(socket)
+
+        async def events(**kwargs):
+            try:
+                await asyncio.Event().wait()
+                yield
+            finally:
+                if holder.get("body") is not None and not holder.get("sent"):
+                    holder["sent"] = True
+                    # the answer is submitted while this link is being torn down
+                    asyncio.get_running_loop().call_soon(lambda: holder["conn"].send(holder["body"]))
+        client.events = events
+        return client
+
+    rec = ModelRecorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct, client_factory=factory)
+    holder["conn"] = c
+    c.start()
+    try:
+        rec.wait(lambda: rec.model.approval is not None and rec.last("connected") is True)
+        rec.model.show_approvals()
+        holder["body"] = rec.model.answer("allow")
+        assert holder["body"] is not None
+        c._loop.call_soon_threadsafe(c._reconnect.set)
+        rec.wait(lambda: holder.get("sent") and len(daemon.clients) >= 2 and rec.last("connected") is True)
+        rec.wait(lambda: not rec.model.answering and rec.model.approval is not None)
+        assert rec.model.approval.request_id == "a1"
+        assert not daemon.answers  # cancelled, never sent; exod still has it pending
+    finally:
+        c.stop()
+
+
+def test_cancelled_approval_answer_is_reported_once(paths):
+    sock, state = paths
+    sock.touch()
+    daemon = FakeDaemon()
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct, client_factory=daemon.client)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is True)
+        started = threading.Event()
+
+        async def stuck(body):  # a send that never returns, so the cancel lands mid-flight
+            started.set()
+            await asyncio.Event().wait()
+        c._client.send = stuck
+        c.respond_approval("a1", "allow", "h1")
+        assert started.wait(5)
+        c._loop.call_soon_threadsafe(c._reconnect.set)
+        rec.wait(lambda: len(daemon.clients) >= 2)
+        assert [c_ for c_ in rec.calls if c_[0] == "approval_result"] == [("approval_result", "a1")]
+    finally:
+        c.stop()
