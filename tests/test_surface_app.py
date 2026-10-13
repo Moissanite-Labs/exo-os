@@ -165,6 +165,28 @@ CHILD = textwrap.dedent('''
     assert ui.card.get_visible() and ui.card.summary.get_text() == "Delete everything?"
     ui.card._answer("deny")
     assert len(sent) == n  # reopening also gets the anti-misclick arm window
+    ui.on_event(ev(s.ApprovalResolved(request_id="a2", decision="deny")))
+    from exo_os.egress import policy
+    import json
+    origin = "https://api.example.test"
+    policy.load_policy = lambda: {"messages": policy.Profile(origin, ("POST",), "/messages", "hidden_token")}
+    payload = "<b>literal markup</b>" + "full body " * 1200 + "PAYLOAD_SUFFIX"
+    call = s.ToolCall(id="c_outbound", name="credential_request", arguments={
+        "profile": "messages", "request_id": "operation_123", "expected_origin": origin,
+        "method": "POST", "path": "/messages/send", "body": payload})
+    ui.on_event(ev(s.ApprovalRequested(request_id="a3", summary="Misleading recipient", call=call,
+                                     binding="bound_origin_and_payload")))
+    pump()
+    assert ui.card.detail_scroll.get_visible() and isinstance(ui.card.detail, Gtk.TextView)
+    assert not ui.card.detail.get_editable() and ui.card.detail.get_cursor_visible()
+    buf = ui.card.detail.get_buffer()
+    text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+    assert json.loads(text.split("\\n", 1)[1])["request"]["body"] == payload
+    assert "PAYLOAD_SUFFIX" in text and origin in ui.card.summary.get_text()
+    assert ui.card.detail_scroll.get_max_content_height() == 360
+    buf.select_range(buf.get_start_iter(), buf.get_end_iter())
+    assert buf.get_has_selection()  # full request can be selected and copied
+    assert ui.card.options == ["allow", "deny"]
     ui.hide()
     pump()
     assert not ui.bar.get_visible() and not ui.drawer.get_visible()

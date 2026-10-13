@@ -270,9 +270,17 @@ class Card(Gtk.Window):
                       margin_start=40, margin_end=40)
         self.summary = _label("", "card-summary")
         self.summary.set_max_width_chars(40)
-        self.detail = _label("", "card-detail")
+        self.detail = Gtk.TextView(editable=False, cursor_visible=True, monospace=True,
+                                   wrap_mode=Gtk.WrapMode.WORD_CHAR, css_classes=["mono"])
+        self.detail.set_direction(Gtk.TextDirection.LTR)
+        self.detail.update_property([Gtk.AccessibleProperty.LABEL], ["Full request details"])
+        self.detail_scroll = Gtk.ScrolledWindow(child=self.detail, visible=False,
+                                                min_content_height=120, max_content_height=360,
+                                                propagate_natural_height=True)
+        self.detail_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.set_default_size(720, -1)
         self.buttons = Gtk.Box(spacing=24, halign=Gtk.Align.CENTER)
-        for w in (self.summary, self.detail, self.buttons):
+        for w in (self.summary, self.detail_scroll, self.buttons):
             box.append(w)
         self.set_child(box)
         keys = Gtk.EventControllerKey()
@@ -281,8 +289,9 @@ class Card(Gtk.Window):
 
     def show_card(self, summary: str, detail: str, options: list[str]) -> None:
         self.summary.set_text(summary)
-        self.detail.set_text(detail)
-        self.detail.set_visible(bool(detail))
+        self.detail.get_buffer().set_text(detail)  # literal text; never model-controlled markup
+        self.detail_scroll.set_visible(bool(detail))
+        self.detail_scroll.get_vadjustment().set_value(0)
         self.options = options
         _clear(self.buttons)
         for label, decision, cls in ((YES, "allow", ["big", "yes"]), (NO, "deny", ["big"]),

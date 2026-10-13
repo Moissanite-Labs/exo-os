@@ -19,7 +19,7 @@ from typing import Any
 
 from exo.protocol import schema as s
 
-from ..words import describe_call, plain_summary
+from ..words import credential_request_preview, describe_call, plain_summary
 from ..profile import Profile
 
 CLIENT = "exo-surface"
@@ -68,7 +68,7 @@ class ApprovalCard:
     options: list[str] = field(default_factory=lambda: ["allow", "deny"])
     risk: str = "medium"
     session: str | None = None
-    detail: str = ""  # tool and arguments; empty in plain mode
+    detail: str = ""  # full credential request in both modes; other tool arguments only for operators
 
 
 @dataclass
@@ -276,7 +276,12 @@ class SurfaceModel:
         if self.plain:
             options = [o for o in options if o != "allow_always"]  # a standing grant is an operator's call
         summary = req.get("summary") or "Exo is waiting for your answer."
-        if self.plain:
+        if call is not None and call.name == "credential_request":
+            summary, detail, permitted = credential_request_preview(call.arguments, rid)
+            options = [o for o in options if o != "allow_always"]  # credentials are always one-shot
+            if not permitted:
+                options = ["deny"]  # no approval when the destination cannot be verified
+        elif self.plain:
             summary = (describe_call(call.name, call.arguments) if call else None) or plain_summary(summary)
         self.approvals.append(ApprovalCard(rid, summary,
                                            req.get("binding") or "", options or ["allow", "deny"],
