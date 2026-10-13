@@ -20,7 +20,7 @@ def source_digest(root: Path) -> str:
     # tool revisions remain separate from the runtime/build input identity.
     paths.extend(root / "tools" / name for name in (
         "build-image.sh", "build-provenance.py", "build-profile.py", "env.sh",
-        "source_identity.py", "build-receipt.py"))
+        "source_identity.py", "build-receipt.py", "host-tools-generation.py"))
     paths.extend((root / "src").rglob("*"))
     paths.extend((root / "image").rglob("*"))
     selected = []

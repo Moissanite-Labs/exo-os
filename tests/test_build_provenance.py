@@ -32,7 +32,7 @@ def source_fixture(root):
     (root / 'src/fixture.py').write_text('VALUE=1\n')
     (root / 'image/mkosi.conf').write_text('[Output]\nFormat=disk\n')
     for name in ('build-image.sh', 'build-provenance.py', 'build-profile.py', 'env.sh',
-                 'source_identity.py', 'build-receipt.py'):
+                 'source_identity.py', 'build-receipt.py', 'host-tools-generation.py'):
         if (TOOLS / name).exists():
             shutil.copy2(TOOLS / name, root / 'tools' / name)
     (root / '.EXO_OS_SOURCE_ID').write_text('a' * 40 + '\n')
@@ -60,7 +60,7 @@ def test_generated_paths_do_not_change_digest(tmp_path, path):
 
 
 @pytest.mark.parametrize('name', ['build-image.sh', 'build-provenance.py', 'build-profile.py', 'env.sh',
-                                  'source_identity.py', 'build-receipt.py'])
+                                  'source_identity.py', 'build-receipt.py', 'host-tools-generation.py'])
 def test_builder_bytes_change_digest(tmp_path, name):
     root = source_fixture(tmp_path)
     digest = module('build-provenance').source_digest
