@@ -7,6 +7,7 @@
 #   4. a panel the agent opens shows in the drawer
 #   5. with exod stopped, app launch still works; the disconnected-status screenshot is saved for review
 #   6. the surface's memory (PSS), idle
+#   7. synthetic GTK focus/readability checks on the real Wayland layer surfaces
 # Screenshots: image/out/p3-*.png. Results: image/out/accept-phase3.txt
 set -Eeuo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -29,7 +30,7 @@ windows() { as_exo "hyprctl clients" | { grep -c "class: $1" || true; }; }
 
 source "$here/tools/accept-common.sh"
 accept_start 3 1536
-accept_set_required_checks 6
+accept_set_required_checks 7
 accept_keyring
 as_exo systemctl --user is-active --quiet exo-surface
 
@@ -103,4 +104,25 @@ as_exo "systemctl --user start exod"
 # 6. memory
 pss=$(ssh_vm "pid=\$(pgrep -u exo -f exo_os.surface | head -1); grep '^Pss:' /proc/\$pid/smaps_rollup | awk '{print int(\$2/1024)}'")
 echo "      surface PSS: ${pss:-?} MB; background: $(as_exo hyprctl getoption misc:background_color | head -1)" | tee -a "$report"
+
+# Keep the real protocol/wtype evidence above. This separate synthetic probe
+# creates its own widgets on the same compositor without calling a model or
+# replacing installed runtime files. Stop the actual instance first to avoid
+# its layer windows competing for focus, then restore it even if the probe fails.
+ssh_vm 'cat > /tmp/probe-surface-gtk.py && chmod 0644 /tmp/probe-surface-gtk.py' < "$here/tools/probe-surface-gtk.py"
+as_exo 'systemctl --user stop exo-surface.service'
+probe_rc=0
+probe_output=$(as_exo 'timeout 90 env EXO_OS_VM_ACCEPTANCE=1 GDK_BACKEND=wayland LD_PRELOAD=libgtk4-layer-shell.so.0 /opt/exo/bin/python /tmp/probe-surface-gtk.py --vm-acceptance') || probe_rc=$?
+printf '%s\n' "$probe_output" > "$out/p3-gtk-wayland-probe.json"
+restored=0
+if as_exo 'systemctl --user start exo-surface.service && systemctl --user is-active --quiet exo-surface.service'; then
+  restored=1
+fi
+verified=0
+if printf '%s\n' "$probe_output" | "$here/.venv/bin/python" "$here/tools/validate-surface-probe.py" \
+    --backend wayland-layer --exit-code "$probe_rc"; then
+  verified=1
+fi
+result "gtk-wayland-layer" "$([[ $verified == 1 && $restored == 1 ]] && echo 1 || echo 0)" \
+  "synthetic GTK focus/readability on installed layer-shell runtime; probe exit $probe_rc; surface restored $restored"
 accept_finish

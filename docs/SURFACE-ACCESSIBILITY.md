@@ -28,7 +28,9 @@ response closes the card and returns focus to the prompt.
 
 Pure model tests cover request text and reading limits. The private GTK display
 smoke test checks focus, text selection, modifier and held-key behavior, and
-direction changes when an Arabic or Urdu profile is applied. These checks still
-need execution on the actual Exo OS image. AT-SPI exposure, Orca navigation,
-Wayland layer focus, and reading order require a human-assisted VM pass; this
-source change does not establish a screen-reader pass or install Orca.
+direction changes when an Arabic or Urdu profile is applied. Phase 3 now runs
+the same synthetic checks on the disposable image's actual Wayland layer
+surfaces, after its separate real protocol and `wtype` checks. That image run
+is still pending. AT-SPI exposure, Orca navigation and reading order require a
+human-assisted VM pass; this source change does not establish a screen-reader
+pass or install Orca.

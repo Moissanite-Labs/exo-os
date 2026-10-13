@@ -233,7 +233,7 @@ def test_custom_acceptance_suites_add_the_provenance_result(tmp_path):
         ("accept-recovery.sh", 9, 10),
         ("accept-model-spend.sh", 11, 12),
         ("accept-ledger.sh", 11, 12),
-        ("accept-phase3.sh", 6, 7),
+        ("accept-phase3.sh", 7, 8),
     )):
         r = run_harness(
             tmp_path / str(index),

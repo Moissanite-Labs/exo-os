@@ -28,7 +28,8 @@ not evidence for this revision. Built:
   package install), kernel-authenticated peers, independently verified receipts, and reconciliation of
   receipts that could not be written to the principal ledger.
 - **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client,
-  with approval cards in plain words. Escape defers; lost answers are reconciled without automatic retry.
+  with keyboard-accessible panels and recent loaded history, plus full selectable approval details.
+  Escape defers; lost answers are reconciled without automatic retry.
 - **Timeline.** `exo-os today` and the `timeline_show` tool: what Exo did on a day, from the ledger.
 - **Tool boundary.** Every registry call passes through the required executor. Workspace tools run
   under bubblewrap, Landlock and seccomp with no network, credentials or host control sockets.
@@ -90,6 +91,7 @@ mentioning Exo is not an ownership marker.
 | `docs/CORE-CONTRACT.md` | Principles as acceptance conditions; shared-core integration requirements |
 | `docs/SYSTEM-TRUST.md` | Root authentication, signed outcomes and audit recovery |
 | `docs/SURFACE-RECOVERY.md` | Approval recovery, connection health and protocol limits |
+| [`docs/SURFACE-ACCESSIBILITY.md`](docs/SURFACE-ACCESSIBILITY.md) | Keyboard access, readable approval details and remaining screen-reader validation |
 | `docs/TOOL-ISOLATION.md` | Compulsory execution, working set and trust limits |
 | `docs/BOOT-RECOVERY.md` | Administrator checkpoints and matching-kernel recovery |
 | `docs/CREDENTIAL-EGRESS.md` | Approved HTTPS actions, key isolation and uncertain outcomes |
