@@ -8,6 +8,8 @@ ExecStart=/opt/exo/bin/exo serve
 WorkingDirectory=%h/Workspace
 Environment=EXO_TOOL_EXECUTOR=exo-os
 Environment=EXO_TOOL_EXECUTOR_REQUIRED=1
+Environment=EXO_LEDGER_AUTHORITY=exo-os
+Environment=EXO_LEDGER_AUTHORITY_REQUIRED=1
 Restart=always
 RestartSec=2
 # exod is the person's agent. It runs as the person, never as root; only exo-sysd runs as root.

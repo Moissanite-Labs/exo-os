@@ -361,6 +361,10 @@ def test_image_login_and_socket_require_boot_provisioning():
         assert "After=exo-ledger-provision.service" in contents
     env = (image / "environment.d/50-exo-os.conf").read_text()
     assert "EXO_LEDGER_AUTHORITY=exo-os" in env and "EXO_LEDGER_AUTHORITY_REQUIRED=1" in env
+    for name in ("exod.service", "exo-os-setup.service"):
+        unit = (image / "systemd/user" / name).read_text()
+        assert "Environment=EXO_LEDGER_AUTHORITY=exo-os" in unit
+        assert "Environment=EXO_LEDGER_AUTHORITY_REQUIRED=1" in unit
     helper = (Path(__file__).resolve().parents[1] /
               "image/mkosi.profiles/vmtest/mkosi.extra/usr/local/bin/as-exo").read_text()
     assert "EXO_LEDGER_AUTHORITY=exo-os" in helper and "EXO_LEDGER_AUTHORITY_REQUIRED=1" in helper

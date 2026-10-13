@@ -6,6 +6,8 @@ Before=exod.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/opt/exo/bin/exo-os-setup
+Environment=EXO_LEDGER_AUTHORITY=exo-os
+Environment=EXO_LEDGER_AUTHORITY_REQUIRED=1
 
 [Install]
 WantedBy=default.target
