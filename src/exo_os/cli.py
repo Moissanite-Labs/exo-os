@@ -128,8 +128,8 @@ def _run(args: argparse.Namespace) -> int:
         return 0
     if args.cmd == "set":
         value = parse_value(args.path, args.value)
-        return _print_result(eng.apply(eng.profile().set_value(args.path, value), set_summary(args.path, value),
-                                       by=args.by), args.json)
+        return _print_result(eng.change(lambda prof: (prof.set_value(args.path, value),
+                                                      set_summary(args.path, value)), by=args.by), args.json)
     if args.cmd == "history":
         items = eng.history(args.n)
         if args.json:
