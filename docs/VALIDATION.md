@@ -348,6 +348,24 @@ Baseline and readiness JSON preserve status, output and observation times for
 both normal and offline launches. These times describe IPC observations;
 application startup time remains unmeasured.
 
+The shared GTK result is `exo-surface-gtk-v2`. Native prompt checkpoints require
+the full `exo focus marker` text in both entry and model, a matching sequence of positive physical
+key codes, a mapped local entry target, no response and no keyboard review.
+All seven named checkpoints must appear in order. The panel update during marker
+typing must preserve its prefix. A suffix alone is a failure.
+
+Prompt `Gtk.Window.is_active()` values are recorded as information. An older
+remapped fixture reported false while actual keyboard input reached the entry.
+The v2 contract uses received keys and text to prove prompt delivery. Card
+activation/focus-loss guards and explicit drawer activation checks remain required.
+
+The separate `external_panel_update` record requires a panel update during actual
+`yesterday` typing in another window. Full text, positive physical key codes,
+the external active target, unchanged prompt/model text and no responses sent
+are mandatory. Broadway reports explicit synthetic coverage for this case and
+the prompt checkpoints. Missing evidence, an older v1 result or a nonzero probe
+exit status cannot pass the v2 validator.
+
 The native held-F6 check records calls to the existing key handler without
 changing its decision. A pass requires a delivered repeat while B is pending and
 unreviewed, on the initial nonzero physical key code, already held before the
