@@ -136,7 +136,7 @@ development proceeds independently (`docs/CORE-CONTRACT.md`).
 **Decision.** The unsigned systemd-boot image offers explicit root-admin checkpoints
 and recovery staging through `exo-os-recovery`. A checkpoint preserves a read-only
 system snapshot together with its matching UKI. Staging creates a separate writable
-clone and a boot-menu entry. The existing `@home` and `@store` remain mounted;
+clone and a boot-menu entry. The existing `@home`, `@store` and persistent helper `@sysd` remain mounted;
 original `@` is not promoted or replaced. No named root action or agent capability
 is added, and the command does not select a default or reboot. Details and pending
 actual reboot acceptance: `docs/BOOT-RECOVERY.md`.
