@@ -121,7 +121,14 @@ def _direct(fn, *args):
     fn(*args)
 
 
-def test_turn_approval_and_state(paths):
+def _assert_one_drop_logged(caplog, panel_id, action, reason):
+    [record] = [r for r in caplog.records if r.name == conn_mod.LOG.name and "dropped" in r.getMessage()]
+    message = record.getMessage()
+    assert record.levelno == logging.WARNING
+    assert panel_id in message and action in message and reason in message
+
+
+def test_turn_approval_and_state(paths, caplog):
     sock, state = paths
     exod = Exod(sock)
     rec = Recorder()
@@ -147,6 +154,7 @@ def test_turn_approval_and_state(paths):
         c.send(s.TurnSend(session="s_nobody", text="x"))
         rec.wait(lambda: rec.last("failed") == "not_found")
         assert [c_ for c_ in rec.calls if c_[0] == "failed"] == [("failed", "not_found")]
+        _assert_one_drop_logged(caplog, "p_missing", "dismissed", "unsupported")  # refused, quiet, but traced
     finally:
         c.stop()
         exod.stop()
@@ -710,7 +718,7 @@ def test_dropped_panel_signal_leaves_a_trace(paths, caplog):
         c.stop()
 
 
-def test_panel_signal_lost_in_flight_is_quiet_and_still_rejoins(paths):
+def test_panel_signal_lost_in_flight_is_quiet_and_still_rejoins(paths, caplog):
     sock, state = paths
     sock.touch()
     daemon = FakeDaemon()
@@ -738,5 +746,38 @@ def test_panel_signal_lost_in_flight_is_quiet_and_still_rejoins(paths):
         rec.wait(lambda: len(daemon.clients) >= 2)  # the lost reply makes the surface rejoin
         assert [b.panel_id for b in sent] == ["p1"]  # and the signal is not sent again
         assert not [call for call in rec.calls if call[0] == "failed"]
+        _assert_one_drop_logged(caplog, "p1", "dismissed", "ConnectionError")
     finally:
         c.stop()
+
+
+def test_panel_signal_cancelled_in_flight_leaves_a_trace(paths, caplog):
+    sock, state = paths
+    sock.touch()
+    daemon = FakeDaemon()
+    sent = threading.Event()
+
+    def factory(socket):
+        client = daemon.client(socket)
+        accept = client.send
+
+        async def send(body):
+            if isinstance(body, s.UiRespond):
+                sent.set()
+                await asyncio.Event().wait()  # the reply never arrives
+            return await accept(body)
+
+        client.send = send
+        return client
+
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct, client_factory=factory)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is True)
+        c.respond_panel("p1", "ignored")
+        assert sent.wait(5)
+    finally:
+        c.stop()  # tearing the link down cancels the answer still in flight
+    _assert_one_drop_logged(caplog, "p1", "ignored", "cancelled")
+    assert not [call for call in rec.calls if call[0] == "failed"]

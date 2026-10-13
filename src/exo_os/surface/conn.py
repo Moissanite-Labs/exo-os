@@ -183,6 +183,8 @@ class Connection:
         except asyncio.CancelledError:
             if approval:
                 self.post(self.listener.on_approval_result, body.request_id)
+            if quiet:
+                self._log_dropped(body, "cancelled")
             raise
         except Exception as exc:
             if approval:

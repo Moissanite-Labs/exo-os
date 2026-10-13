@@ -118,13 +118,18 @@ def test_first_run_reexecutes_once_with_layer_shell_preloaded(app, monkeypatch):
     assert app.Surface.created == 0
 
 
-def test_second_run_does_not_reexecute_again(app, monkeypatch):
-    """The re-executed process carries the mark; without it the surface would exec itself forever."""
+@pytest.mark.parametrize("preload, mark", [
+    ("libfoo.so", "1"),            # only the mark says this is the second run
+    (f"{LIB}:libfoo.so", None),    # only the library says it is already loaded
+])
+def test_second_run_does_not_reexecute_again(app, monkeypatch, preload, mark):
+    """Each guard alone must stop the exec; without them the surface would re-execute itself forever."""
     monkeypatch.setattr(app, "name_has_owner", lambda name: False)
     monkeypatch.setattr(app, "layer_shell_lib", lambda: LIB)
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
-    monkeypatch.setenv("LD_PRELOAD", f"{LIB}:libfoo.so")
-    monkeypatch.setenv(app.PRELOAD_MARK, "1")
+    monkeypatch.setenv("LD_PRELOAD", preload)
+    if mark:
+        monkeypatch.setenv(app.PRELOAD_MARK, mark)
     assert app.main(["exo-surface"]) == 7  # os.execve here would raise Exec
     assert app.Surface.ran_with == ["exo-surface"]
 
