@@ -16,7 +16,7 @@ execution and administrator boot recovery. A fresh image is being validated; ear
 not evidence for this revision. Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
-  home, snapshots, the Exo store and persistent helper identity/audit; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
+  home, snapshots, the Exo store, protected ledger, helper audit and egress history; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
   `exod` as a user service; exo-sysd behind a socket; automatic login to the desktop.
 - **Change engine.** A machine profile (`machine.toml`) is the one file that says how the desktop should be.
   Every change is validated, rendered to Hyprland and hypridle config, checked, committed to a git repo in
@@ -24,7 +24,7 @@ not evidence for this revision. Built:
   logged change.
 - **Exo plugin.** Tools that let the agent show and change the machine, open apps, list changes, undo, and
   install packages (which asks first), placed by Exo's own gate.
-- **exo-sysd.** The one root process: five named actions (status, snapshot create, list and undo,
+- **exo-sysd.** The privileged action helper: five named actions (status, snapshot create, list and undo,
   package install), kernel-authenticated peers, independently verified receipts, and reconciliation of
   receipts that could not be written to the principal ledger.
 - **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client,
@@ -34,13 +34,17 @@ not evidence for this revision. Built:
   under bubblewrap, Landlock and seccomp with no network, credentials or host control sockets.
   Unsupported adapters refuse execution. Reviewed desktop operations use structured arguments.
 - **Boot recovery.** An administrator can checkpoint a system together with its matching kernel image
-  and stage a separate recovery boot. Home, the store and the helper's identity/audit persist.
+  and stage a separate recovery boot. Home, the store, signer identity/history, helper audit and egress reservations persist.
 - **Credentialed actions.** A separate service sends approved HTTPS requests to administrator-defined
   destinations. The full outgoing request is inspectable in the approval card; keys stay in the service.
   Durable request IDs prevent an uncertain action from being sent again. The shipped policy grants no destinations.
+- **Protected history.** A separate service owns ledger keys and committed history. Fresh provisioning
+  precedes login; missing established state refuses startup. Normal verification detects an altered or
+  shortened desktop copy without repairing it. Explicit synchronization recovers committed rows.
 
-Still required: current-image boot/recovery acceptance, general API response adapters, a separate core
-ledger signer and off-machine anchor, voice and phone clients, and the hardware trials in `ROADMAP.md`.
+Still required: current-image boot/recovery acceptance, general API response adapters, independent
+witness deployment, voice and phone clients, and the hardware trials in `ROADMAP.md`.
+The shared core provides a durable witness state machine; no independent witness endpoint is deployed.
 Isolation covers model tool processes. Installed providers/plugins and the person's other desktop
 applications remain trusted; this is not a claim of separation between every same-user process.
 See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL-ISOLATION.md).
@@ -56,6 +60,7 @@ See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL
     tools/vm-ssh.sh <command>              # run a command in the VM as root
     tools/accept-phase1.sh                 # the phase 1 acceptance checks
     tools/accept-isolation.sh              # kernel isolation in a disposable booted image
+    tools/accept-ledger.sh                 # protected signer, tamper detection and signer outage
     tools/accept-recovery.sh               # checkpoint, reboot into recovery and verify persistence
 
 On a machine running Exo OS. On any other desktop, `exo-os` changes nothing there and says so; the Exo store
@@ -83,6 +88,7 @@ mentioning Exo is not an ownership marker.
 | `docs/TOOL-ISOLATION.md` | Compulsory execution, working set and trust limits |
 | `docs/BOOT-RECOVERY.md` | Administrator checkpoints and matching-kernel recovery |
 | `docs/CREDENTIAL-EGRESS.md` | Approved HTTPS actions, key isolation and uncertain outcomes |
+| `docs/LEDGER-AUTHORITY.md` | Protected append history, first boot and independent witness handoff |
 | `docs/LEDGER-AUTHORITY.md` | Protected signer, boot provisioning, projection and witness handoff |
 | `src/exo_os/profile.py` | The machine profile: fields, checks, apps |
 | `src/exo_os/render/` | Profile to Hyprland Lua and hypridle config |

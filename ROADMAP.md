@@ -29,8 +29,12 @@ Host and Linux-container validation are recorded in `docs/VALIDATION.md`. A fres
 validated; earlier results below apply only to the earlier image. A separate credential service now
 supports exact, one-shot HTTPS actions with full approval previews and durable duplicate suppression.
 It withholds upstream payloads and ships with no allowed destinations; general read APIs still need
-reviewed response adapters. P4 still needs the separate core signer and audit anchor, and adversarial VM acceptance. Recovery also needs
-its actual reboot acceptance. P5–P8 remain unstarted.
+reviewed response adapters. The shared-core ledger authority now runs under a separate OS identity,
+with a persistent journal, root-pinned public identity and explicit fresh-image provisioning before login.
+Both normal verification commands detect modified or missing copies without repairing them first.
+The portable witness state machine is implemented; independent deployment and delivery remain open.
+P4 still needs current-image adversarial VM acceptance and its spend-cap criterion. Recovery also
+needs its actual reboot acceptance. P5–P8 remain unstarted.
 `docs/CORE-CONTRACT.md` assigns the shared-core and OS work without introducing a core fork.
 
 ## Earlier VM evidence (2026-10-12, branch `phase-1`)

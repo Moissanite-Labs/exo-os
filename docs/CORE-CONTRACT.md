@@ -17,7 +17,7 @@ are the compatibility checks before moving that pin.
 |---|---|---|---|
 | The person chooses ends | Principal identity, authenticated instructions, consent gate | Trusted client and OS isolation of agent tools | A tool cannot impersonate the principal or answer its own approval |
 | Attention is scarce | Risk classification and interruption policy | Calm surface, explicit defer, recovery after interruption | Lost replies cause reconciliation; consent is never automatically resent |
-| The signed record is truth | Principal ledger, validation and portable store | Independently signed root receipts and repair of missing ledger copies | A substituted/replayed root receipt is rejected; recovery repeats no operation |
+| The signed record is truth | Durable authority journal, read-only verification, portable store and independent witness protocol | Protected signer identity, persistent history, root receipts and projection recovery | Altered/missing copies are detected; recovery repeats no operation; independent witness retains acknowledged history |
 | Reversibility governs freedom | Gate and action classification | Checked profile changes, snapshots, rollback | Broken changes revert; an older system actually boots, with home/store intact |
 | Private data stays private | Credential broker and tool dispatch contract | OS-enforced filesystem, process and network restrictions | A hostile tool cannot read keys, principal credentials, browser data, or contact arbitrary hosts |
 | Mechanism is separate from person | Generic core and data-only principal store | Image/service packaging and generated machine configuration | A fresh machine opens the same store and verifies its ledger |
@@ -58,8 +58,22 @@ Root receipt verification is implemented separately in
 process to invoke the five root operations. Isolated tool processes cannot reach
 that socket, while installed host code and other desktop applications remain
 trusted. A signed receipt is evidence of execution, not independently a proof of
-human consent. The separate core signer, audit anchor and remaining phase-4
-acceptance conditions are still required.
+human consent.
+
+The required ledger backend now owns its keys and history under a separate OS UID.
+Core gate audit commits must succeed before an action, policy acceptance or durable grant becomes
+active. Each pending approval binds a distinct call, even when another session asks for identical
+arguments. The OS provisions a fresh signer before login, validates established state on later boots,
+and preserves it on `@signer` across system recovery. Canonical `exo log verify` and `exo memory verify`
+compare the local projection to a captured signed authority head without repairing evidence; an
+explicit writer synchronization can restore missing committed rows. Unknown append outcomes retain
+their operation ID and require lookup. See [LEDGER-AUTHORITY.md](LEDGER-AUTHORITY.md).
+
+The core witness state machine accepts only signed checkpoints and commits a signed acknowledgment
+before returning it. Deploying that witness under independent control, delivering checkpoints and
+checking receipt freshness remain separate work. A copied checkpoint proves its signed prefix;
+it does not prove that no later history exists. Current-image acceptance and the remaining phase-4
+criteria still apply.
 
 ## Protocol improvements needed from core
 

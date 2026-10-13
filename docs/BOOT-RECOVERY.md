@@ -55,6 +55,12 @@ root. The helper state directory is root-owned mode 0700. Recovery checks the
 same btrfs filesystem UUID and exact `@sysd` mount/fstab entry before checkpoint
 or staging. The snapshot excludes this mounted helper state.
 
+The ledger authority persists separately on `@signer` at `/var/lib/exo-ledger`.
+Its public manifest stays root-owned; private keys and committed history belong to
+`exo-ledger`. Boot validates existing identity and journal before permitting login,
+including when an older system root is selected. Recovery cannot reseed missing
+established state or rewind post-checkpoint ledger commits.
+
 The egress broker's journal mounts from persistent `@egress` at
 `/var/lib/exo-egress` under its separate service UID. Recovery requires that exact
 mount on the same btrfs filesystem, both live and in the checkpoint's fstab.
@@ -118,6 +124,10 @@ exact journal row, restarts the broker, and calls it over its authenticated sock
 the operation must remain reserved, return `unknown` with `retryable=false`, and
 leave the row unchanged. No API access, provider policy or live credentials are
 provisioned for this check.
+The script also appends a synthetic signed ledger record after the checkpoint,
+then verifies unchanged public identity/private-key hashes and the exact committed
+operation through the authenticated signer after the older-root boot and service
+restart. Key material is never copied into acceptance reports.
 Any missing prerequisite, malformed output, wrong VM or missed reboot fails.
 A successful host fixture test is not evidence of an actual boot. The report is
 `image/out/accept-recovery.txt` when this script is run; this implementation has
