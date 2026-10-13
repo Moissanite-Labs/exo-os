@@ -5,7 +5,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 build_profile=$(python3 "$here/tools/build-profile.py" -- "$@")
 source "$here/tools/env.sh"
-tools="${EXO_OS_TOOLS:-$HOME/.local/opt/exo-os-tools}"
+tools="$EXO_OS_TOOLS_ACTIVE"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/exo-os"
 mkdir -p "$cache/mkosi" "$here/image/out"
 
