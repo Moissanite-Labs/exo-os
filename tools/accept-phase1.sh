@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Phase 1 acceptance (ROADMAP.md): boot the built image (vmtest profile) and check, with no manual steps:
 #   1. it reaches a desktop: greetd logs the person in, Hyprland runs (screenshot saved)
-#   2. exod starts at login, comes back after being killed, and a chat turn completes
+#   2. exod starts at login, comes back after being killed, and an offline RuleFake chat completes
 #   3. the store made in the VM verifies with `exo log verify` in the VM and in plain Exo on this host
 #   4. memory (PSS per process) with Chromium and three web apps open is written down
 # Results: image/out/accept-phase1.txt. Exit code 0 only if checks 1 to 3 pass (4 is a measurement).
+# The ROADMAP's real-provider chat criterion remains pending an authorized test key/spend cap.
 set -Eeuo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$here/image/out"
@@ -19,6 +20,43 @@ result() {  # name ok detail
 }
 shot() {  # name: screenshot from inside the guest (grim), since QEMU cannot dump a GL scanout
   ssh_vm "cd /tmp && as-exo grim /tmp/$1.png && cat /tmp/$1.png" > "$out/$1.png" 2>/dev/null
+}
+
+accept_offline_chat() {
+  # Called only after accept_start has verified the disposable VM's identity. RuleFake is
+  # the core's supported no-network provider; replace every role and every fallback.
+  ssh_vm 'cd /tmp && as-exo /opt/exo/bin/python -' <<'PY'
+import json, os
+from pathlib import Path
+p = Path(os.environ['EXO_HOME']) / 'config.json'
+data = json.loads(p.read_text())
+data['models'] = {
+    'roles': {role: ['fake:scripted'] for role in
+              ('main', 'aux', 'decision', 'eval', 'fast', 'standard', 'deep')},
+    'fake': {'reply': 'Hello from offline Exo OS.'},
+}
+p.write_text(json.dumps(data, indent=2) + '\n')
+p.chmod(0o600)
+PY
+  local models reply chat_ok=0
+  models=$(as_exo /opt/exo/bin/exo config roles)
+  if ! printf '%s\n' "$models" | "$here/.venv/bin/python" -c '
+import sys
+rows = [line.split() for line in sys.stdin if line.strip()]
+expected = {"main", "aux", "decision", "eval", "fast", "standard", "deep"}
+sys.exit(0 if len(rows) == 7 and {r[0] for r in rows} == expected
+         and all(len(r) == 2 and r[1] == "fake:scripted" for r in rows) else 1)
+'; then
+    result offline-chat 0 'Refusing chat: resolved roles are not exclusively fake:scripted.'
+    return 1
+  fi
+  as_exo systemctl --user restart exod
+  # TCG can take longer than RestartSec to load the Python core.
+  sleep 10
+  reply=$(as_exo "sh -c 'printf \"Say hello in five words.\\n\" | timeout 120 /opt/exo/bin/exo chat --title offline-acceptance'" 2>&1)
+  if printf '%s\n' "$reply" | grep -Fxq 'Hello from offline Exo OS.'; then chat_ok=1; fi
+  result offline-chat "$chat_ok" \
+    'Core RuleFake, all seven roles fake:scripted, deterministic response; real-provider criterion pending.'
 }
 
 source "$here/tools/accept-common.sh"
@@ -46,9 +84,7 @@ pid2=$(as_exo systemctl --user show exod -p MainPID --value)
 state=$(as_exo systemctl --user is-active exod)
 result "exod-restarts" "$([[ $state == active && $pid2 != 0 && $pid2 != "$pid1" ]] && echo 1 || echo 0)" \
   "before kill pid=$pid1, after pid=$pid2 ($state)"
-reply=$(as_exo "sh -c 'echo \"Say hello in five words.\" | timeout 120 /opt/exo/bin/exo chat --title acceptance'" 2>&1 | tail -4)
-models=$(as_exo /opt/exo/bin/exo config roles 2>&1 | head -3 | tr '\n' ' ')
-result "chat" "$([[ -n $reply && $reply != *rror* ]] && echo 1 || echo 0)" "reply: $(echo "$reply" | tr '\n' ' ' | cut -c1-160) | routes: ${models:0:160}"
+accept_offline_chat
 
 # 3. store verifies in the VM and on this host
 vm_verify=$(as_exo /opt/exo/bin/exo log verify 2>&1 | tail -1)

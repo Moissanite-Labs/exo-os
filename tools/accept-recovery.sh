@@ -36,7 +36,8 @@ result() {
 }
 source "$here/tools/accept-common.sh"
 accept_start recovery 2048
-required_checks=7
+accept_set_required_checks 7
+boot_timeout=${EXO_OS_VM_BOOT_TIMEOUT:-180}
 accept_keyring
 # Keep daemon/runtime SQLite/WAL writes out of durable-data hash comparisons.
 # This mask is in @home and remains in effect across recovery of @.
@@ -71,16 +72,18 @@ reboot_rc=0
 ssh_vm 'systemctl reboot' || reboot_rc=$?
 [[ $reboot_rc == 0 || $reboot_rc == 255 ]]
 ready=0
-for attempt in $(seq 1 90); do
-  kill -0 "$qemu" 2>/dev/null || { result reboot 0 'QEMU exited during recovery reboot'; exit 1; }
-  current=$(ssh_vm 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null) || current=''
-  if [[ -n $current && $current != "$old_boot" ]]; then ready=1; break; fi
-  sleep 3
-done
+kill -0 "$qemu" 2>/dev/null || { result reboot 0 'QEMU exited during recovery reboot'; exit 1; }
+if current=$(accept_wait_ssh "$boot_timeout" "$old_boot" 'cat /proc/sys/kernel/random/boot_id'); then
+  ready=1
+fi
+if [[ $ready != 1 ]] && ! kill -0 "$qemu" 2>/dev/null; then
+  result reboot 0 'QEMU exited during recovery reboot'
+  exit 1
+fi
 [[ $ready == 1 ]] || { result reboot 0 'Recovery did not become ready within the reboot deadline'; exit 1; }
 actual=$(ssh_vm 'cat /sys/class/dmi/id/product_uuid' | tr '[:upper:]' '[:lower:]')
 [[ $actual == "$EXO_OS_VM_UUID" ]] || { result identity 0 'Reboot reached a different machine'; exit 1; }
-ssh_vm 'timeout 120 systemctl is-system-running --wait'
+accept_system_ready
 ssh_vm 'test "$(as-exo systemctl --user is-enabled exod.service 2>/dev/null || true)" = masked'
 ssh_vm 'test ! -e /var/lib/pacman/db.lck'
 root=$(ssh_vm 'findmnt -n -o FSROOT /')

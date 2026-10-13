@@ -1,4 +1,7 @@
 enable NetworkManager.service
+enable NetworkManager-wait-online.service
+disable systemd-networkd.service
+disable systemd-networkd-wait-online.service
 enable systemd-timesyncd.service
 enable snapper-timeline.timer
 enable snapper-cleanup.timer

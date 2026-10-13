@@ -1,6 +1,6 @@
 # Exo OS roadmap: from a bootable VM image to daily use
 
-Date: 2026-10-12. Status: staged implementation. Read current rulings in `DECISIONS.md`;
+Date: 2026-10-13. Status: staged implementation. Read current rulings in `DECISIONS.md`;
 `DESIGN.md` and `DECISIONS-PROPOSED.md` preserve the original design and options.
 
 Rules for every phase:
@@ -22,10 +22,15 @@ health, and verifies root receipts against a separate trust anchor. A receipt ou
 `exo-os system reconcile` repair missing ledger copies without repeating operations. Desktop ownership
 is explicit. Acceptance scripts verify the identity of their disposable VM and fail on missing evidence.
 
-Host and Linux-container validation are recorded in `docs/VALIDATION.md`. These changes have **not**
-had a new x86 image build/boot. The earlier results below apply only to the earlier image. P4 has begun
-with root transport/audit integrity; its compulsory tool isolation, credential broker, egress policy,
-separate core signer and adversarial VM acceptance remain unfinished. P5–P8 remain unstarted.
+The pinned core now requires the OS executor. Workspace tools run without host sockets, credentials
+or network; unsupported execution routes are refused. Administrator recovery checkpoints preserve
+a system snapshot with its matching kernel image, while home, store and helper identity/audit persist.
+Host and Linux-container validation are recorded in `docs/VALIDATION.md`. A fresh x86 image is being
+validated; earlier results below apply only to the earlier image. A separate credential service now
+supports exact, one-shot HTTPS actions with full approval previews and durable duplicate suppression.
+It withholds upstream payloads and ships with no allowed destinations; general read APIs still need
+reviewed response adapters. P4 still needs the separate core signer and audit anchor, and adversarial VM acceptance. Recovery also needs
+its actual reboot acceptance. P5–P8 remain unstarted.
 `docs/CORE-CONTRACT.md` assigns the shared-core and OS work without introducing a core fork.
 
 ## Earlier VM evidence (2026-10-12, branch `phase-1`)

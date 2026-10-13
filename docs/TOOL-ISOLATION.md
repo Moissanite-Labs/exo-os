@@ -7,8 +7,7 @@ or enforcement mechanisms refuse startup or execution. No error falls back to
 the original host handler.
 
 The implementation uses the shared `exo.executors` interface on the exact
-commit in `exo.pin`. The core change is developed in a separate checkout and
-branch; the other Exo development checkout is untouched.
+commit in `exo.pin`; the implementation remains in the shared core repository.
 
 ## The working set
 

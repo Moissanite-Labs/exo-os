@@ -18,7 +18,7 @@ result() {
 source "$here/tools/accept-common.sh"
 accept_start 4 1536
 # Exactly two daemon checks and eight kernel-probe checks must produce a result.
-required_checks=10
+accept_set_required_checks 10
 
 daemon_state=$(as_exo 'systemctl --user is-active exod' 2>&1 || true)
 result "exod-active" "$([[ $daemon_state == active ]] && echo 1 || echo 0)" "systemctl --user is-active exod: ${daemon_state:-empty}"
@@ -37,17 +37,19 @@ fi
 printf '%s\n' "$probe_output" > "$out/isolation-probe.json"
 expected=(workspace_read_write outside_secret_and_symlink network_socket_denied unix_socket_denied runtime_write_denied timeout_kills_grandchild cancel_kills_grandchild missing_bwrap_fails_closed)
 parsed=''
-if [[ $probe_rc == 0 ]] && parsed=$(printf '%s\n' "$probe_output" | "$here/.venv/bin/python" -c '
+if [[ $probe_rc == 0 || $probe_rc == 1 ]] && parsed=$(printf '%s\n' "$probe_output" | "$here/.venv/bin/python" -c '
 import json,sys
-expected = sys.argv[1:]
+expected = sys.argv[1:-1]
+rc = int(sys.argv[-1])
 obj = json.load(sys.stdin)
 checks = obj.get("checks")
 if not isinstance(checks,list) or [x.get("name") for x in checks] != expected: raise SystemExit(2)
+if (rc == 0) != all(x.get("status") == "PASS" for x in checks): raise SystemExit(4)
 for x in checks:
     if x.get("status") not in ("PASS","FAIL") or not isinstance(x.get("detail"),str): raise SystemExit(3)
     detail = x["detail"].replace("\t"," ").replace("\n"," ")[:240]
     print(x["name"] + "\t" + x["status"] + "\t" + detail)
-' "${expected[@]}" 2>/dev/null); then
+' "${expected[@]}" "$probe_rc" 2>/dev/null); then
   while IFS=$'\t' read -r name status detail; do
     [[ -n $name ]] || continue
     result "$name" "$([[ $status == PASS ]] && echo 1 || echo 0)" "$detail"

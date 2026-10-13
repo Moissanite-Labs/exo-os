@@ -1,6 +1,7 @@
 """Real TLS upstream, synthetic TEST credentials; no cloud or existing key access."""
 import base64
 import datetime
+import hashlib
 import http.server
 import ipaddress
 import json
@@ -144,6 +145,22 @@ def test_inflight_survives_restart_never_repeats(broker):
     service.journal.reserve("op1", fingerprint)
     service.journal = Journal(service.journal.path)
     assert service.handle(req)["state"] == "unknown" and calls == []
+
+
+def test_empty_policy_replays_reserved_operation_without_dns(tmp_path, monkeypatch):
+    req = request()
+    identity = {key: value for key, value in req.items() if key not in {"nonce", "version"}}
+    journal = Journal(tmp_path / "requests.sqlite")
+    journal.reserve(req["request_id"], hashlib.sha256(encode(identity)).hexdigest())
+
+    def unexpected_dns(*args, **kwargs):
+        raise AssertionError("offline journal replay must not resolve a host")
+
+    monkeypatch.setattr(module.socket, "getaddrinfo", unexpected_dns)
+    service = Broker({}, journal, tmp_path)
+    reply = service.handle(req)
+    assert reply["state"] == "unknown" and reply["retryable"] is False
+    assert reply["message"] == "Reserved operation may have completed; never resend"
 
 
 def test_same_id_changed_operation_refused(broker):

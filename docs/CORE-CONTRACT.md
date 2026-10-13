@@ -23,32 +23,43 @@ are the compatibility checks before moving that pin.
 | Mechanism is separate from person | Generic core and data-only principal store | Image/service packaging and generated machine configuration | A fresh machine opens the same store and verifies its ledger |
 | The machine remains usable | Replayable protocol and honest errors | App keys, compositor and recovery path independent of exod | The desktop still launches apps with exod stopped |
 
-## Core support needed for phase 4
+## Compulsory execution in the pinned core
 
-The next security milestone needs a single compulsory execution boundary in the
-core. It must cover foreground shell, background jobs, file/search/patch tools,
-MCP subprocesses and delegated workers. An optional new sandbox tool would leave
-the existing paths open and does not meet the acceptance condition.
+The pinned core provides an installed `exo.executors` interface. With
+`EXO_TOOL_EXECUTOR_REQUIRED=1`, startup refuses a missing executor or required
+plugin, and every registry call crosses that executor after the gate and schema
+validation. The request's call identifier and detached arguments are immutable.
+The OS adapter isolates foreground shell and file/search/patch tools; it refuses
+background jobs, unknown tools, MCP startup and remote delegation. Local worker
+dispatch retains the same registry boundary. These are explicit refusals until
+reviewed adapters exist, not routes around the boundary.
 
-The core should pass a validated operation to a broker with an immutable call
-identifier, authenticated actor, exact arguments, approved working set and
-network/credential scope. Consent is bound to those values. OS enforcement
-failure is a tool refusal; there is no unsandboxed fallback. The broker injects
-credentials into authenticated outbound calls, so tool children never receive
-the credential store. Agent-controlled configuration cannot lower the operator
-floor or replace the broker.
+The operator's root-owned policy fixes the working set, runtime and executor;
+principal plugin-directory overrides cannot replace the required plugins.
+Enforcement failure is a refusal, with no unsandboxed fallback. Host Git
+inspection of tool-writable repositories is disabled in handoff and completion
+because repository configuration can execute commands. Credentialed HTTPS
+actions use a separate service after exact one-shot approval; tool children
+have no network or credential-store access. The approved arguments include
+the expected origin, and the service checks it against its fixed policy before
+sending. General API response adapters remain separate work.
 
-Exo OS supplies the Linux execution adapter, root-owned service policy, private
-runtime paths and image dependencies once that core contract is implemented.
-The acceptance suite must attempt direct socket, filesystem, `/proc`, network,
-and background-process bypasses. A namespace wrapper around only the shell is
-insufficient evidence for the whole tool system.
+Exo OS supplies bubblewrap namespaces, Landlock, seccomp, bounded resources and
+process-tree cleanup. The Linux tests attempt direct socket, filesystem,
+`/proc`, environment, descriptor and detached-process bypasses. Booted-image
+acceptance is recorded separately from these container results. See
+[TOOL-ISOLATION.md](TOOL-ISOLATION.md).
+The service's durable request history lives outside system snapshots, preventing
+rollback from forgetting an uncertain outgoing action. Its narrower response
+contract and limits are in [CREDENTIAL-EGRESS.md](CREDENTIAL-EGRESS.md).
 
 Root receipt verification is implemented separately in
 [SYSTEM-TRUST.md](SYSTEM-TRUST.md). Group membership still permits a same-user
-process to invoke the five root operations. Until the compulsory broker/isolation
-boundary exists, a signed receipt is evidence of execution, not proof of human
-consent. Phase 4 remains incomplete.
+process to invoke the five root operations. Isolated tool processes cannot reach
+that socket, while installed host code and other desktop applications remain
+trusted. A signed receipt is evidence of execution, not independently a proof of
+human consent. The separate core signer, audit anchor and remaining phase-4
+acceptance conditions are still required.
 
 ## Protocol improvements needed from core
 
@@ -70,8 +81,8 @@ Current behavior and limitations are documented in
 
 ## Path to a finished OS
 
-After the compulsory security boundary, the ordered exits remain: real-model VM
-chat within an explicit spend cap; bootable rollback; assistive-technology and
+After current-image security and recovery acceptance, the ordered exits remain: real-model VM
+chat within an explicit spend cap; assistive-technology and
 memory-budget checks; voice and phone as clients of the same session; a spare
 machine soak; then a reversible trial on the working machine. Hardware trials,
 payment approval channels, and multilingual speech require actual evidence.

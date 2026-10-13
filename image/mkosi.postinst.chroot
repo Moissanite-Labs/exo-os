@@ -3,6 +3,7 @@
 # wheelhouse that tools/build-image.sh put in /opt/exo/wheels (no network), creates the person's
 # account, and configures snapper for the system subvolume.
 set -eu
+umask 022
 
 # Exo and exo-os in one venv. --system-site-packages: the prompt bar uses the distribution's PyGObject.
 python -m venv --system-site-packages --without-pip /opt/exo
@@ -41,3 +42,9 @@ sed -e 's/^SUBVOLUME=.*/SUBVOLUME="\/"/' -e 's/^TIMELINE_CREATE=.*/TIMELINE_CREA
 chmod 0640 /etc/snapper/configs/root
 echo 'SNAPPER_CONFIGS="root"' > /etc/conf.d/snapper
 mkdir -p /.snapshots
+
+# Extra trees may have been archived from a host filesystem whose default mode is
+# group-writable. Trusted-path checks require root-owned, non-writable ancestors.
+/bin/sh /usr/lib/exo-os/harden-image-modes.sh
+rm -f /usr/lib/exo-os/harden-image-modes.sh
+rmdir /usr/lib/exo-os 2>/dev/null || true

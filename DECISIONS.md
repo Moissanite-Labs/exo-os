@@ -147,3 +147,42 @@ snapshot with the current kernel can mismatch its modules. Explicit checkpoints
 retain the boot artifacts at the same time. EFI invocation options select the clone
 only when Secure Boot is disabled for this image's unsigned UKIs; enabled or unknown
 state is rejected. A signed recovery design remains separate work.
+
+## OS-15. Every tool crosses an installed execution boundary
+
+**Decision.** The image requires the pinned core's `exo.executors` interface and
+the root-controlled OS adapter. File, search, patch and shell operations run in
+a workspace-only namespace with Landlock and seccomp. Reviewed structured
+desktop operations run in trusted host code; every other adapter is denied
+until reviewed. Missing enforcement never falls back to a host handler. Policy,
+runtime and required plugins are controlled by the image administrator.
+
+**Why.** Isolating only the shell leaves file handlers, workers and indirect
+subprocesses with host authority. The boundary belongs in shared core dispatch;
+Linux enforcement belongs in this repository. Core handoff/completion also
+avoid host Git inspection of tool-writable repositories. The actual kernel
+tests include network/socket denial, hidden credentials and detached-child
+cleanup. The remaining trust in installed code and desktop applications is
+explicit in `docs/TOOL-ISOLATION.md`.
+
+## OS-16. Credentialed actions preserve both consent and uncertainty
+
+**Decision.** A separate unprivileged `exo-egress` service injects named systemd
+credentials into HTTPS requests permitted by root-owned profiles. The exact
+expected origin, method, path, body and operation ID are bound to one-shot
+approval and shown in full. The service checks the expected origin against its
+loaded policy, never treats it as routing authority, and returns only bounded
+outcome metadata. No destination or credential is granted in the shipped image.
+
+Before sending, the service durably reserves each ID and argument fingerprint.
+An uncertain operation is never sent again; its journal persists on `@egress`
+across system recovery. Missing enforcement, unavailable identity, changed
+arguments or unverifiable approval details refuse the action. Root's activated
+listener and the service sender are authenticated separately with Linux kernel
+credentials. Details: `docs/CREDENTIAL-EGRESS.md`.
+
+**Why.** A lost reply does not establish that an external action failed, and
+rolling back the OS must not erase that uncertainty. A destination label alone
+does not reveal what the person is approving. Arbitrary upstream response text
+can also reflect an injected credential in an encoding a generic redactor
+misses, so read APIs need reviewed response adapters before being enabled.
