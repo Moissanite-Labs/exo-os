@@ -55,7 +55,7 @@ echo 'SNAPPER_CONFIGS="root"' > /etc/conf.d/snapper
 mkdir -p /.snapshots
 
 # The pacman keyring holds a private signing key, so the image must never carry one: each machine makes
-# its own at first boot (exo-os-pacman-init.service, which only runs while this directory is absent).
+# its own at first boot (exo-os-pacman-init.service, which only runs until it has written its marker in this directory).
 # mkosi keeps its build keyring outside the image; this makes the guarantee hold whatever the package
 # manager or mkosi version leaves behind.
 rm -rf -- /etc/pacman.d/gnupg

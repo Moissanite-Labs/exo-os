@@ -125,10 +125,13 @@ class Actions:
         return {"undone": [pre, post]}
 
     def keyring_ready(self) -> bool:
-        """exo-os-pacman-init.service makes this machine's keyring at first boot."""
+        """exo-os-pacman-init.service makes this machine's keyring at first boot.
+
+        trustdb.gpg appears as soon as `pacman-key --init` starts, long before `--populate` has loaded
+        the distribution keys, so it cannot mean ready. The unit writes this marker last."""
         from pathlib import Path
 
-        return Path(self.keyring).joinpath("trustdb.gpg").exists()
+        return Path(self.keyring).joinpath("exo-os-populated").exists()
 
     def _snap_pac(self) -> bool:
         return self.runner(["pacman", "-Q", "snap-pac"]).returncode == 0

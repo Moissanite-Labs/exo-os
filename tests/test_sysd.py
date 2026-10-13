@@ -71,6 +71,17 @@ def test_snapshot_description_checked():
         Actions(FakeRunner(), keyring=KEYRING).snapshot_create({"description": "x\n--rm"})
 
 
+def test_keyring_is_not_ready_until_populated(tmp_path):
+    # `pacman-key --init` creates trustdb.gpg at once; only the marker written after --populate means ready.
+    (tmp_path / "trustdb.gpg").write_text("")
+    actions = Actions(FakeRunner(), keyring=str(tmp_path))
+    assert not actions.keyring_ready()
+    with pytest.raises(ActionError, match="keyring is still being set up"):
+        actions.package_install({"names": ["htop"]})
+    (tmp_path / "exo-os-populated").write_text("")
+    assert actions.keyring_ready()
+
+
 def test_install_waits_for_keyring(tmp_path):
     with pytest.raises(ActionError, match="keyring is still being set up"):
         Actions(FakeRunner(), keyring=str(tmp_path)).package_install({"names": ["htop"]})

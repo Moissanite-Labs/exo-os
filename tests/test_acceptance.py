@@ -457,8 +457,10 @@ def test_keyring_wait_requires_the_keyring_file(tmp_path):
 def test_image_carries_no_pacman_keyring(tmp_path):
     root = Path(__file__).resolve().parents[1] / "image"
     assert not (root / "mkosi.extra/etc/pacman.d/gnupg").exists()
-    # The first-boot unit only runs while the keyring is absent, so postinstall must leave it absent.
-    assert "ConditionPathExists=!/etc/pacman.d/gnupg/trustdb.gpg" in KEYRING_UNIT.read_text()
+    # The first-boot unit runs until its marker exists, so postinstall must leave no keyring behind.
+    unit = KEYRING_UNIT.read_text()
+    assert "ConditionPathExists=!/etc/pacman.d/gnupg/exo-os-populated" in unit
+    assert unit.index("--populate") < unit.index("ExecStartPost=/usr/bin/touch /etc/pacman.d/gnupg/exo-os-populated")
     lines = [ln for ln in (root / "mkosi.postinst.chroot").read_text().splitlines()
              if ln.startswith("rm -rf") and "/etc/pacman.d/gnupg" in ln]
     assert len(lines) == 1
