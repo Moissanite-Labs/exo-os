@@ -67,7 +67,10 @@ def _item(ev: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None:
             if r.get("action") == "package.install":
                 names = ", ".join(args.get("names") or [])
                 if r.get("ok"):
-                    return {"what": f"Installed {names}.", "by": "Exo", "undo": f"system {res.get('pre')} {res.get('post')}"}
+                    row = {"what": f"Installed {names}.", "by": "Exo"}
+                    if res.get("pre") is not None and res.get("post") is not None:
+                        row["undo"] = f"system {res['pre']} {res['post']}"
+                    return row
                 return {"what": f"Tried to install {names}; it did not work.", "by": "Exo"}
             if r.get("action") == "snapshot.undo" and r.get("ok"):
                 return {"what": "Put the system back as it was before an install.", "by": "Exo"}

@@ -101,12 +101,23 @@ class Actions:
         own = not self._snap_pac()
         desc = f"install {' '.join(names)}"[:120]
         pre = self._snap("pre", desc) if own else None
+        before = 0 if own else self._newest_snapshot()  # read before pacman runs, so a failure here stops the install
         self._ok(["pacman", "-Su", "--needed", "--noconfirm", "--", *names])
         post = self._snap("post", desc, pre) if own else None
-        if not own:  # snap-pac's pair: the newest post snapshot and the pre it points to
-            newest = next((r for r in self.snapshot_list({"limit": 20})["snapshots"] if r["type"] == "post"), None)
-            pre, post = (newest["pre"], newest["number"]) if newest else (None, None)
+        if not own:
+            pre, post = self._pair_after(before)
         return {"installed": names, "pre": pre, "post": post}
+
+    def _newest_snapshot(self) -> int:
+        return max((r["number"] for r in self.snapshot_list({"limit": 100})["snapshots"]), default=0)
+
+    def _pair_after(self, before: int) -> tuple[int | None, int | None]:
+        """snap-pac's pair for this install, or (None, None). snap-pac makes one only when pacman runs a
+        transaction (nothing to do means no hook, so no snapshots). A pair counts as this call's only if both
+        snapshots are newer than the newest one seen before pacman ran, and there is exactly one such pair."""
+        pairs = [r for r in self.snapshot_list({"limit": 100})["snapshots"]
+                 if r["type"] == "post" and r["number"] > before and (r["pre"] or 0) > before]
+        return (pairs[0]["pre"], pairs[0]["number"]) if len(pairs) == 1 else (None, None)
 
     def snapshot_undo(self, args: dict[str, Any]) -> dict[str, Any]:
         """Put the system's files back as they were before one install: snapper undochange PRE..POST.

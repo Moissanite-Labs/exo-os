@@ -41,6 +41,9 @@ def test_a_day_in_plain_words(tmp_path, monkeypatch):
                      "Blocked: send message to a stranger.",
                      "Installed htop."]
     assert rows[0]["by"] == "you" and rows[0]["undo"] and rows[-1]["undo"] == "system 3 4"
+    sink.append("system.action", {"receipt": {"action": "package.install", "ok": True, "args": {"names": ["htop"]},
+                                              "result": {"pre": None, "post": None}}})
+    assert "undo" not in timeline.read(store, today)[-1]
     text = timeline.say(rows, today, today)
     assert text.startswith("What happened today:") and ("AM" in text or "PM" in text)
     assert timeline.read(store, today - dt.timedelta(days=1)) == []
