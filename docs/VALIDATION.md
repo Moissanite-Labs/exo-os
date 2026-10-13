@@ -3,7 +3,8 @@
 Checks on 2026-10-13. The current Exo dependency is
 `11008a8bdf6a3c8dee2900434ca0a57054300bc8`, as recorded in `exo.pin`.
 OS `67fe0c7` pins the protected spending policy; `8b02677` adds the VM-only boot
-timing fix below. This pin also removes the earlier unused witness module;
+timing fix below; `a3cdf74` adds the portable Linux spend-test fixture. This pin
+also removes the earlier unused witness module;
 witness transport remains a separate draft. Earlier integrated OS `ee327a8`
 has the same source tree as published `8d79fdd`.
 Results below name the revision they exercised. Source and container checks do
@@ -12,8 +13,10 @@ not establish a booted current image or a successful recovery reboot.
 | Check | Result | Boundary of evidence |
 |---|---|---|
 | macOS arm64, Python 3.14, `.venv/bin/pytest -q` | 464 passed, 16 skipped | OS `67fe0c7`, core `11008a8`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
+| Current Linux arm64 main suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 477 passed, 10 skipped | OS `a3cdf745cc52089c004a05862f601519b86b3a21`, core `11008a8bdf6a3c8dee2900434ca0a57054300bc8`; includes 21 model-spend tests, with an actual child UID/GID drop and `0600` file-ownership check in the disposable root container |
+| Current Linux namespace rerun, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 1 passed, 8 environment-blocked | OS `a3cdf745cc52089c004a05862f601519b86b3a21`, core `11008a8bdf6a3c8dee2900434ca0a57054300bc8`; the unchanged Colima policy has `kernel.apparmor_restrict_unprivileged_userns=1`, so bubblewrap cannot write the nested UID map or configure loopback; no system setting was changed |
 | Linux arm64, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 407 passed, 10 skipped | OS `2866fcb`, core `b3149a9`; same installed payload as `8d79fdd`, with corrected test inputs; includes actual inherited-listener and signer service identity checks |
-| Linux arm64, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Earlier OS `5773dc4` and core `a915e62`; actual bubblewrap, Landlock and seccomp in a disposable privileged container with no host mounts |
+| Historical Linux namespace run, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Earlier OS `5773dc4` and core `a915e62`; actual bubblewrap, Landlock and seccomp in a disposable privileged container with no host mounts |
 | Shared core authority, witness and read-only verification | 82 passed | Core `b3149a9`; durable commits, replay, independent receipt validation, canonical CLI corruption checks and concurrent verification |
 | Full core suite and plugins, macOS arm64, Python 3.13 | 1,434 core tests and 749 plugin tests passed | Core `b3149a9`; 65 core skips and one explicitly deselected external legacy-relay integration; all six plugins also passed separately |
 | Current core suite and plugins, macOS arm64, Python 3.13 | 1,581 core tests and 752 plugin tests passed | Core `11008a8`; 65 core skips, no deselection; all six plugins passed separately and together; the unchanged core budget test measures 15,982 lines against a 16,000 ceiling |
@@ -47,14 +50,21 @@ credential directory, socket or desktop. GTK widgets use a private Broadway
 display. An explicit container-only test runs an unprivileged client against a
 root helper with actual Linux kernel peer credentials and the default
 root-owned public-key path. macOS tests simulate those Linux credentials.
+The current Linux run also exercises the model-spend child process without
+mocking its identity transition: the child runs as the unprivileged account and
+creates a file owned by that UID and GID with mode `0600`. The 21 focused
+model-spend tests passed before the full main-suite result above.
 
-The nine isolation checks ran with no supplementary groups. The dedicated
-Colima VM's AppArmor restriction on unprivileged user namespaces initially
-caused bubblewrap to refuse startup. For that explicit disposable test only,
-the restriction was disabled and then restored; refusal was checked again
-after restoration. The image policy was not weakened. The runner never changes
-a normal host's kernel policy to obtain a pass. An Arch-image boot must verify
-the actual deployment kernel separately.
+The historical nine-pass isolation run used no supplementary groups. The
+dedicated Colima VM's AppArmor restriction on unprivileged user namespaces had
+caused bubblewrap to refuse startup; for that historical disposable test only,
+the restriction was disabled and then restored, and refusal was checked again
+after restoration. In the current run the restored value remained `1`: root
+bubblewrap setup succeeded, while UID 65534 could neither write the nested UID
+map nor configure loopback. The rerun therefore recorded one pass and eight
+environment-blocked checks. No system setting or image policy was changed. The
+runner never changes a normal host's kernel policy to obtain a pass. An
+Arch-image boot must verify the actual deployment kernel separately.
 
 For comparison, the earlier runtime revision at core
 `e079a65cbae5377431b7702cddf415e4b92f3510` passed 198 Linux-container tests with
@@ -106,9 +116,10 @@ EXO_OS_MKOSI=/path/to/mkosi tools/build-image.sh \
 ## Still required
 
 Build a new x86-64 `vmtest` image and run `tools/accept-phase1.sh`,
-`tools/accept-phase2.sh`, `tools/accept-phase3.sh`, `tools/accept-isolation.sh`
-and `tools/accept-ledger.sh` plus `tools/accept-recovery.sh`. Those scripts were
-strengthened here; their historical results do not transfer to this revision.
+`tools/accept-phase2.sh`, `tools/accept-phase3.sh`, `tools/accept-isolation.sh`,
+`tools/accept-ledger.sh`, `tools/accept-recovery.sh`, and
+`tools/accept-model-spend.sh`. All seven suites are required. Those scripts
+were strengthened here; their historical results do not transfer to this revision.
 Image boot, systemd socket activation, pacman/snapper on btrfs, current Hyprland,
 Orca, real-model chat, and hardware/soak behavior were not exercised in this run.
 
@@ -148,15 +159,20 @@ Failed and successful boot journals from the same rebuilt `vmtest` image at OS
 `98163c0ab8393fd6af8192b3c93b654a304f65ed`, core `b3149a9`, show different delays
 after switch-root. The raw image SHA256 is
 `63b94275f5272ef182f75aa906bd60974a83583f6077963848f675a31f259018`.
+The raw image is archived on the host at
+`image/out/build-98163c/exo-os.raw` with that digest.
 Times below are monotonic seconds since kernel startup; entries marked "not
 compared" were not included in this timing comparison.
 
-Evidence is retained in the build container under
-`image/out/acceptance-98163c-b314/`. Successful timing comes from
+Evidence remains in the build container and has a verified host copy at
+`image/out/acceptance-98163c-b314/`. The manifest at
+`image/out/build-98163c/acceptance-98163c-b314.sha256`
+contains 45 files; all 45 passed the recorded checksum verification in
+`acceptance-98163c-b314.verify.log` beside the manifest. Successful timing comes from
 `01-ledger-attempt2/offline-journal-full.txt`; failed timing comes from
 `02-ledger-attempt3/offline-journal-full.txt`, `offline-journal-device.txt` and
 `offline-diagnosis.txt`, with `ledger-retry-screen.ppm` in the same failed-attempt
-directory. These are container-local diagnostics, not committed artifacts.
+directory. These diagnostics are archived evidence, not committed artifacts.
 
 | Journal event | Failed boot (s) | Successful boot (s) |
 |---|---|---|
