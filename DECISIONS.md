@@ -138,8 +138,14 @@ and recovery staging through `exo-os-recovery`. A checkpoint preserves a read-on
 system snapshot together with its matching UKI. Staging creates a separate writable
 clone and a boot-menu entry. The existing `@home`, `@store` and persistent helper `@sysd` remain mounted;
 original `@` is not promoted or replaced. No named root action or agent capability
-is added, and the command does not select a default or reboot. Details and pending
-actual reboot acceptance: `docs/BOOT-RECOVERY.md`.
+is added, and the command does not select a default or reboot. Details:
+`docs/BOOT-RECOVERY.md`.
+
+**Evidence update, 2026-10-13.** The older `5a86e3b` image with core `cff62d1`
+passed ten recovery checks, including an actual older-root reboot with current
+persistent state retained. The built `7170b3d` image has not yet repeated VM
+acceptance. Neither result establishes hardware, soak or power-loss durability.
+Exact identities and retained attempts: `docs/VALIDATION.md`.
 
 **Why.** OS-4 excludes bootloader and reboot operations from the model's root door.
 The EFI partition lies outside the system snapshot, so booting an arbitrary snapper

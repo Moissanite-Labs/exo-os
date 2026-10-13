@@ -1,6 +1,6 @@
 # Exo OS roadmap: from a bootable VM image to daily use
 
-Date: 2026-10-13. Status: staged implementation. Read current rulings in `DECISIONS.md`;
+Date: 2026-10-13. Status: fresh-image acceptance incomplete. Read current rulings in `DECISIONS.md`.
 `DESIGN.md` and `DECISIONS-PROPOSED.md` preserve the original design and options.
 
 Rules for every phase:
@@ -33,14 +33,24 @@ reviewed response adapters. The shared-core ledger authority now runs under a se
 with a persistent journal, root-pinned public identity and explicit fresh-image provisioning before login.
 Both normal verification commands detect modified or missing copies without repairing them first.
 The staged OS candidate pins core `cff62d1e1afbc861e410659f1f26f01afd1ed249` and adds a
-default-disabled witness publisher that requires explicit administrator action. Its host suite
-passes, but three Linux-specific tests remain unrun. Image delivery, booted-image checks, Linux
-enforcement, and an independent witness endpoint remain unverified; no phase status advances on
-this source result.
+default-disabled witness publisher that requires explicit administrator action. Its earlier host suite passed. The `7170b3d` image built successfully and passed a read-only audit of 1,657
+protected paths. Its phase-3 suite passed seven checks and failed the shared GTK probe
+while waiting for the unsolicited drawer/focus condition. That run did not capture the failing widget state or reach native held-F6 coverage.
+Later diagnostics captured text loss during a panel update: all physical keys arrived,
+but the update selected the typed prefix and the next key replaced it.
+These diagnostics do not change the failed acceptance result.
+The other six suites remain pending. The older `5a86e3b` image has 47
+passing checks across ledger, zero-paid spending, recovery and phases 1–2. That image's
+phase-3 and isolation suites failed. Those results and the renderer diagnosis remain
+historical. No pass carries over to the new image. See
+[current image evidence](docs/VALIDATION.md#current-image-evidence).
+Four witness kernel cases, one installed-flow case and receipt persistence remain pending, as do native
+AT-SPI, Orca, loaded browser pages and Urdu pixels. No independent endpoint is deployed.
 P4 now has a zero-paid model-spend implementation and disposable-VM acceptance script. The root
 policy starts with no paid routes; actual paid caps and billing accuracy have not been exercised.
-P4 still needs current-image adversarial VM acceptance and its spend-cap criterion. Recovery also
-needs its actual reboot acceptance. P5–P8 remain unstarted.
+P4 still needs fresh-image adversarial VM acceptance and its paid spend-cap criterion.
+The older image passed an actual recovery reboot. The new image must repeat it.
+P5–P8 remain unstarted.
 `docs/CORE-CONTRACT.md` assigns the shared-core and OS work without introducing a core fork.
 
 ## Earlier VM evidence (2026-10-12, branch `phase-1`)

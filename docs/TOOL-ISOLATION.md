@@ -59,8 +59,10 @@ still traverse the same registry. Git inspection used by handoff and filename
 completion is disabled in required mode: running Git on a tool-writable repo
 could execute its `core.fsmonitor` command with host authority.
 
-Only executor-selected, root-controlled plugin directories and installed
-entrypoints are discovered; required gate/OS plugins cannot be disabled.
+Required-mode plugin discovery uses only executor-selected root-controlled
+folders. Ambient plugin entry points and principal folder overrides are disabled.
+The executor itself comes from its named installed factory. Required gate/OS
+plugins cannot be disabled.
 Installed providers, plugin Python, protocol commands and browser/terminal
 applications are trusted host code, not hostile payloads contained by this
 sandbox. Human administrator access, a compromised daemon, kernel exploits
@@ -86,8 +88,13 @@ safe path/operation/errno evidence, never state contents. A tools-only rerun lea
 the earlier failed report intact and establishes a result only if all checks pass.
 
 Credentialed action egress has local TLS fixture evidence; P4 still requires
-booted-image egress acceptance, a separate core ledger signer,
-an off-machine audit anchor, and an adversarial booted-image check. A named
+booted-image egress acceptance, an off-machine audit anchor and an adversarial
+booted-image check. The separate signer has historical ledger/recovery evidence.
+The older `5a86e3b` isolation suite failed 1 of 13 checks because its spending
+probe assumed Bash's `is_error` meant access was allowed. The raw probe outcome
+was not retained, so that run confirms neither denial nor disclosure for spending
+state. The corrected harness and fresh `7170b3d` image need VM acceptance. See
+[results and limits](VALIDATION.md#historical-image-5a86e3b). A named
 root receipt proves execution; compulsory tool isolation prevents a tool from
 reaching that socket, but the principal's other same-user applications remain
 trusted and can reach the named root API. Full user/process separation has
