@@ -41,7 +41,7 @@ Exo moved on while this design was written, and building started. What changed, 
   field or a `command.run` command.
 - **Built differently from this text:** the machine profile lives in a git repo at `<store>/machine` (OS-6);
   everyday changes need no root and are undone with git, not snapper (OS-5); phase 1 boots with systemd-boot,
-  and snapshot boot entries come with rollback in phase 2 (OS-1). See `DECISIONS.md`.
+  and recovery boot entries are a manual administrator operation (OS-1, OS-14). See `DECISIONS.md`.
 - **Exo `e079a65` (pin moved, issue #4):** only a principal client may answer an approval (D-039). A client
   proves it is one with the core's per-launch credential beside the socket, and it must not be a child of
   the core. The prompt bar joins as `principal:surface`. Any other client (a tool, a channel, the voice or
@@ -155,14 +155,15 @@ There are two kinds of systemd service. A *system* service runs for the whole ma
 - **exo-sysd** is the only **system service**. It runs as root but exposes only named actions over a local
   socket: report status, take or list snapshots, install a package, undo one recorded snapshot pair (OS-4). It
   never runs a command string it was handed. This closes a gap seen on the test machine today: an agent
-  cannot take a snapshot without a sudo password (note 01 §8, point 4).
+  cannot install a package with a snapshot around it without a sudo password (note 01 §8, point 4). Only
+  package installs call it so far; no tool takes a standalone snapshot yet.
 
 ```
   login --> systemd --user starts exod (as the person)
                 |
                 |  "install htop"   (local socket, peer checked)
                 v
-           exo-sysd (root)  --> snapper pre snapshot, pacman, post snapshot
+           exo-sysd (root)  --> pacman, with a pre and post snapshot
                 |
                 +--> returns a signed receipt; exod writes it to the person's ledger
 ```
@@ -193,9 +194,9 @@ they all read the same event stream.
 Here is the bolder idea, and the one most worth testing. In Exo OS, the store is not a hidden folder inside
 home. It is the person's real home, and the rest of the machine is a view built from it.
 
-- **A machine profile lives in the store** (`policies/machine.toml`, name is a guess): apps and their keys,
-  text size, keyboard languages, screen saver times, which apps open at login. exo-sysd renders this into
-  the actual config files (Hyprland Lua, shell settings). This is what the hydro-os repo does by hand on the
+- **A machine profile lives in the store** (a git repo at `<store>/machine`, OS-6): apps and their keys,
+  text size, keyboard languages, screen saver times, which apps open at login. The change engine renders
+  this into the actual config files (Hyprland Lua, shell settings), as the person (OS-5). This is what the hydro-os repo does by hand on the
   test machine today: guarded blocks, every change committed (local `~/Work/CLAUDE.md`, rule 6).
 - **Every change to the profile is a ledger event**, and the rendered files are tracked in git, so a change
   is a readable diff.
@@ -209,7 +210,7 @@ home. It is the person's real home, and the rest of the machine is a view built 
   principal store (the real home)               the machine (a view)
   ---------------------------------             ---------------------------------
   ledger.sqlite  (every event, signed)  ---->   rebuilt on demand:
-  policies/machine.toml                 ---->     hyprland *.lua, shell settings
+  machine/machine.toml                  ---->     hyprland *.lua, shell settings
   policies/gates.yaml                   ---->     what exod may do alone
   PRINCIPAL.md, nodes/                  ---->     how the agent speaks and decides
   items.sqlite, corpus/                 ---->     search, recall
@@ -316,7 +317,7 @@ and git is the undo.
   2 classify    gate: machine_set, local_write, reversible, private  -> run and log (OS-7)
                 ledger: change.proposed (signed), with the diff
   3 apply       the change engine renders the files and checks the config (e.g. Hyprland --verify-config)
-  4 check       health check: compositor alive, the app keys still work, CRM still answers
+  4 check       health check: keyboard layouts compile, Hyprland reloads with no config errors, hypridle restarts
   5a pass       git commit in the machine repo; ledger: change.applied, with the diff
                 person sees one line: "Text is larger now. Undo?"
   5b fail       the engine puts the old files back by itself
@@ -324,13 +325,16 @@ and git is the undo.
                 person sees: "That did not work, so I put it back."
 ```
 
-A package install is the other kind. It goes through exo-sysd, which takes a snapper pre snapshot and a
-post snapshot around it and returns a signed receipt for the ledger. It always asks (OS-4, OS-7).
+A package install is the other kind. It goes through exo-sysd, which runs pacman. In the image snap-pac's hook
+takes the pre and post snapshots (exo-sysd takes them itself if snap-pac is missing), and exo-sysd returns
+them in a signed receipt for the ledger. It always asks (OS-4, OS-7).
 
 Three rules hold this together.
 
-1. **Nothing changes without a ledger entry.** The proposal is recorded before any file is touched. A
-   package install also needs its pre snapshot.
+1. **Nothing changes without a ledger entry.** In the image, where the store is present, the proposal is
+   recorded before any file is touched. Without a store the engine still applies and commits changes, but
+   writes no ledger row. A package install normally leaves a pre snapshot, but exo-sysd does not refuse an
+   install when none is recorded.
 2. **Undo is always one step and always named in plain words.** For a profile change, "Undo" means "go back
    to the profile before change #4127": a new commit that restores it, itself logged, so even an undo can be
    undone. For a package install, it means "go back to the pre snapshot".

@@ -72,7 +72,7 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
 ## Phase 1. A bootable VM image
 
 - **Work:** a script that builds a disk image from nothing: Arch base, btrfs with snapper and snap-pac,
-  systemd-boot with a unified kernel image (boot entries for snapshots come with rollback in phase 2, OS-1;
+  systemd-boot with a unified kernel image (recovery boot entries are a manual administrator operation, OS-14;
   Omarchy's pieces are a reference, not forked; note 01 §9), Hyprland,
   Chromium, and Exo installed at a pinned release with `exod` as a systemd user service. The first client is
   Exo's terminal client in a drop-down window (note 02 §10, phase 0 there).
@@ -98,13 +98,14 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
   health checks; automatic revert on a failed check.
 - **Acceptance:**
   1. A scripted set of at least 20 changes (text size, keyboard languages, idle times, app keys, a package
-     install, a deliberately broken Hyprland file) runs. Each one leaves a signed ledger entry and a diff in
-     the machine repo; the package install also leaves a pre and a post snapshot.
-  2. The broken change reverts by itself, and the person sees one plain line saying so.
+     install) runs. Each profile change leaves a commit with a diff in
+     the machine repo, the package install leaves a pre and a post snapshot, and each leaves signed ledger
+     rows.
+  2. A deliberately broken change (an unknown keyboard layout) reverts by itself, and the person sees one plain line saying so.
   3. Every change can be undone with one command, and the undo is itself logged.
   4. The agent cannot run any root command outside the named list (tested by trying).
-  5. The plugin offers no bootloader or reboot tool, and exo-sysd refuses them (OS-4).
-- **Needs from A:** decision D4 (privilege model). Agreement on the list of files exo-sysd may change.
+  5. The plugin offers no bootloader or reboot tool, and exo-sysd refuses any action off its list (OS-4).
+- **Needs from A:** decision D4 (privilege model). Agreement on the list of files the machine repo renders.
 
 ## Phase 3. The one surface as the desktop
 
