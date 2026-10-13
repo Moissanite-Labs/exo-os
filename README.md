@@ -60,7 +60,7 @@ See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL
     .venv/bin/pytest                       # the tests
     tools/test-linux.sh                    # Linux socket + GTK tests in a disposable Docker container
     tools/host-tools.sh                    # mkosi, QEMU and OVMF into ~/.local/opt/exo-os-tools (no root)
-    tools/build-image.sh --profile=vmtest  # build image/out/exo-os.raw
+    tools/build-image.sh --profile=vmtest  # build the acceptance image; omitting this builds production
     tools/run-vm.sh [--gui]                # boot it in QEMU (throwaway overlay; SSH on 127.0.0.1:2222)
     tools/vm-ssh.sh <command>              # run a command in the VM as root
     tools/accept-phase1.sh                 # the phase 1 acceptance checks

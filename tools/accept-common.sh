@@ -30,6 +30,26 @@ accept_wait_ssh() {
   "$here/.venv/bin/python" "$here/tools/accept-wait-ssh.py" "$timeout" "$expected" "$@"
 }
 
+accept_require_vmtest_profile() {
+  local manifest="$out/extra/opt/exo/EXO_OS_BUILD.json"
+  if [[ ! -s $manifest ]] || ! "$here/.venv/bin/python" - "$manifest" <<'PY_PROFILE'
+import json
+import sys
+
+try:
+    with open(sys.argv[1]) as stream:
+        built = json.load(stream)
+    valid = built.get("schema") == 2 and built.get("build_profile") == "vmtest"
+except (OSError, ValueError, AttributeError):
+    valid = False
+raise SystemExit(0 if valid else 1)
+PY_PROFILE
+  then
+    result prerequisites 0 'Acceptance requires a manifest from tools/build-image.sh --profile=vmtest before QEMU starts.'
+    exit 1
+  fi
+}
+
 accept_system_ready() {
   local state rc=0
   state=$(ssh_vm "timeout $ready_timeout systemctl is-system-running --wait") || rc=$?
@@ -51,6 +71,7 @@ accept_start() {
     result prerequisites 0 'Build the vmtest image and run tools/dev-env.sh first.'
     exit 1
   }
+  accept_require_vmtest_profile
   if [[ ! $boot_timeout =~ ^[1-9][0-9]{0,2}$ ]] || ((boot_timeout > 900)); then
     result prerequisites 0 'EXO_OS_VM_BOOT_TIMEOUT must be a positive integer no greater than 900 seconds.'
     exit 1
@@ -128,7 +149,7 @@ accept_provenance() {
   fi
   current=$(mktemp "$out/.provenance.XXXXXX")
   "$here/.venv/bin/python" "$here/tools/build-provenance.py" \
-    --source-root "$here" --pin "$pin" --output "$current"
+    --source-root "$here" --pin "$pin" --profile vmtest --output "$current"
   if ! "$here/.venv/bin/python" - "$expected" "$current" <<'PY_PROVENANCE_COMPARE'
 import json
 import sys
@@ -137,7 +158,7 @@ with open(sys.argv[1]) as stream:
     built = json.load(stream)
 with open(sys.argv[2]) as stream:
     current = json.load(stream)
-fields = ("schema", "exo_pin", "source_sha256")
+fields = ("schema", "exo_pin", "source_sha256", "build_profile")
 raise SystemExit(0 if all(built.get(key) == current.get(key) for key in fields) else 1)
 PY_PROVENANCE_COMPARE
   then

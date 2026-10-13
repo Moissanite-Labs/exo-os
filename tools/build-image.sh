@@ -3,6 +3,7 @@
 #   tools/build-image.sh [extra mkosi args]
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
+build_profile=$(python3 "$here/tools/build-profile.py" -- "$@")
 source "$here/tools/env.sh"
 tools="${EXO_OS_TOOLS:-$HOME/.local/opt/exo-os-tools}"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/exo-os"
@@ -50,7 +51,8 @@ uvx -q pip download -q --only-binary=:all: --dest "$extra/opt/exo/wheels" \
 for p in exo-gate exo-memory exo-context; do cp -r "$dep/plugins/$p" "$extra/opt/exo/plugins/"; done
 echo "$pin" > "$extra/opt/exo/EXO_PIN"
 python3 "$here/tools/build-provenance.py" \
-  --source-root "$here" --pin "$pin" --output "$extra/opt/exo/EXO_OS_BUILD.json"
+  --source-root "$here" --pin "$pin" --profile "$build_profile" \
+  --output "$extra/opt/exo/EXO_OS_BUILD.json"
 exec nice -n 10 "${mkosi_env[@]}" "${mkosi_cmd[@]}" -C "$here/image" \
   "${extra_search_args[@]}" \
   --cache-directory="$cache/mkosi" \

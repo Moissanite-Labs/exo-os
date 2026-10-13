@@ -10,6 +10,7 @@ import time
 import pytest
 
 HARNESS = Path(__file__).resolve().parents[1] / "tools" / "accept-common.sh"
+BUILD_PROFILE = HARNESS.parent / "build-profile.py"
 MODE_HARDENER = Path(__file__).resolve().parents[1] / "image/mkosi.extra/usr/lib/exo-os/harden-image-modes.sh"
 FAKE_ROLE_VALIDATOR = Path(__file__).resolve().parents[1] / "tools/validate-fake-roles.py"
 
@@ -40,6 +41,7 @@ def run_harness(tmp_path, body, *, ssh_body=None, image=True, extra_env=None):
     manifest = out / "extra" / "opt" / "exo" / "EXO_OS_BUILD.json"
     subprocess.run([sys.executable, str(here / "tools" / "build-provenance.py"),
                     "--source-root", str(here), "--pin", "a" * 40,
+                    "--profile", "vmtest",
                     "--output", str(manifest)], check=True)
     if ssh_body is None:
         ssh_body = '''if [[ $* == *product_uuid* ]]; then echo "$EXO_OS_VM_UUID";
@@ -69,6 +71,91 @@ source {shlex.quote(str(HARNESS))}
 def test_acceptance_refuses_missing_image(tmp_path):
     r = run_harness(tmp_path, "accept_start 1 1024", image=False)
     assert r.returncode != 0 and "prerequisites" in r.stdout
+
+
+@pytest.mark.parametrize("args,expected", [
+    ([], "production"),
+    (["--profile=vmtest"], "vmtest"),
+    (["--profile", "vmtest"], "vmtest"),
+    (["--tools-tree-profile=runtime", "--profile=vmtest"], "vmtest"),
+])
+def test_build_wrapper_profile_selection(args, expected):
+    r = subprocess.run([sys.executable, str(BUILD_PROFILE), "--", *args],
+                       text=True, capture_output=True)
+    assert r.returncode == 0 and r.stdout.strip() == expected and not r.stderr
+
+
+@pytest.mark.parametrize("args", [
+    ["--profile"], ["--profile="], ["--profile=production"],
+    ["--profile=vmtest,other"], ["--profile=vmtest", "--profile", "vmtest"],
+    ["--profile", "--tools-tree=yes"], ["--profiles=vmtest"],
+    ["--prof=vmtest"], ["--prof", "vmtest"],
+    ["--", "--profile=vmtest"],
+])
+def test_build_wrapper_rejects_ambiguous_or_unsupported_profile(args):
+    r = subprocess.run([sys.executable, str(BUILD_PROFILE), "--", *args],
+                       text=True, capture_output=True)
+    assert r.returncode == 2 and "build profile:" in r.stderr and not r.stdout
+
+
+@pytest.mark.parametrize("args", [
+    ["-C", "/tmp/other"], ["-C/tmp/other"],
+    ["--directory", "/tmp/other"], ["--directory=/tmp/other"],
+    ["-I", "/tmp/other.conf"], ["-I/tmp/other.conf"],
+    ["--include", "/tmp/other.conf"], ["--include=/tmp/other.conf"],
+])
+def test_build_wrapper_rejects_external_config_overrides(args):
+    r = subprocess.run([sys.executable, str(BUILD_PROFILE), "--", "--profile=vmtest", *args],
+                       text=True, capture_output=True)
+    assert r.returncode == 2 and "config-root and include overrides" in r.stderr
+    assert not r.stdout
+
+
+def test_provenance_defaults_to_production_and_records_explicit_vmtest(tmp_path):
+    body = '''"$here/.venv/bin/python" "$here/tools/build-provenance.py" \
+      --source-root "$here" --pin "$(cat "$here/exo.pin")" \
+      --output "$out/production.json"
+    "$here/.venv/bin/python" - "$out/production.json" "$out/extra/opt/exo/EXO_OS_BUILD.json" <<'PY'
+import json, sys
+a, b = (json.load(open(p)) for p in sys.argv[1:])
+assert a["schema"] == b["schema"] == 2
+assert a["build_profile"] == "production" and b["build_profile"] == "vmtest"
+assert a["source_sha256"] == b["source_sha256"]
+PY'''
+    r = run_harness(tmp_path, body)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+@pytest.mark.parametrize("profile", [None, "production", "other"])
+def test_acceptance_rejects_non_vmtest_manifest_before_qemu(tmp_path, profile):
+    value = "None" if profile is None else repr(profile)
+    body = f'''"$here/.venv/bin/python" - "$out/extra/opt/exo/EXO_OS_BUILD.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+value = {value}
+if value is None: d.pop("build_profile")
+else: d["build_profile"] = value
+open(p, "w").write(json.dumps(d))
+PY
+    accept_start 1 1024; echo FALSE_PASS'''
+    r = run_harness(tmp_path, body, ssh_body="echo UNEXPECTED_SSH")
+    assert r.returncode != 0 and "requires a manifest" in r.stdout
+    assert "FALSE_PASS" not in r.stdout and "UNEXPECTED_SSH" not in r.stdout
+    assert not (tmp_path / "project" / "image" / "out" / "qemu.log").exists()
+
+
+def test_acceptance_detects_profile_field_changed_in_installed_manifest(tmp_path):
+    ssh = '''if [[ $* == *product_uuid* ]]; then echo "$EXO_OS_VM_UUID";
+    elif [[ $* == *EXO_PIN* ]]; then cat "$here/exo.pin";
+    elif [[ $* == *EXO_OS_BUILD.json* ]]; then
+      sed 's/"build_profile":"vmtest"/"build_profile":"production"/' \
+        "$here/image/out/extra/opt/exo/EXO_OS_BUILD.json";
+    elif [[ $* == *base64* ]]; then echo UNEXPECTED_MODE_AUDIT;
+    elif [[ $* == *is-system-running* ]]; then echo running; fi'''
+    r = run_harness(tmp_path, "accept_start 1 1024; echo FALSE_PASS", ssh_body=ssh)
+    assert r.returncode != 0 and "booted image build manifest differs" in r.stdout
+    assert "FALSE_PASS" not in r.stdout and "UNEXPECTED_MODE_AUDIT" not in r.stdout
 
 
 @pytest.mark.parametrize("args", ["--keep", "--gui --keep", "--mem 2048 --keep --gl"])

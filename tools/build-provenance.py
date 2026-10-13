@@ -54,6 +54,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--pin", required=True)
+    parser.add_argument("--profile", choices=("production", "vmtest"), default="production")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     root = args.source_root.resolve()
@@ -69,9 +70,10 @@ def main() -> None:
         if not commit:
             raise SystemExit("source tree has no Git metadata; set EXO_OS_SOURCE_COMMIT or .EXO_OS_SOURCE_ID")
     metadata = {
-        "schema": 1,
+        "schema": 2,
         "exo_os_commit": commit,
         "exo_pin": args.pin.strip(),
+        "build_profile": args.profile,
         "source_sha256": source_digest(root),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

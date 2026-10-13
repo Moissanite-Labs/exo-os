@@ -124,8 +124,18 @@ target remains Arch x86-64:
 
 ```sh
 EXO_OS_MKOSI=/path/to/mkosi tools/build-image.sh \
-  --tools-tree=yes --tools-tree-distribution=debian --tools-tree-release=sid
+  --profile=vmtest --tools-tree=yes \
+  --tools-tree-distribution=debian --tools-tree-release=sid
 ```
+
+`tools/build-image.sh` defaults to the production profile when no profile is
+given. For acceptance, select `vmtest` explicitly with `--profile=vmtest` or
+`--profile vmtest`. The installed build manifest records that choice; every
+acceptance suite rejects missing or non-`vmtest` profile evidence before QEMU
+starts. The wrapper rejects duplicate, abbreviated, or unsupported profile
+selections. It also rejects `-C`/`--directory` and `-I`/`--include` overrides,
+which could select configuration outside the tracked image tree or add profiles;
+the documented tools-tree options still pass through.
 
 ## Still required
 
