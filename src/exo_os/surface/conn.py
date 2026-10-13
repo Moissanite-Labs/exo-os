@@ -248,4 +248,6 @@ class Connection:
 def _default_client(socket: str) -> Any:
     from exo.protocol.client import Client
 
-    return Client(socket=socket, timeout=10.0)
+    # The surface is the person's own window, so it joins as a principal client (Exo D-039): it sends the core's
+    # per-launch credential, and only such a client may answer an approval card.
+    return Client(socket=socket, timeout=10.0, principal="surface")

@@ -32,6 +32,10 @@ Exo moved on while this design was written, and building started. What changed, 
 - **Built differently from this text:** the machine profile lives in a git repo at `<store>/machine` (OS-6);
   everyday changes need no root and are undone with git, not snapper (OS-5); phase 1 boots with systemd-boot,
   and snapshot boot entries come with rollback in phase 2 (OS-1). See `DECISIONS.md`.
+- **Exo `e079a65` (pin moved, issue #4):** only a principal client may answer an approval (D-039). A client
+  proves it is one with the core's per-launch credential beside the socket, and it must not be a child of
+  the core. The prompt bar joins as `principal:surface`. Any other client (a tool, a channel, the voice or
+  phone client later) answers only as a seat with a signed answer, and never gives a standing grant.
 
 ---
 

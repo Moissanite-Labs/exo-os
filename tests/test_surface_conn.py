@@ -166,3 +166,14 @@ def test_pending_approvals_are_fetched_on_connect(paths):
     finally:
         c2.stop()
         exod.stop()
+
+
+def test_surface_joins_as_the_principal(tmp_path):
+    # Exo D-039: only a principal client may answer approvals; the surface sends the per-launch credential.
+    from exo import principal as pr
+    from exo_os.surface import conn
+
+    sock = tmp_path / "run" / "exod.sock"
+    token = pr.issue(sock)
+    client = conn._default_client(str(sock))
+    assert client._who() == {pr.HEADER: token, "X-Exo-Client": "surface"}
