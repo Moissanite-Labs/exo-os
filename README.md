@@ -8,6 +8,11 @@ the person, and one calm surface.
 Exo OS stays one with Exo: same core, same protocol, no fork. Exo is a dependency pinned by commit
 (`exo.pin`), not a copy. Anything the OS needs from the core goes to Exo first.
 
+**Start here: [`docs/BANKAI.md`](docs/BANKAI.md).** A's direction for Exo OS. If the Exo harness is the first
+release of Exo's spirit, Exo OS is the full release: the same principles, enforced by the whole machine instead of by
+one process. It lists the invariants the OS must hold, maps each system from harness to OS, names the seams only the
+OS can close, and lays out the build path. Read it before planning a stage.
+
 ## Status
 
 Phases 1 to 3 are built on branch `phase-1` and pass their acceptance scripts in a VM, with the gaps listed in `ROADMAP.md` (Status). Built:
@@ -54,6 +59,7 @@ image's base config does.
 
 | Path | What it is |
 |---|---|
+| `docs/BANKAI.md` | The guiding document: why Exo OS is the full release of Exo, its invariants, systems, seams and build path |
 | `DESIGN.md` | The architecture, each idea explained from first principles |
 | `DECISIONS.md` | Decisions made, why, and what was rejected (OS-1 onward) |
 | `ROADMAP.md` | Phases from a bootable VM image to daily use, each with an acceptance check |
