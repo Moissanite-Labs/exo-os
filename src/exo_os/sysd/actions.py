@@ -50,13 +50,18 @@ class Actions:
     # -- actions
 
     def status(self, args: dict[str, Any]) -> dict[str, Any]:
+        _args(args, set())
         return {"snapper": self.has("snapper"), "snap_pac": self._snap_pac(), "pacman": self.has("pacman")}
 
     def snapshot_create(self, args: dict[str, Any]) -> dict[str, Any]:
-        return {"snapshot": self._snap("single", str(args.get("description", "exo-os")))}
+        _args(args, {"description"})
+        description = args.get("description", "exo-os")
+        if not isinstance(description, str):
+            raise ActionError("description must be text")
+        return {"snapshot": self._snap("single", description)}
 
     def _snap(self, kind: str, desc: str, pre: int | None = None) -> int:
-        if not DESC_RE.match(desc):
+        if not DESC_RE.fullmatch(desc):
             raise ActionError("description has characters that are not allowed")
         argv = ["snapper", "-c", self.snapper_config, "create", "--type", kind, "--cleanup-algorithm", "number",
                 "--print-number", "--description", desc, "--userdata", "exo-os=yes"]
@@ -69,6 +74,7 @@ class Actions:
             raise ActionError(f"snapper did not return a snapshot number: {out[:100]}") from None
 
     def snapshot_list(self, args: dict[str, Any]) -> dict[str, Any]:
+        _args(args, {"limit"})
         limit = _int(args.get("limit", 10), 1, 100)
         out = self._ok(["snapper", "--jsonout", "-c", self.snapper_config, "list", "--disable-used-space"])
         rows = json.loads(out).get(self.snapper_config, [])
@@ -77,11 +83,14 @@ class Actions:
         return {"snapshots": rows[-limit:][::-1]}
 
     def package_install(self, args: dict[str, Any]) -> dict[str, Any]:
+        _args(args, {"names", "reason"})
+        if "reason" in args and (not isinstance(args["reason"], str) or len(args["reason"]) > 1000):
+            raise ActionError("reason must be text of at most 1000 characters")
         names = args.get("names")
         if not isinstance(names, list) or not 1 <= len(names) <= 10:
             raise ActionError("give 1 to 10 package names")
         for n in names:
-            if not isinstance(n, str) or not PKG_RE.match(n):
+            if not isinstance(n, str) or not PKG_RE.fullmatch(n):
                 raise ActionError(f"{n!r} is not a package name")
         if not self.keyring_ready():
             raise ActionError("the package keyring is still being set up after first start; try again in a minute")
@@ -105,6 +114,7 @@ class Actions:
         Only a pre/post pair is accepted (a post snapshot whose pre is the given one), so this undoes one
         recorded change and nothing wider. Files in home and the Exo store are not on this subvolume and
         are never touched."""
+        _args(args, {"pre", "post"})
         pre, post = _int(args.get("pre"), 1, 10**6), _int(args.get("post"), 1, 10**6)
         rows = {r["number"]: r for r in self.snapshot_list({"limit": 100})["snapshots"]}
         if pre not in rows or post not in rows:
@@ -132,3 +142,8 @@ def _int(v: Any, lo: int, hi: int) -> int:
     if not isinstance(v, int) or isinstance(v, bool) or not lo <= v <= hi:
         raise ActionError(f"expected a whole number from {lo} to {hi}")
     return v
+
+
+def _args(args: dict[str, Any], allowed: set[str]) -> None:
+    if not isinstance(args, dict) or set(args) - allowed:
+        raise ActionError("unknown action arguments")
