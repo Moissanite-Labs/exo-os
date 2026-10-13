@@ -102,6 +102,20 @@ def test_acceptance_ignores_generated_cache_and_docs_only_commit(tmp_path):
     assert "provenance: image Exo pin and source digest match build commit" in r.stdout
 
 
+def test_acceptance_normalizes_archive_group_write_modes(tmp_path):
+    body = '''chmod 0664 "$here/src/fixture/__init__.py" "$here/image/mkosi.conf"
+    accept_start 1 1024'''
+    r = run_harness(tmp_path, body)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "source digest match build commit" in r.stdout
+
+
+@pytest.mark.parametrize("mode", ["0755", "0600"])
+def test_acceptance_still_checks_executable_and_read_modes(tmp_path, mode):
+    r = run_harness(tmp_path, f'chmod {mode} "$here/src/fixture/__init__.py"; accept_start 1 1024')
+    assert r.returncode != 0 and "source or image configuration changed" in r.stdout
+
+
 def test_acceptance_rejects_invalid_boot_timeout_before_starting_vm(tmp_path):
     r = run_harness(tmp_path, "accept_start 1 1024", extra_env={"EXO_OS_VM_BOOT_TIMEOUT": "0"})
     assert r.returncode != 0 and "must be a positive integer" in r.stdout

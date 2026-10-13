@@ -32,7 +32,10 @@ def source_digest(root: Path) -> str:
         info = path.lstat()
         digest.update(relative + b"\0")
         digest.update(stat.S_IFMT(info.st_mode).to_bytes(2, "big"))
-        digest.update(stat.S_IMODE(info.st_mode).to_bytes(2, "big"))
+        # Git archive preserves host group/other write bits, then image postinst
+        # strips them. Ignore only those bits so checkout and archive builds match.
+        mode = stat.S_IMODE(info.st_mode) & ~0o022
+        digest.update(mode.to_bytes(2, "big"))
         if path.is_symlink():
             digest.update(os.readlink(path).encode())
         else:
