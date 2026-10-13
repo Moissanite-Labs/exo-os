@@ -3,8 +3,7 @@ Description=Exo approved HTTPS credential broker
 Requires=exo-egress.socket
 RequiresMountsFor=/var/lib/exo-egress
 AssertPathIsMountPoint=/var/lib/exo-egress
-After=network-online.target
-Wants=network-online.target
+# Start offline so the durable journal can answer replays without network access.
 
 [Service]
 User=exo-egress
