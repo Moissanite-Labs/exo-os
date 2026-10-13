@@ -89,7 +89,6 @@ mentioning Exo is not an ownership marker.
 | `docs/BOOT-RECOVERY.md` | Administrator checkpoints and matching-kernel recovery |
 | `docs/CREDENTIAL-EGRESS.md` | Approved HTTPS actions, key isolation and uncertain outcomes |
 | `docs/LEDGER-AUTHORITY.md` | Protected append history, first boot and independent witness handoff |
-| `docs/LEDGER-AUTHORITY.md` | Protected signer, boot provisioning, projection and witness handoff |
 | `src/exo_os/profile.py` | The machine profile: fields, checks, apps |
 | `src/exo_os/render/` | Profile to Hyprland Lua and hypridle config |
 | `src/exo_os/changes.py` | The change engine: apply, check, commit or put back, undo |
