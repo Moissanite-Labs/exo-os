@@ -79,8 +79,9 @@ usable. This is local routed-call accounting under trusted installed code; it
 does not control every same-UID process or the provider's account-wide bill.
 See [MODEL-SPEND.md](MODEL-SPEND.md).
 
-The core witness state machine accepts only signed checkpoints and commits a signed acknowledgment
-before returning it. Deploying that witness under independent control, delivering checkpoints and
+The optional witness state machine and transport are staged in a separate core draft, outside
+the current pin. That draft accepts signed checkpoints and commits a signed acknowledgment
+before returning it. Deploying a witness under independent control, delivering checkpoints and
 checking receipt freshness remain separate work. A copied checkpoint proves its signed prefix;
 it does not prove that no later history exists. Current-image acceptance and the remaining phase-4
 criteria still apply.

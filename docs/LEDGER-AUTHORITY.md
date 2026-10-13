@@ -115,8 +115,8 @@ claim an independent witness exists.
 
 An operator transfers the root-pinned public stream `identity` from
 `/var/lib/exo-ledger/manifest.json` and the exported signed genesis through an
-independently authenticated route. The witness pins those inputs explicitly
-with the core's `WitnessJournal.provision`; it must never adopt identity from an
+independently authenticated route. The separate core witness draft pins those inputs explicitly
+with `WitnessJournal.provision`; that API is outside the current OS pin. A witness must never adopt identity from an
 append RPC reply. Later checkpoint exports are verified against that pin and
 previous checkpoint. Witness endpoints, delivery/acknowledgment and live
 off-machine acceptance remain unconfigured.

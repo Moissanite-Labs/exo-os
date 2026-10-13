@@ -47,7 +47,8 @@ not evidence for this revision. Built:
 
 Still required: current-image boot/recovery acceptance, general API response adapters, independent
 witness deployment, voice and phone clients, and the hardware trials in `ROADMAP.md`.
-The shared core provides a durable witness state machine; no independent witness endpoint is deployed.
+Independent witness state and transport are staged in a separate core draft, outside this pin.
+An independently administered endpoint and OS delivery remain unconfigured.
 Isolation covers model tool processes. Installed providers/plugins and the person's other desktop
 applications remain trusted; this is not a claim of separation between every same-user process.
 See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL-ISOLATION.md).
