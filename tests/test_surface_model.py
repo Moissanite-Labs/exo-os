@@ -1,11 +1,13 @@
+import json
+
 import pytest
 
 from exo.core.types import Message, ToolCall, ToolResult
 from exo.protocol import schema as s
 
 from exo_os.profile import Profile
-from exo_os.surface.model import (NOT_RUNNING, WAITING, WORKING, Panel, SurfaceModel, markdown_to_plain,
-                                  match_apps, panel_view)
+from exo_os.surface.model import (NOT_RUNNING, RECENT_CHARS, RECENT_LINES, WAITING, WORKING, Line, Panel,
+                                  SurfaceModel, markdown_to_plain, match_apps, panel_view)
 
 SID = "s_0000000000000001"
 
@@ -143,16 +145,31 @@ def test_approval_requested_then_answered_echoes_binding():
     card = m.approval
     assert card.summary.startswith("Send this message") and card.binding == "h1"
     assert card.options == ["allow", "deny"]  # plain: no standing grant
-    assert card.detail == ""  # plain: no tool internals
+    assert json.loads(card.detail.split("\n", 1)[1]) == {
+        "approval_request_id": "a1", "tool": "whatsapp_send", "arguments": {"to": "Ahmed"}}
     assert m.status == WAITING
     resp = m.answer("allow")
     assert resp == s.ApprovalRespond(request_id="a1", decision="allow", client="exo-surface", binding="h1")
     assert m.approval is None
-    # the resolved event that follows changes nothing visible, and a replay of the request does not re-open it
+    # A replay after a sent answer must not re-open a card.
     m.apply(ev(_ask()))
     assert m.approval is None
     m.apply(ev(s.ApprovalResolved(request_id="a1", decision="allow")))
     assert m.approval is None
+
+
+@pytest.mark.parametrize("plain", [True, False])
+def test_generic_approval_shows_full_literal_request_with_visible_suffix(plain):
+    m = _model(plain=plain)
+    payload = "<b>literal</b>" + "long body " * 1200 + "\u202eTRAILING_DESTINATION"
+    call = ToolCall(id="c_long", name="send_message", arguments={"target": "Ahmed", "message": payload})
+    m.apply(ev(s.ApprovalRequested(request_id="a_long", summary="A short summary", call=call,
+                                   binding="bound")))
+    detail = m.approval.detail
+    assert "TRAILING_DESTINATION" in detail
+    assert "\\u202e" in detail and "\u202e" not in detail
+    assert "<b>literal</b>" in detail  # displayed as text, never interpreted as markup
+    assert json.loads(detail.split("\n", 1)[1])["arguments"]["message"] == payload
 
 
 def test_approval_resolved_elsewhere_closes_the_card_and_queue_moves_on():
@@ -302,6 +319,45 @@ def test_question_is_answered_from_the_palette():
     act = m.submit()
     assert act.command == s.QuestionAnswer(question_id="q1", answer="Ahmed K")
     assert m.question is None
+
+
+@pytest.mark.parametrize("word,kind", [("transcript", "show_transcript"), ("panels", "show_panels")])
+def test_local_reading_actions_are_explicit_and_question_answers_remain_default(word, kind):
+    m = _model()
+    m.set_input(word)
+    assert m.suggestions[0].kind == word
+    assert m.submit().kind == kind
+    assert not m.lines  # viewing local state is not a message or model turn
+
+    m.apply(ev(s.QuestionAsked(question_id="q_local", text="What should I call it?")))
+    m.set_input(word)
+    assert [item.kind for item in m.suggestions] == ["ask", word]
+    assert m.submit().command == s.QuestionAnswer(question_id="q_local", answer=word)
+    m.apply(ev(s.QuestionAsked(question_id="q_explicit", text="And now?")))
+    m.set_input(word)
+    m.move(1)
+    assert m.submit().kind == kind
+    assert m.question.question_id == "q_explicit"
+
+
+def test_recent_conversation_reads_only_loaded_lines_and_keeps_newest_when_bounded():
+    m = _model()
+    m.lines = [Line("you", "first loaded line")] + [Line("exo", f"reply {n}") for n in range(RECENT_LINES)]
+    m.streaming["m_live"] = "newest streamed answer"
+    view = m.recent_conversation()
+    assert "Only currently loaded history" in view
+    assert "Earlier loaded content omitted" in view
+    assert "first loaded line" not in view
+    assert "newest streamed answer" in view
+    assert len(view.splitlines()) <= RECENT_LINES + 3
+    assert "SessionGet" not in view
+
+    m.lines = [Line("exo", "old marker"), Line("exo", "tail marker" + "x" * (RECENT_CHARS + 10))]
+    m.streaming.clear()
+    view = m.recent_conversation()
+    assert "old marker" not in view and "Earlier loaded content omitted" in view
+    assert view.endswith("x" * 100)
+    assert len(view) < RECENT_CHARS + 300  # bounded view including its explicit scope/limit notice
 
 
 def test_transcript_collapses_to_last_exchange_and_clears_when_hidden():

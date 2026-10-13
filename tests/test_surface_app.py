@@ -59,6 +59,7 @@ def test_load_profile(tmp_path, monkeypatch):
 
 
 CHILD = textwrap.dedent('''
+    import json
     import gi
     gi.require_version("Gtk", "4.0")
     from gi.repository import GLib, Gtk
@@ -76,6 +77,14 @@ CHILD = textwrap.dedent('''
             while ctx.iteration(False):
                 pass
 
+    def focus_within(window, target):
+        focused = window.get_focus()
+        while focused is not None:
+            if focused == target:
+                return True
+            focused = focused.get_parent()
+        return False
+
     SID = "s_1"
     seq = iter(range(1, 1000))
     def ev(body):
@@ -90,6 +99,7 @@ CHILD = textwrap.dedent('''
     ui.show()
     pump()
     assert ui.bar.get_visible()
+    assert ui.drawer.box.get_focusable()
 
     ui.bar.entry.set_text("whats")
     pump()
@@ -126,8 +136,56 @@ CHILD = textwrap.dedent('''
                                  data=data)))
     pump()
     assert ui.drawer.get_visible()
+    assert not ui.drawer.interactive and ui.bar.is_active() and not ui.drawer.is_active()
+    assert focus_within(ui.bar, ui.bar.entry)  # GTK focuses Entry's internal Gtk.Text on Broadway
     opened = [b.panel_id for b in sent if isinstance(b, s.UiRespond) and b.action == "opened"]
     assert len(opened) == 8, opened
+    n = len(sent)
+    ui.bar.entry.set_text("panels")
+    ui.bar.entry.emit("activate")
+    pump()
+    assert ui.drawer.interactive and ui.drawer.is_active() and focus_within(ui.drawer, ui.drawer.box)
+    assert len(sent) == n
+    ui._drawer_key(None, A.Gdk.KEY_Escape, 0, 0)
+    pump()
+    assert not ui.drawer.interactive and not ui.drawer.get_visible()
+    assert ui.bar.is_active() and focus_within(ui.bar, ui.bar.entry)
+    ui.bar.entry.set_text("transcript")
+    ui.bar.entry.emit("activate")
+    pump()
+    assert ui.drawer.interactive and ui.drawer.mode == "transcript"
+    assert ui.drawer.is_active() and focus_within(ui.drawer, ui.drawer.transcript_view)
+    buf = ui.drawer.transcript_view.get_buffer()
+    view = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+    assert "Recent conversation" in view and "Only currently loaded history" in view
+    assert "Call Lead A." in view and len(sent) == n
+    assert not ui.drawer.transcript_view.get_editable()
+    buf.select_range(buf.get_start_iter(), buf.get_end_iter())
+    assert buf.get_has_selection()
+    ui.bar.entry.set_text("panels")
+    ui.bar.entry.emit("activate")
+    pump()
+    assert ui.drawer.interactive and ui.drawer.mode == "panels"
+    assert ui.drawer.transcript_view is None
+    assert focus_within(ui.drawer, ui.drawer.box), (
+        ui.drawer.get_focus(), ui.drawer.box, ui.drawer.is_active(), ui.bar.is_active())
+    assert len(sent) == n
+    choice_close = ui.drawer.panel_widgets["p_choice"].get_first_child().get_last_child()
+    choice_close.grab_focus()
+    assert focus_within(ui.drawer, choice_close)
+    focus_prompt = ui._focus_prompt
+    focus_calls = []
+    ui._focus_prompt = lambda: focus_calls.append("prompt")
+    ui.on_event(ev(s.UiPanel(panel_id="p_chart", action="update", kind="chart", title="chart",
+                             text="updated chart", data={"labels": ["Mon"], "values": [4]})))
+    pump()
+    ui._focus_prompt = focus_prompt
+    assert focus_calls == []  # retained focus alone does not prove the bar was never presented
+    assert ui.drawer.panel_widgets["p_choice"].get_first_child().get_last_child() == choice_close
+    assert focus_within(ui.drawer, choice_close)  # another panel's refresh cannot displace this control
+    ui._drawer_key(None, A.Gdk.KEY_Escape, 0, 0)
+    pump()
+    assert ui.bar.is_active() and focus_within(ui.bar, ui.bar.entry)
     ui.choose("p_choice", "a")
     assert sent[-2] == s.UiRespond(panel_id="p_choice", action="acted", value={"choice": "a"})
     ui.close_panel("p_table")
@@ -159,10 +217,16 @@ CHILD = textwrap.dedent('''
     ui.on_event(ev(s.ApprovalRequested(request_id="a1", summary="Send this message to Ahmed?", binding="h1")))
     pump()
     assert ui.card.get_visible() and ui.card.summary.get_text() == "Send this message to Ahmed?"
+    assert focus_within(ui.card, ui.card.summary)  # safe first focus, before any consent button
     n = len(sent)
     ui.card._answer("allow")  # too soon after it appeared: ignored
     assert len(sent) == n and ui.card.get_visible()
     ui.card.shown_at -= (A.ARM_MS + 50) * 1000
+    for modifier in (A.Gdk.ModifierType.CONTROL_MASK, A.Gdk.ModifierType.ALT_MASK,
+                     A.Gdk.ModifierType.SUPER_MASK, A.Gdk.ModifierType.META_MASK):
+        ui.card._key(None, A.Gdk.KEY_y, 0, modifier)
+        assert len(sent) == n and ui.card.get_visible()
+        ui.card._key_released(None, A.Gdk.KEY_y, 0, modifier)
     ui.card._key(None, A.Gdk.KEY_y, 0, None)
     pump()
     assert sent[-1] == s.ApprovalRespond(request_id="a1", decision="allow", client="exo-surface", binding="h1")
@@ -174,6 +238,10 @@ CHILD = textwrap.dedent('''
     n = len(sent)
     ui.card._answer("allow")  # a key still held from the last answer: the new card is not armed yet
     assert len(sent) == n and ui.card.get_visible()
+    ui.card.shown_at -= (A.ARM_MS + 50) * 1000
+    ui.card._key(None, A.Gdk.KEY_y, 0, None)  # held Y repeats after the arm interval
+    assert len(sent) == n and ui.card.get_visible()
+    ui.card._key_released(None, A.Gdk.KEY_y, 0, None)
 
     ui.card._key(None, A.Gdk.KEY_Escape, 0, None)  # dismissal works even before arming
     pump()
@@ -185,8 +253,29 @@ CHILD = textwrap.dedent('''
     ui.card._answer("deny")
     assert len(sent) == n  # reopening also gets the anti-misclick arm window
     ui.on_event(ev(s.ApprovalResolved(request_id="a2", decision="deny")))
+    generic_payload = "<b>literal</b>" + "long body " * 1200 + "GENERIC_SUFFIX"
+    generic_call = s.ToolCall(id="c_generic", name="send_message", arguments={
+        "target": "Ahmed", "message": generic_payload})
+    ui.on_event(ev(s.ApprovalRequested(request_id="a_generic", summary="Send?", call=generic_call,
+                                     binding="generic_bound")))
+    pump()
+    assert ui.card.detail_scroll.get_visible() and focus_within(ui.card, ui.card.summary)
+    buf = ui.card.detail.get_buffer()
+    details = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+    assert json.loads(details.split("\\n", 1)[1])["arguments"]["message"] == generic_payload
+    assert "GENERIC_SUFFIX" in details and "<b>literal</b>" in details
+    buf.select_range(buf.get_start_iter(), buf.get_end_iter())
+    assert buf.get_has_selection()
+    n = len(sent)
+    ui.card.shown_at -= (A.ARM_MS + 50) * 1000
+    ui.card._key(None, A.Gdk.KEY_y, 0, None)  # fresh press after the observed release
+    pump()
+    assert sent[-1] == s.ApprovalRespond(request_id="a_generic", decision="allow",
+                                          client="exo-surface", binding="generic_bound")
+    assert len(sent) == n + 1 and ui.bar.is_active() and focus_within(ui.bar, ui.bar.entry)
+    ui.card._key_released(None, A.Gdk.KEY_y, 0, None)
+    ui.on_event(ev(s.ApprovalResolved(request_id="a_generic", decision="allow")))
     from exo_os.egress import policy
-    import json
     origin = "https://api.example.test"
     policy.load_policy = lambda: {"messages": policy.Profile(origin, ("POST",), "/messages", "hidden_token")}
     payload = "<b>literal markup</b>" + "full body " * 1200 + "PAYLOAD_SUFFIX"
@@ -206,6 +295,13 @@ CHILD = textwrap.dedent('''
     buf.select_range(buf.get_start_iter(), buf.get_end_iter())
     assert buf.get_has_selection()  # full request can be selected and copied
     assert ui.card.options == ["allow", "deny"]
+    ui.on_event(ev(s.ApprovalResolved(request_id="a3", decision="deny")))
+    ui.show(prof.set_value("surface.language", "ur"))
+    pump()
+    assert all(w.get_direction() == Gtk.TextDirection.RTL for w in (ui.bar, ui.drawer, ui.card))
+    ui.show(prof)
+    pump()
+    assert all(w.get_direction() == Gtk.TextDirection.LTR for w in (ui.bar, ui.drawer, ui.card))
     ui.hide()
     pump()
     assert not ui.bar.get_visible() and not ui.drawer.get_visible()

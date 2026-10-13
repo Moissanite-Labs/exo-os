@@ -100,9 +100,7 @@ def credential_request_preview(args: dict[str, Any], approval_id: str) -> tuple[
     literal = json.dumps({"approval_request_id": approval_id, "request": request}, indent=2, ensure_ascii=False)
     # Keep normal Unicode readable; expose direction/format controls and Unicode line separators as
     # JSON escapes so a payload cannot visually overwrite its destination or hide a suffix.
-    literal = "".join(json.dumps(c, ensure_ascii=True)[1:-1] if (
-        unicodedata.category(c) in {"Cf", "Zl", "Zp"} or 0x7F <= ord(c) < 0xA0
-    ) else c for c in literal)
+    literal = _escape_format_controls(literal)
     details = "Outbound request (full JSON; escaped characters preserve exact text):\n" + literal
     blocked = "This request cannot be approved. "
     allowed_fields = {"profile", "request_id", "expected_origin", "method", "path", "body"}
@@ -129,6 +127,23 @@ def credential_request_preview(args: dict[str, Any], approval_id: str) -> tuple[
     if not profile.permits(args["method"], args["path"]):
         return blocked + "This method or path is not allowed by operator policy.", details, False
     return f"Send this HTTPS request to {profile.origin} using your saved credential?", details, True
+
+
+def approval_request_details(name: str, args: dict[str, Any], approval_id: str) -> str:
+    """An exact, selectable ordinary approval preview in both surface modes.
+
+    JSON makes model-provided markup literal. Escaping invisible direction and
+    format controls keeps the destination and trailing text inspectable.
+    """
+    literal = json.dumps({"approval_request_id": approval_id, "tool": name, "arguments": args},
+                         indent=2, ensure_ascii=False)
+    return "Full request details (literal JSON; escaped controls preserve exact text):\n" + _escape_format_controls(literal)
+
+
+def _escape_format_controls(text: str) -> str:
+    return "".join(json.dumps(c, ensure_ascii=True)[1:-1] if (
+        unicodedata.category(c) in {"Cf", "Zl", "Zp"} or 0x7F <= ord(c) < 0xA0
+    ) else c for c in text)
 
 
 def plain_summary(summary: str) -> str:
