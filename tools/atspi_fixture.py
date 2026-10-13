@@ -68,6 +68,9 @@ def main() -> int:
 
     def reply(stage: str, *, error: str | None = None) -> None:
         response = {"stage": stage, "pid": os.getpid(), "layered": True,
+                    "gsk_renderer": os.environ["GSK_RENDERER"],
+                    "renderers": {name: renderer.__gtype__.name if (renderer := window.get_renderer()) else None
+                                  for name, window in (("bar", ui.bar), ("drawer", ui.drawer), ("card", ui.card))},
                     "approval_responses": sum(isinstance(item, s.ApprovalRespond) for item in sent)}
         if error:
             response["error"] = error

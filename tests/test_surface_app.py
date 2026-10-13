@@ -74,7 +74,8 @@ def _broadway(tmp_path):
                             env={**os.environ, "XDG_RUNTIME_DIR": str(run)},
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(0.5)
-    env = {k: v for k, v in os.environ.items() if k not in ("WAYLAND_DISPLAY", "DISPLAY", "LD_PRELOAD")}
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("WAYLAND_DISPLAY", "DISPLAY", "LD_PRELOAD", "GSK_RENDERER")}
     env.update(GDK_BACKEND="broadway", BROADWAY_DISPLAY=display, XDG_RUNTIME_DIR=str(run))
     return proc, env
 

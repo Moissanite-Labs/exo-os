@@ -239,3 +239,25 @@ the default device timeout at boot, as documented in the
 Production retains `quiet loglevel=3` with no device-timeout override. This
 profile change has source checks only until a newly built image is booted; the
 host acceptance deadline remains separately bounded at 900 seconds.
+
+### VM surface renderer scope
+
+The `vmtest` profile declares `GSK_RENDERER=cairo` in a drop-in for
+`exo-surface.service`. The production profile has no renderer override, and the
+VM setting is not a session-wide GTK or Chromium setting. GTK documents Cairo as
+an incomplete comparison renderer, including unsupported 3D transforms, so this
+setting is limited to the disposable software-rendering VM.
+See [GTK's Cairo renderer](https://docs.gtk.org/gsk4/ctor.CairoRenderer.new.html)
+and [renderer configuration](https://docs.gtk.org/gtk4/running.html#GSK_RENDERER).
+
+Phase 3 checks the service after its deliberate restart. It records the declared
+renderer and the main process's effective renderer value, then propagates the
+validated value to its synthetic GTK fixture. The AT-SPI diagnostic does the
+same before stopping the installed surface. Both evidence contracts require
+actual realized `GskCairoRenderer` instances in addition to the environment value.
+The full environment is never saved in these renderer records.
+
+These source checks do not establish new-image acceptance. Fresh acceptance and
+visual review of the prompt, approval details/buttons, drawer and RTL remain
+required. A pass under Cairo establishes software-renderer VM behavior only;
+production GPU, hardware and low-power claims remain open.

@@ -48,6 +48,21 @@ and the late `tod|ay` boundary, alongside its separate real protocol checks.
 The timing-only unarmed assertions use a frozen clock so compositor latency cannot
 turn a pre-arm assertion into an assertion after the guard has already expired.
 
+The `vmtest` profile sets `GSK_RENDERER=cairo` only for `exo-surface.service`.
+These VM checks therefore run on Wayland with Cairo. Production retains GTK's
+default renderer selection. The harness verifies both the service declaration
+and its running process environment before passing the same value to fixtures.
+GTK evidence records each realized window's renderer through
+[`Gtk.Native.get_renderer()`](https://docs.gtk.org/gtk4/method.Native.get_renderer.html)
+and requires `GskCairoRenderer`; an environment hint alone cannot pass.
+
+The service records are `p3-surface-renderer.json` and
+`atspi-surface-renderer.json`; they contain only the renderer values and service
+PID. Fixture renderer values appear in their existing JSON evidence. This scope
+is software rendering in the disposable VM. Actual prompt, approval details and
+buttons, drawer and RTL screenshots still need visual review on the new image.
+Production GPU, hardware and low-power behavior remain unverified.
+
 An additional, optional AT-SPI diagnostic can inspect a synthetic surface in
 the disposable `vmtest` image. It is separate from Phase 3 and does not change
 that suite's seven workload checks plus provenance (eight reported results).

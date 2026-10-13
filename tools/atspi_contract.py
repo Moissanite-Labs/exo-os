@@ -18,10 +18,11 @@ def validate(data: Any, *, image_source: str, diagnostic_source: str, exit_code:
     if exit_code != 0 or not isinstance(data, dict):
         return False
     if set(data) != {"probe", "status", "backend", "image_source", "diagnostic_source",
-                     "fixture_pid", "checks"}:
+                     "fixture_pid", "checks", "gsk_renderer"}:
         return False
     if (data["probe"] != PROBE or data["status"] != "PASS" or data["backend"] != "wayland-layer"
             or data["image_source"] != image_source or data["diagnostic_source"] != diagnostic_source
+            or data["gsk_renderer"] != "cairo"
             or not SHA.fullmatch(image_source) or not SHA.fullmatch(diagnostic_source)
             or type(data["fixture_pid"]) is not int or data["fixture_pid"] <= 1):
         return False
@@ -46,6 +47,7 @@ def validate(data: Any, *, image_source: str, diagnostic_source: str, exit_code:
 
 def stage_valid(stage: str, obs: dict) -> bool:
     if (type(obs.get("nodes")) is not int or not 1 <= obs["nodes"] <= 160
+            or obs.get("renderer") != "GskCairoRenderer"
             or type(obs.get("approval_responses")) is not int or obs["approval_responses"] != 0):
         return False
     if stage in ("prompt", "panel_escape", "escape"):

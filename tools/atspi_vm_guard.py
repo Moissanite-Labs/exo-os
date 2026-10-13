@@ -26,3 +26,5 @@ def require_vm(*, opt_in: bool, fixture: bool = False) -> None:
         raise ValueError("requires the Exo Wayland display and user D-Bus session")
     if fixture and "gtk4-layer-shell" not in os.environ.get("LD_PRELOAD", ""):
         raise ValueError("requires gtk4-layer-shell preloaded before GTK")
+    if os.environ.get("GSK_RENDERER") != "cairo":
+        raise ValueError("requires the declared vmtest GSK_RENDERER=cairo")

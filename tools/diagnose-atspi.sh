@@ -76,6 +76,10 @@ fi
 accept_start 3 1536  # authenticates throwaway UUID and installed runtime/image provenance
 accept_set_required_checks 1  # this separate diagnostic adds one check to provenance
 as_exo 'systemctl --user is-active --quiet exo-surface.service'
+ssh_vm 'cat > /tmp/surface-renderer.py && chmod 0644 /tmp/surface-renderer.py' < "$here/tools/surface-renderer.py"
+renderer_record=$(as_exo 'EXO_OS_VM_ACCEPTANCE=1 /opt/exo/bin/python /tmp/surface-renderer.py --vm-acceptance')
+printf '%s\n' "$renderer_record" > "$out/atspi-surface-renderer.json"
+renderer=$(printf '%s\n' "$renderer_record" | "$here/.venv/bin/python" "$here/tools/surface-renderer.py" --validate)
 
 guest_dir=$(ssh_vm 'mktemp -d /run/exo-atspi.XXXXXX')
 [[ $guest_dir =~ ^/run/exo-atspi\.[A-Za-z0-9]{6}$ ]]
@@ -88,7 +92,7 @@ done
 as_exo 'systemctl --user stop exo-surface.service'
 surface_stopped=1
 probe_rc=0
-probe_output=$(as_exo "timeout 120 env EXO_OS_VM_ACCEPTANCE=1 GDK_BACKEND=wayland GTK_A11Y=atspi \
+probe_output=$(as_exo "timeout 120 env EXO_OS_VM_ACCEPTANCE=1 GDK_BACKEND=wayland GSK_RENDERER=$renderer GTK_A11Y=atspi \
   /opt/exo/bin/python '$guest_dir/atspi_inspect.py' --vm-acceptance \
   --fixture '$guest_dir/atspi_fixture.py' --image-source '$image_source' \
   --diagnostic-source '$diagnostic_source'" | head -c 131073) || probe_rc=$?
@@ -119,5 +123,5 @@ if printf '%s\n' "$probe_output" | "$here/.venv/bin/python" "$here/tools/validat
   validated=1
 fi
 result atspi "$([[ $validated == 1 && $restored == 1 && $fixture_gone == 1 ]] && echo 1 || echo 0)" \
-  "exact-PID synthetic tree, roles/text/focus; probe exit $probe_rc, fixture gone $fixture_gone, surface restored $restored; image ${image_source:0:7}, diagnostic ${diagnostic_source:0:7}"
+  "exact-PID synthetic tree on Wayland with Cairo in vmtest; probe exit $probe_rc, fixture gone $fixture_gone, surface restored $restored; image ${image_source:0:7}, diagnostic ${diagnostic_source:0:7}"
 accept_finish

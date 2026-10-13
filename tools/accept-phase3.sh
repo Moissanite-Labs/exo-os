@@ -66,6 +66,11 @@ fi
 result "fake-only" "$fake_only" "all seven roles resolve to fake:scripted before model requests"
 [[ $fake_only == 1 ]] || exit 1
 as_exo "systemctl --user restart exod" && sleep 4 && as_exo "systemctl --user restart exo-surface" && sleep 4
+ssh_vm 'cat > /tmp/surface-renderer.py && chmod 0644 /tmp/surface-renderer.py' < "$here/tools/surface-renderer.py"
+renderer_record=$(as_exo 'EXO_OS_VM_ACCEPTANCE=1 /opt/exo/bin/python /tmp/surface-renderer.py --vm-acceptance')
+printf '%s\n' "$renderer_record" > "$out/p3-surface-renderer.json"
+renderer=$(printf '%s\n' "$renderer_record" | "$here/.venv/bin/python" "$here/tools/surface-renderer.py" --validate)
+echo "      vmtest surface renderer: $renderer; declared/effective service values in p3-surface-renderer.json" | tee -a "$report"
 
 # 1. app by a few letters
 before=$(windows foot)
@@ -143,7 +148,7 @@ echo "      surface PSS: ${pss:-?} MB; background: $(as_exo hyprctl getoption mi
 ssh_vm 'cat > /tmp/probe-surface-gtk.py && chmod 0644 /tmp/probe-surface-gtk.py' < "$here/tools/probe-surface-gtk.py"
 as_exo 'systemctl --user stop exo-surface.service'
 probe_rc=0
-probe_output=$(as_exo 'timeout 90 env EXO_OS_VM_ACCEPTANCE=1 GDK_BACKEND=wayland LD_PRELOAD=libgtk4-layer-shell.so.0 /opt/exo/bin/python /tmp/probe-surface-gtk.py --vm-acceptance') || probe_rc=$?
+probe_output=$(as_exo "timeout 90 env EXO_OS_VM_ACCEPTANCE=1 GDK_BACKEND=wayland GSK_RENDERER=$renderer LD_PRELOAD=libgtk4-layer-shell.so.0 /opt/exo/bin/python /tmp/probe-surface-gtk.py --vm-acceptance") || probe_rc=$?
 printf '%s\n' "$probe_output" > "$out/p3-gtk-wayland-probe.json"
 restored=0
 if as_exo 'systemctl --user start exo-surface.service && systemctl --user is-active --quiet exo-surface.service'; then
@@ -155,5 +160,5 @@ if printf '%s\n' "$probe_output" | "$here/.venv/bin/python" "$here/tools/validat
   verified=1
 fi
 result "gtk-wayland-layer" "$([[ $verified == 1 && $restored == 1 ]] && echo 1 || echo 0)" \
-  "synthetic GTK focus/readability on installed layer-shell runtime; probe exit $probe_rc; surface restored $restored"
+  "synthetic GTK on Wayland with Cairo in vmtest; probe exit $probe_rc; surface restored $restored"
 accept_finish

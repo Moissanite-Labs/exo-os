@@ -68,6 +68,7 @@ class Fixture:
             raise RuntimeError(f"fixture {stage} returned malformed JSON") from exc
         if (not isinstance(row, dict) or row.get("stage") != stage
                 or row.get("pid") != self.proc.pid or row.get("layered") is not True
+                or row.get("gsk_renderer") != "cairo" or not isinstance(row.get("renderers"), dict)
                 or row.get("approval_responses") != 0 or "error" in row):
             raise RuntimeError(f"fixture {stage} failed its PID/layer/no-consent contract: {row!r}"[:500])
         return row
@@ -280,6 +281,9 @@ def main() -> int:
                         last_tree = snapshot(Atspi, app)
                         ack = fixture.command("status")
                         obs = observe(stage, last_tree, ack["approval_responses"])
+                        window = "card" if stage == "approval" else "drawer" if stage in (
+                            "unsolicited", "panels", "transcript") else "bar"
+                        obs["renderer"] = ack["renderers"].get(window)
                         if stage_valid(stage, obs):
                             checks.append({"stage": stage, "status": "PASS", "observed": obs})
                             break
@@ -290,6 +294,7 @@ def main() -> int:
             else:
                 raise RuntimeError(last_error)
         return_data = {"probe": PROBE, "status": "PASS", "backend": "wayland-layer",
+                       "gsk_renderer": os.environ["GSK_RENDERER"],
                        "image_source": args.image_source, "diagnostic_source": args.diagnostic_source,
                        "fixture_pid": fixture.proc.pid, "checks": checks}
         output = json.dumps(return_data, sort_keys=True)
@@ -301,6 +306,7 @@ def main() -> int:
         tree = [{"path": n["path"], "name": n["name"][:96], "role": n["role"],
                  "focused": n["focused"], "showing": n["showing"]} for n in last_tree[:MAX_NODES]]
         failure = {"probe": PROBE, "status": "FAIL", "stage": stage,
+                   "gsk_renderer": os.environ.get("GSK_RENDERER"),
                    "error": f"{type(exc).__name__}: {exc}"[:500],
                    "fixture_stderr": fixture.stderr_excerpt() if fixture else "",
                    "image_source": args.image_source,

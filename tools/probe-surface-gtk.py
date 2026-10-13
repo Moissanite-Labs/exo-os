@@ -26,11 +26,13 @@ def probe_backend() -> str:
                 or pwd.getpwuid(os.geteuid()).pw_name != "exo"
                 or os.environ.get("GDK_BACKEND") != "wayland"
                 or not os.environ.get("WAYLAND_DISPLAY")
+                or os.environ.get("GSK_RENDERER") != "cairo"
                 or "gtk4-layer-shell" not in os.environ.get("LD_PRELOAD", "")):
             parser.error("requires the authenticated disposable Wayland VM as exo with layer-shell preloaded")
         return "wayland-layer"
     if (os.environ.get("GDK_BACKEND") != "broadway" or not os.environ.get("BROADWAY_DISPLAY")
-            or os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+            or os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")
+            or os.environ.get("GSK_RENDERER")):
         parser.error("requires a private Broadway display or explicit disposable VM acceptance")
     return "broadway-private"
 
@@ -74,6 +76,17 @@ def focus_within(window, target):
         focused = focused.get_parent()
     return False
 
+
+renderer_types = {}
+
+
+def remember_renderer(name, window):
+    renderer = window.get_renderer()  # Gtk.Native: the actual realized renderer, not just an environment hint
+    assert renderer is not None, f"{name} has no realized renderer"
+    renderer_types[name] = renderer.__gtype__.name
+    if backend == "wayland-layer":
+        assert renderer_types[name] == "GskCairoRenderer", renderer_types
+
 SID = "s_1"
 seq = iter(range(1, 1000))
 def ev(body):
@@ -92,6 +105,7 @@ else:
 ui.on_connected(True)
 ui.show()
 wait_until("initial prompt", lambda: ui.bar.get_visible() and ui.bar.is_active())
+remember_renderer("bar", ui.bar)
 assert ui.bar.get_visible()
 assert ui.drawer.box.get_focusable()
 
@@ -132,6 +146,7 @@ wait_until("unsolicited drawer without focus transfer", lambda: ui.drawer.get_vi
            and ui.bar.is_active() and focus_within(ui.bar, ui.bar.entry))
 assert not ui.drawer.interactive and ui.bar.is_active() and not ui.drawer.is_active()
 assert focus_within(ui.bar, ui.bar.entry)  # GTK focuses Entry's internal Gtk.Text on Broadway
+remember_renderer("drawer", ui.drawer)
 opened = [b.panel_id for b in sent if isinstance(b, s.UiRespond) and b.action == "opened"]
 assert len(opened) == 8, opened
 n = len(sent)
@@ -248,6 +263,7 @@ def review_with_f6():
         ui.card._key_released(None, A.Gdk.KEY_F6, 0, None)
     wait_until("explicit approval review", lambda: ui.card.get_visible()
                and ui.card.reviewing and focus_within(ui.card, ui.card.summary))
+    remember_renderer("card", ui.card)
 
 
 # Wayland uses actual compositor keyboard delivery, including the late tod|ay boundary.
@@ -533,4 +549,5 @@ wait_until("surface hides", lambda: not ui.bar.get_visible() and not ui.drawer.g
 assert not ui.bar.get_visible() and not ui.drawer.get_visible()
 print(json.dumps({"probe": "exo-surface-gtk-v1", "backend": backend,
                   "layered": all(w.layered for w in (ui.bar, ui.drawer, ui.card)),
+                  "gsk_renderer": os.environ.get("GSK_RENDERER", "default"), "renderers": renderer_types,
                   "status": "PASS"}, sort_keys=True))

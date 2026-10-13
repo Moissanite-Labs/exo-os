@@ -8,7 +8,8 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 VALIDATOR = TOOLS / "validate-surface-probe.py"
 PROBE = TOOLS / "probe-surface-gtk.py"
-PASS = {"probe": "exo-surface-gtk-v1", "backend": "wayland-layer", "layered": True, "status": "PASS"}
+PASS = {"probe": "exo-surface-gtk-v1", "backend": "wayland-layer", "layered": True, "status": "PASS",
+        "gsk_renderer": "cairo", "renderers": {name: "GskCairoRenderer" for name in ("bar", "drawer", "card")}}
 
 
 def validate(payload, exit_code=0):
@@ -23,6 +24,10 @@ def test_phase3_accepts_only_complete_layered_probe_evidence():
     for bad in ("", "SMOKE OK layer-shell", "{}", {**PASS, "status": "FAIL"},
                 {**PASS, "layered": False}, {**PASS, "backend": "broadway-private"},
                 {"probe": PASS["probe"], "status": "PASS", "layered": True},
+                {**PASS, "gsk_renderer": "gl"},
+                {**PASS, "renderers": {**PASS["renderers"], "card": "GskGLRenderer"}},
+                {**PASS, "renderers": {"bar": "GskCairoRenderer"}},
+                {**PASS, "renderers": {**PASS["renderers"], "drawer": None}},
                 {**PASS, "unchecked": True}):
         assert validate(bad) != 0, bad
     assert validate(PASS, exit_code=1) != 0  # a printed success cannot mask a failed process

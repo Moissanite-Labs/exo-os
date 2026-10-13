@@ -25,7 +25,7 @@ DIAGNOSTIC = "a" * 40
 
 
 def evidence():
-    common = {"nodes": 21, "approval_responses": 0}
+    common = {"nodes": 21, "approval_responses": 0, "renderer": "GskCairoRenderer"}
     rows = [
         {**common, "entry_name": "Ask Exo, or type an app name", "entry_role": "entry",
          "entry_focused": True},
@@ -49,6 +49,7 @@ def evidence():
          "entry_focused": True},
     ]
     return {"probe": contract.PROBE, "status": "PASS", "backend": "wayland-layer",
+            "gsk_renderer": "cairo",
             "image_source": IMAGE, "diagnostic_source": DIAGNOSTIC, "fixture_pid": 1234,
             "checks": [{"stage": stage, "status": "PASS", "observed": observed}
                        for stage, observed in zip(contract.STAGES, rows, strict=True)]}
@@ -78,6 +79,8 @@ def test_accepts_only_complete_bounded_evidence():
         lambda x: x.update(fixture_pid=True),
         lambda x: x.update(backend="broadway-private"),
         lambda x: x.update(image_source="c" * 40),
+        lambda x: x.update(gsk_renderer="gl"),
+        lambda x: x["checks"][5]["observed"].update(renderer="GskGLRenderer"),
     ):
         changed = copy.deepcopy(base)
         edit(changed)
@@ -112,6 +115,7 @@ def test_guard_demands_wayland_bus_exo_and_preload(monkeypatch):
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
     monkeypatch.setenv("LD_PRELOAD", "libgtk4-layer-shell.so.0")
+    monkeypatch.setenv("GSK_RENDERER", "cairo")
     guard.require_vm(opt_in=True, fixture=True)
     monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS")
     with pytest.raises(ValueError, match="user D-Bus"):
@@ -119,6 +123,10 @@ def test_guard_demands_wayland_bus_exo_and_preload(monkeypatch):
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
     monkeypatch.delenv("LD_PRELOAD")
     with pytest.raises(ValueError, match="preloaded"):
+        guard.require_vm(opt_in=True, fixture=True)
+    monkeypatch.setenv("LD_PRELOAD", "libgtk4-layer-shell.so.0")
+    monkeypatch.setenv("GSK_RENDERER", "gl")
+    with pytest.raises(ValueError, match="GSK_RENDERER=cairo"):
         guard.require_vm(opt_in=True, fixture=True)
 
 
