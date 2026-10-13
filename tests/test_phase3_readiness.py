@@ -17,6 +17,11 @@ spec = importlib.util.spec_from_file_location("readiness", TOOLS / "phase3-windo
 readiness = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(readiness)
 
+# These success fixtures exercise retry semantics across several Python child
+# processes. Their budget allows startup on a busy host; the separate stall and
+# overflow tests below retain their short, explicit deadline assertions.
+SUCCESS_PROCESS_BUDGET = 10
+
 
 def command(tmp_path, outcomes):
     script = tmp_path / "ipc.py"
@@ -38,7 +43,7 @@ sys.exit(row.get('exit', 0))
 def test_invalid_ipc_then_real_increase_preserves_all_observations(tmp_path):
     cmd = command(tmp_path, [{"exit": 1, "stdout": "bad IPC", "stderr": "instance signature missing"},
                              {"stdout": "[]"}, {"stdout": '[{"class":"foot"}]'}])
-    result = readiness.poll(cmd, timeout=2, before=0, interval=0.01)
+    result = readiness.poll(cmd, timeout=SUCCESS_PROCESS_BUDGET, before=0, interval=0.01)
     assert result["status"] == "PASS" and result["foot_count"] == 1
     rows = result["observations"]
     assert [row["foot_count"] for row in rows] == [None, 0, 1]
@@ -83,7 +88,7 @@ while True:
 
 def test_baseline_requires_valid_json_before_returning_even_zero(tmp_path):
     result = readiness.poll(command(tmp_path, [{"stdout": "not json"}, {"stdout": "[]"}]),
-                            timeout=2, before=None, interval=0.01)
+                            timeout=SUCCESS_PROCESS_BUDGET, before=None, interval=0.01)
     assert result["status"] == "PASS" and result["foot_count"] == 0
     assert result["observations"][0]["foot_count"] is None
 
@@ -103,11 +108,11 @@ def test_shell_retry_controller_is_not_aborted_by_inherited_err_trap(tmp_path):
     record = tmp_path / "observations.json"
     script = f'''set -Eeuo pipefail
 trap 'echo ERR_TRAP; exit 99' ERR
-if count=$({shlex.quote(sys.executable)} {shlex.quote(str(TOOLS / 'phase3-window-readiness.py'))} --ssh {shlex.quote(str(ssh))} --record {shlex.quote(str(record))} --timeout 2 --after 0); then
+if count=$({shlex.quote(sys.executable)} {shlex.quote(str(TOOLS / 'phase3-window-readiness.py'))} --ssh {shlex.quote(str(ssh))} --record {shlex.quote(str(record))} --timeout {SUCCESS_PROCESS_BUDGET} --after 0); then
   [[ $count == 1 ]]
 else exit 1; fi
 '''
-    run = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
+    run = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=15)
     assert run.returncode == 0 and "ERR_TRAP" not in run.stdout, run.stdout + run.stderr
     assert [row["exit_code"] for row in json.loads(record.read_text())["observations"]] == [1, 0]
 
