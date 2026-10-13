@@ -25,7 +25,7 @@ trap cleanup EXIT
 "${docker_cmd[@]}" exec "$container" mkdir -p /test/exo
 git -C "$dep" archive HEAD | "${docker_cmd[@]}" exec -i "$container" tar -xf - -C /test/exo
 # Explicit input list includes uncommitted work under review, excludes stores, keys, build output and .git.
-COPYFILE_DISABLE=1 tar --no-xattrs --exclude=__pycache__ -C "$here" -cf - src tests image/mkosi.conf image/mkosi.extra image/mkosi.postinst.chroot tools pyproject.toml exo.pin \
+COPYFILE_DISABLE=1 tar --no-xattrs --exclude=__pycache__ -C "$here" -cf - src tests image/mkosi.conf image/mkosi.extra image/mkosi.repart image/mkosi.postinst.chroot tools pyproject.toml exo.pin \
   | "${docker_cmd[@]}" exec -i "$container" tar -xf - -C /test/exo-os
 "${docker_cmd[@]}" exec "$container" python -m pip install -q -e '/test/exo[tui,dev]' -e '/test/exo-os[dev]'
 "${docker_cmd[@]}" exec -e EXO_OS_TEST_CONTAINER=1 "$container" python -m pytest -ra "$@"
