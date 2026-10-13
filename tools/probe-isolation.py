@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import errno
+import hashlib
 import json
 import os
 import pwd
+import re
 import shlex
 import sys
 import tempfile
@@ -32,9 +35,85 @@ CHECKS = (
 TIMEOUT_PROBE_SECONDS = 10
 TIMEOUT_DESCENDANT_DELAY_SECONDS = 15
 
+MODEL_SPEND_PATHS = ("/var/lib/exo/model-spend/policy.json", "/var/lib/exo/model-spend/exo/journal.sqlite")
+ACCESS_PROGRAM = '''
+import json, os, sys
+outcomes = []
+for path in sys.argv[1:]:
+    for operation, flags in (("read", os.O_RDONLY), ("append", os.O_WRONLY | os.O_APPEND)):
+        try:
+            fd = os.open(path, flags)
+        except OSError as error:
+            denied, number = True, error.errno
+        else:
+            os.close(fd)
+            denied, number = False, None
+        outcomes.append({"path": path, "operation": operation, "denied": denied, "errno": number})
+print(json.dumps({"version": 1, "outcomes": outcomes}, sort_keys=True, separators=(",", ":")))
+'''
 
-def emit(checks: list[dict[str, str]]) -> None:
-    print(json.dumps({"checks": checks}, separators=(",", ":")))
+
+def verify_access_result(result, paths, evidence):
+    """Require a successful measurement process and four explicit denied opens.
+
+    Bash's is_error describes tool failures, not a shell command's exit status.
+    Never retain file bytes or unvalidated stdout/stderr in this evidence.
+    """
+    if (not isinstance(result, dict) or set(result) != {"text", "is_error"}
+            or type(result["is_error"]) is not bool or not isinstance(result["text"], str)):
+        raise AssertionError("access probe returned an invalid tool result")
+    raw = result["text"].encode()
+    evidence.update({"is_error": result["is_error"], "output_bytes": len(raw),
+                     "output_sha256": hashlib.sha256(raw).hexdigest()})
+    if len(raw) > 8192:
+        raise AssertionError("access probe exceeded its fixed output bound")
+    body, separator, trailer = result["text"].rpartition("\n")
+    exit_status = re.fullmatch(r"\[exit (-?[0-9]{1,3})\]", trailer)
+    evidence["shell_exit"] = int(exit_status[1]) if exit_status else None
+    if result["is_error"] or not separator or trailer != "[exit 0]":
+        raise AssertionError("access measurement process did not complete successfully")
+    def pairs(items):
+        value = {}
+        for key, item in items:
+            if key in value:
+                raise ValueError("duplicate access field")
+            value[key] = item
+        return value
+    try:
+        value = json.loads(body, object_pairs_hook=pairs)
+    except (ValueError, RecursionError) as error:
+        raise AssertionError("access probe returned no valid structured evidence") from error
+    expected = [(path, operation) for path in paths for operation in ("read", "append")]
+    if (not isinstance(value, dict) or set(value) != {"version", "outcomes"}
+            or type(value["version"]) is not int or value["version"] != 1
+            or not isinstance(value["outcomes"], list) or len(value["outcomes"]) != 4 or len(expected) != 4):
+        raise AssertionError("access probe returned an invalid four-outcome schema")
+    outcomes = value["outcomes"]
+    for outcome, (path, operation) in zip(outcomes, expected):
+        if (not isinstance(outcome, dict) or set(outcome) != {"path", "operation", "denied", "errno"}
+                or outcome["path"] != path or outcome["operation"] != operation
+                or type(outcome["denied"]) is not bool
+                or (outcome["errno"] is not None and type(outcome["errno"]) is not int)):
+            raise AssertionError("access probe returned mismatched path/operation evidence")
+    evidence["outcomes"] = outcomes
+    for outcome in outcomes:
+        allowed = {errno.ENOENT, errno.EACCES, errno.EPERM}
+        if outcome["operation"] == "append":
+            allowed.add(errno.EROFS)
+        if not outcome["denied"] or outcome["errno"] not in allowed:
+            raise AssertionError("protected state access succeeded or failed for an unexpected reason")
+
+
+def model_spend_access(shell, paths, evidence):
+    # Open-for-append proves write permission without corrupting an exposed journal.
+    command = "/opt/exo/bin/python -I -c " + shlex.quote(ACCESS_PROGRAM)
+    command += " " + " ".join(shlex.quote(path) for path in paths)
+    verify_access_result(shell(command), paths, evidence)
+    return "four read/append opens denied with explicit errno; measurement exit 0; no state contents logged"
+
+
+def emit(checks: list[dict[str, str]], spend_evidence) -> None:
+    print(json.dumps({"checks": checks, "model_spend_access": spend_evidence}, separators=(",", ":")))
 
 
 def main() -> int:
@@ -55,6 +134,7 @@ def main() -> int:
         parser.error("run as the exo account, never as root")
 
     checks = []
+    spend_evidence = {}
     workspace_probe = outside_secret = None
     try:
         from dataclasses import replace
@@ -142,13 +222,7 @@ def main() -> int:
             return "root-owned runtime rejected a synthetic write"
 
         def model_spend_hidden() -> str:
-            for path in ("/var/lib/exo/model-spend/policy.json",
-                         "/var/lib/exo/model-spend/exo/journal.sqlite"):
-                result = shell("cat " + shlex.quote(path))
-                assert result["is_error"], f"tool read model-spend state: {path}"
-                result = shell("printf x >> " + shlex.quote(path))
-                assert result["is_error"], f"tool wrote model-spend state: {path}"
-            return "isolated model tools could neither read nor write policy or journal"
+            return model_spend_access(shell, MODEL_SPEND_PATHS, spend_evidence)
 
         def timeout_kills() -> str:
             started = workspace_probe / "timeout-started"
@@ -264,7 +338,7 @@ def main() -> int:
             {"name": name, "status": "FAIL", "detail": "probe result set/order invalid"}
             for name in CHECKS
         ]
-    emit(checks)
+    emit(checks, spend_evidence)
     return 0 if all(item["status"] == "PASS" for item in checks) else 1
 
 

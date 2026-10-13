@@ -65,7 +65,8 @@ See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL
     tools/run-vm.sh [--gui]                # boot it in QEMU (throwaway overlay; SSH on 127.0.0.1:2222)
     tools/vm-ssh.sh <command>              # run a command in the VM as root
     tools/accept-phase1.sh                 # the phase 1 acceptance checks
-    tools/accept-isolation.sh              # kernel isolation in a disposable booted image
+    EXO_OS_VM_ACCEPTANCE=1 tools/accept-isolation.sh --vm-acceptance --image-source <full-built-OS-commit>
+                                            # kernel isolation with separate image/harness provenance
     tools/accept-ledger.sh                 # protected signer, tamper detection and signer outage
     EXO_OS_VM_ACCEPTANCE=1 tools/accept-model-spend.sh --vm-acceptance --image-source <full-built-OS-commit>
                                             # zero-paid offline model and journal checks

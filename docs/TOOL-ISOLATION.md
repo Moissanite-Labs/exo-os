@@ -75,6 +75,16 @@ checks. It requires an explicitly enabled disposable Linux runner with user
 namespaces, Landlock and libseccomp. A container host that prohibits nested
 user namespaces will correctly refuse tools; it does not establish a pass.
 
+Run the VM suite with
+`EXO_OS_VM_ACCEPTANCE=1 tools/accept-isolation.sh --vm-acceptance --image-source FULL_BUILT_OS_COMMIT`.
+It records the clean harness revision separately and retains the image manifest,
+core pin, runtime/image digest and VM UUID checks. The model-spend denial probe
+requires four exact read/append-open outcomes and known denial errno, plus a
+successful measurement-process exit. Bash reports shell exits as `[exit N]` text;
+its tool `is_error` flag alone proves neither access nor denial. The report retains
+safe path/operation/errno evidence, never state contents. A tools-only rerun leaves
+the earlier failed report intact and establishes a result only if all checks pass.
+
 Credentialed action egress has local TLS fixture evidence; P4 still requires
 booted-image egress acceptance, a separate core ledger signer,
 an off-machine audit anchor, and an adversarial booted-image check. A named

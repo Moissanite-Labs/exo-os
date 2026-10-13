@@ -3,6 +3,12 @@
 # Requires a freshly built image containing the sandbox package, bubblewrap and libseccomp.
 # The probe writes only uniquely named synthetic files under the configured workspace and its parent.
 set -Eeuo pipefail
+[[ $# == 3 && ${1:-} == --vm-acceptance && ${2:-} == --image-source \
+   && ${3:-} =~ ^[0-9a-f]{40}$ && ${EXO_OS_VM_ACCEPTANCE:-} == 1 ]] || {
+  echo 'requires --vm-acceptance --image-source FULL_40_HEX_HASH and EXO_OS_VM_ACCEPTANCE=1' >&2
+  exit 2
+}
+image_source=$3
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$here/image/out"
 report="$out/accept-isolation.txt"
@@ -16,7 +22,42 @@ result() {
 }
 
 source "$here/tools/accept-common.sh"
+if [[ $(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true) == "$here" ]]; then
+  harness_source=$(git -C "$here" rev-parse HEAD)
+  [[ -z $(git -C "$here" status --porcelain) ]] || {
+    echo 'isolation harness source must be a clean committed checkout' >&2
+    exit 2
+  }
+elif [[ -s $here/.EXO_OS_SOURCE_ID ]]; then
+  harness_source=$(tr -d '\n' < "$here/.EXO_OS_SOURCE_ID")
+else
+  echo 'isolation harness source must be a Git checkout or archive with .EXO_OS_SOURCE_ID' >&2
+  exit 2
+fi
+[[ $harness_source =~ ^[0-9a-f]{40}$ ]] || {
+  echo 'isolation harness source identifier is malformed' >&2
+  exit 2
+}
+manifest="$out/extra/opt/exo/EXO_OS_BUILD.json"
+[[ -s $manifest ]] || { echo 'the selected image build manifest is missing' >&2; exit 2; }
+if ! "$here/.venv/bin/python" - "$manifest" "$image_source" <<'PY_IMAGE_SOURCE'
+import json
+import sys
+try:
+    with open(sys.argv[1]) as source:
+        built = json.load(source)
+    valid = (built.get("schema") == 2 and built.get("build_profile") == "vmtest"
+             and built.get("exo_os_commit") == sys.argv[2])
+except (OSError, ValueError, AttributeError):
+    valid = False
+raise SystemExit(0 if valid else 1)
+PY_IMAGE_SOURCE
+then
+  echo "isolation acceptance requires a vmtest image manifest built from $image_source" >&2
+  exit 2
+fi
 accept_start 4 1536
+echo "      image source: $image_source; isolation harness source: $harness_source" | tee -a "$report"
 # Two daemon checks, the installed spend-state prerequisite, and nine kernel probes.
 accept_set_required_checks 12
 
