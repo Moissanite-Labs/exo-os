@@ -357,7 +357,7 @@ class Card(Gtk.Window):
 
     def show_card(self, summary: str, detail: str, options: list[str], token: tuple[Any, ...],
                   *, reviewing: bool = False) -> None:
-        changed = token != self.token or reviewing != self.reviewing
+        changed = token != self.token or reviewing != self.reviewing or not self.get_visible()
         self.token, self.reviewing = token, reviewing
         self.review_hint.set_visible(not reviewing)
         self.summary.set_text(summary)
@@ -495,6 +495,7 @@ class SurfaceUI:
 
     def show(self, profile: Profile | None = None) -> None:
         self.model.leave_approval_review()
+        self._close_drawer(restore_focus=False)  # an explicit prompt opening ends local drawer reading
         if profile is not None:
             self.model.set_profile(profile)
         self._direction(self.model.profile)
@@ -511,9 +512,15 @@ class SurfaceUI:
                 window.set_direction(direction)
 
     def _focus_prompt(self) -> None:
-        """Return keys to the prompt when no request is being explicitly reviewed."""
-        if self.bar.get_visible() and self.model.reviewed_approval is None:
+        """Return keys to the prompt when neither review nor an explicit drawer owns them."""
+        if (self.bar.get_visible() and self.model.reviewed_approval is None
+                and not self.drawer.interactive):
             self.bar.present()
+            focused = self.bar.get_focus()
+            while focused is not None:
+                if focused == self.bar.entry:
+                    return  # re-grabbing GtkText can select the text already being edited
+                focused = focused.get_parent()
             self.bar.entry.grab_focus()
 
     def hide(self) -> None:
@@ -545,7 +552,7 @@ class SurfaceUI:
             if card is None:
                 self.card.reviewing = False
                 self.card.set_visible(False)
-                if was_reviewing:
+                if was_reviewing and not self.drawer.interactive:
                     _keyboard(self.bar, "EXCLUSIVE")
                     self._focus_prompt()
             else:
@@ -555,7 +562,7 @@ class SurfaceUI:
                     _keyboard(self.bar, "ON_DEMAND")
                 self.card.show_card(card.summary, card.detail, card.options, approval_token(card),
                                     reviewing=reviewed is not None)
-                if reviewed is None and was_reviewing:
+                if reviewed is None and was_reviewing and not self.drawer.interactive:
                     _keyboard(self.bar, "EXCLUSIVE")
                     self._focus_prompt()
         if "panels" in changes:
@@ -578,12 +585,11 @@ class SurfaceUI:
         views = [{**panel_view(p), "panel_id": p.panel_id} for p in reversed(m.panels.values())]
         self.drawer.show_panels(views, self.close_panel, self.choose)
         self.drawer.below(self.bar.get_height())
-        self.drawer.present()
-        if self.drawer.interactive:
-            if self.drawer.get_focus() is None:
-                self.drawer.box.grab_focus()
-        else:
-            self._focus_prompt()  # an unsolicited panel must not take the keys
+        if not self.drawer.interactive:
+            _keyboard(self.drawer, "NONE")
+        # Model output only redraws/maps. Explicit _focus_drawer owns activation;
+        # a background update must not select prompt text or reclaim another window's keys.
+        self.drawer.set_visible(True)
         for p in list(m.panels.values()):
             if (body := m.panel_shown(p.panel_id)) is not None:
                 self._send(body)
