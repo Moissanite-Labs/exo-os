@@ -1,5 +1,6 @@
 [Unit]
 Description=Exo core (exod)
+ConditionUser=exo
 After=exo-os-setup.service
 Wants=exo-os-setup.service
 

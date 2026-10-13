@@ -1,5 +1,6 @@
 [Unit]
 Description=Exo OS: create the Exo store and machine profile if missing
+ConditionUser=exo
 Before=exod.service
 
 [Service]
