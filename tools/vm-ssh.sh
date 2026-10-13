@@ -3,4 +3,5 @@
 here="$(cd "$(dirname "$0")/.." && pwd)"
 exec ssh -q -i "$here/image/out/vmtest-key" -p "${EXO_OS_SSH_PORT:-2222}" \
   -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
+  -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
   -o BatchMode=yes root@127.0.0.1 "$@"

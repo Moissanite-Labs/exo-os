@@ -2,10 +2,10 @@ import json
 import subprocess
 import sys
 
+from conftest import make_exo_desktop
+
 from exo_os.changes import NOT_OURS, ChangeEngine
 from exo_os.ledger import ExoLedgerSink, MemorySink
-
-from conftest import make_exo_desktop
 
 
 def _engine(tmp_path, checks=None, ledger=None):
@@ -117,9 +117,15 @@ def test_events_land_in_a_verifiable_exo_ledger(tmp_path, monkeypatch):
     assert json.loads(out.stdout)["ok"] is True
 
 
-def test_unknown_keyboard_layout_is_put_back(tmp_path):
+def test_unknown_keyboard_layout_is_put_back(tmp_path, monkeypatch):
     from exo_os.checks import keyboard_layouts
 
+    symbols = tmp_path / "xkb" / "symbols"
+    symbols.mkdir(parents=True)
+    for layout in ("us", "ara", "pk"):
+        (symbols / layout).touch()
+    monkeypatch.setattr("exo_os.checks.XKB", symbols.parent)
+    monkeypatch.setattr("exo_os.checks.shutil.which", lambda name: None)
     eng = _engine(tmp_path, checks=[keyboard_layouts])
     eng.init()
     r = eng.apply(eng.profile().set_value("keyboard.layouts", ["us", "zz"]), "Bad layout")

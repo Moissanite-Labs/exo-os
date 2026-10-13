@@ -1,3 +1,5 @@
+import pytest
+
 from exo.core.types import Message, ToolCall, ToolResult
 from exo.protocol import schema as s
 
@@ -163,7 +165,7 @@ def test_approval_resolved_elsewhere_closes_the_card_and_queue_moves_on():
     assert m.approval.request_id == "a2" and m.approval.session == "s_scheduled"
     assert m.answer("maybe") is None  # not an offered option
     assert m.answer("deny").decision == "deny"
-    assert m.status == ""
+    assert m.status == "Checking your answer…"
 
 
 def test_approvals_for_a_seat_are_not_shown_and_list_rows_are_accepted():
@@ -318,3 +320,70 @@ def test_transcript_collapses_to_last_exchange_and_clears_when_hidden():
     m.clear_transcript()
     assert m.visible_lines() == []
     assert len(m.lines) == 4
+
+
+# -- recovery: a send is never a resolution
+
+
+def test_uncertain_answer_rearms_only_after_pending_snapshot():
+    m = _model()
+    m.apply(ev(_ask()))
+    assert m.answer("allow") is not None
+    assert m.answer("allow") is None  # duplicate tap never sends the same request twice
+    m.apply(ev(_ask()))  # replay while sending stays suppressed
+    m.reconcile_approvals([{"request_id": "a1"}], 50000)
+    assert m.approval is None  # a snapshot while still in flight must not rearm
+    m.approval_result("a1")
+    m.reconcile_approvals([{"request_id": "a1"}], 50001)
+    assert m.approval.binding == "h1"  # minimal list rows retain the text and binding actually shown
+    assert m.answer("deny").binding == "h1"  # a fresh human answer, never an automatic resend
+
+
+def test_lost_reply_but_resolved_snapshot_does_not_reopen_request():
+    m = _model()
+    requested = ev(_ask())
+    m.apply(requested)
+    m.answer("allow")
+    m.approval_result("a1")
+    m.reconcile_approvals([], requested.seq)
+    assert not m.answering and m.approval is None
+    m.apply(requested)  # historical requested replay is older than the authoritative snapshot
+    assert m.approval is None
+
+
+def test_empty_snapshot_removes_missed_resolutions_and_restart_state():
+    m = _model()
+    m.apply(ev(_ask()))
+    m.set_connected(False)
+    m.reconcile_approvals([], 0)  # restarted exod has a new, lower sequence head
+    m.set_connected(True)
+    assert m.approval is None and m.status == ""
+
+
+def test_snapshot_retains_newer_event_until_resolution_replay():
+    m = _model()
+    requested = ev(_ask())
+    m.apply(requested)
+    m.reconcile_approvals([], requested.seq - 1)
+    assert m.approval.request_id == "a1"
+    m.apply(ev(s.ApprovalResolved(request_id="a1", decision="deny")))
+    assert m.approval is None
+
+
+def test_escape_defers_without_answer_and_reopening_returns_card():
+    m = _model()
+    m.apply(ev(_ask()))
+    m.defer_approval()
+    assert m.approval is None and len(m.approvals) == 1 and not m.answering
+    m.reconcile_approvals([{"request_id": "a1"}], 50000)
+    assert m.approval is None  # incidental render or reconnect does not steal focus back
+    m.show_approvals()
+    assert m.approval.request_id == "a1" and m.approval.binding == "h1"
+    m.set_connected(False)
+    assert m.answer("allow") is None
+
+
+@pytest.mark.parametrize("key, action", [("Escape", "defer"), ("y", "allow"), ("N", "deny"), ("Return", None)])
+def test_card_key_mapping_never_turns_escape_into_a_decision(key, action):
+    from exo_os.surface.model import approval_key
+    assert approval_key(key) == action

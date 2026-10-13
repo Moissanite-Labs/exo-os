@@ -92,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     sy = sub.add_parser("system", help="system snapshots and packages, through exo-sysd").add_subparsers(
         dest="sys_cmd", required=True)
     sy.add_parser("status")
+    sy.add_parser("reconcile", help="record saved system receipts without repeating any action")
     sy.add_parser("snapshots").add_argument("-n", type=int, default=10)
     p = sy.add_parser("install")
     p.add_argument("names", nargs="+")
@@ -149,10 +150,21 @@ def _run(args: argparse.Namespace) -> int:
     if args.cmd == "redeploy":
         return _print_result(eng.redeploy(), args.json)
     if args.cmd == "system":
-        from .sysd.client import SysdClient, SysdError
+        from .sysd.client import CompletedButUnrecorded, SysdClient, SysdError
 
         try:
-            if args.sys_cmd == "status":
+            if args.sys_cmd == "reconcile":
+                out = SysdClient().recover_pending()
+                if args.json:
+                    print(json.dumps(out, indent=2))
+                else:
+                    print(f"Recorded {len(out['recorded'])} saved receipts; "
+                          f"{len(out['already_recorded'])} already recorded. No system actions repeated.")
+                    for key in ("rejected", "errors", "root_audit_errors"):
+                        for problem in out[key]:
+                            print(f"{key}: {problem}", file=sys.stderr)
+                return 1 if any(out[k] for k in ("rejected", "errors", "root_audit_errors")) else 0
+            elif args.sys_cmd == "status":
                 out = SysdClient().call("status")
             elif args.sys_cmd == "snapshots":
                 out = SysdClient().call("snapshot.list", {"limit": args.n})
@@ -160,6 +172,10 @@ def _run(args: argparse.Namespace) -> int:
                 out = SysdClient().call("snapshot.undo", {"pre": args.pre, "post": args.post})
             else:
                 out = SysdClient().call("package.install", {"names": args.names, "reason": args.reason})
+        except CompletedButUnrecorded as e:
+            # An audit fault is not an execution failure: blind retries could repeat a completed change.
+            print(json.dumps(e.to_dict(), indent=2) if args.json else str(e))
+            return 3
         except SysdError as e:
             print(str(e), file=sys.stderr)
             return 1

@@ -100,3 +100,33 @@ proposal to Exo, not a dependency.
 `tools/build-image.sh` check out exactly that commit. The plugin is tested inside Exo's own engine with
 Exo's gate loaded through Exo's own discovery (`tests/test_plugin.py`), and those tests run before the pin
 moves.
+
+## OS-11. Authenticate and preserve the outcome of every root action
+
+**Decision.** Authenticate the helper with Linux kernel peer credentials and verify each receipt with
+a separately published root-owned public key. Bind it to a fresh request nonce, caller, exact arguments,
+result and execution state. Save mutation receipts durably before appending to the principal ledger.
+If recording fails after execution, report a completed, nonretryable outcome. `exo-os system reconcile`
+repairs the ledger copy without repeating the action. Details: `docs/SYSTEM-TRUST.md`.
+
+**Why.** A signature checked only against a key supplied by the same reply proves no independent
+identity. An execution failure and an audit failure require different responses. Repeating an operation
+to repair its log can damage the very state the log is meant to explain.
+
+## OS-12. Dismissing is not deciding; uncertain answers are reconciled
+
+**Decision.** Escape defers an approval. Only explicit Yes/No answers send decisions. After an uncertain
+reply or reconnection, read pending approvals before making a card answerable again. Never resend
+consent automatically. Probe daemon responsiveness and event progress with bounded calls; retain
+backoff across short failed connections. Details and protocol limitations: `docs/SURFACE-RECOVERY.md`.
+
+## OS-13. Acceptance requires current, bounded evidence
+
+**Decision.** VM acceptance first checks the unique identity of the VM started by that run. Failed
+commands, malformed verification results, unavailable prerequisites and missing checks fail the run.
+Host tests use isolated resources; Linux kernel/GTK checks run in a disposable container without host
+mounts. An earlier image's acceptance report never counts as a pass for a new image.
+
+**Why.** The principal's trust is a runtime property. Passing output from the wrong machine, a silent
+skip, or an older build does not establish it. The core remains a tested commit dependency while its
+development proceeds independently (`docs/CORE-CONTRACT.md`).

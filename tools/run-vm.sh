@@ -13,6 +13,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 source "$here/tools/env.sh"
 out="$here/image/out"
+mkdir -p "$out"
 fw="${EXO_OS_TOOLS:-$HOME/.local/opt/exo-os-tools}/root/usr/share/edk2/x64"
 gui=0 gl=0 keep=0 mem=2048
 while (($#)); do
@@ -37,6 +38,7 @@ display=(-display none -vga none -device virtio-gpu-pci)
 ((gui)) && display=(-display gtk,gl=$( ((gl)) && echo on || echo off) -device "$( ((gl)) && echo virtio-vga-gl || echo virtio-gpu-pci)")
 
 exec qemu-system-x86_64 \
+  -uuid "${EXO_OS_VM_UUID:-$(python3 -c 'import uuid; print(uuid.uuid4())')}" \
   -machine q35,accel=kvm -cpu host -smp 2 -m "$mem" \
   -drive if=pflash,format=raw,readonly=on,file="$fw/OVMF_CODE.4m.fd" \
   -drive if=pflash,format=raw,file="$out/vars.fd" \

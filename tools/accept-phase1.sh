@@ -5,7 +5,7 @@
 #   3. the store made in the VM verifies with `exo log verify` in the VM and in plain Exo on this host
 #   4. memory (PSS per process) with Chromium and three web apps open is written down
 # Results: image/out/accept-phase1.txt. Exit code 0 only if checks 1 to 3 pass (4 is a measurement).
-set -uo pipefail
+set -Eeuo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$here/image/out"
 report="$out/accept-phase1.txt"
@@ -21,14 +21,8 @@ shot() {  # name: screenshot from inside the guest (grim), since QEMU cannot dum
   ssh_vm "cd /tmp && as-exo grim /tmp/$1.png && cat /tmp/$1.png" > "$out/$1.png" 2>/dev/null
 }
 
-: > "$report"
-echo "Exo OS phase 1 acceptance, $(date -Is), exo $(cat "$here/exo.pin" | cut -c1-7), exo-os $(git -C "$here" rev-parse --short HEAD)" | tee -a "$report"
-
-"$here/tools/run-vm.sh" --mem "${EXO_OS_VM_MEM:-3072}" ${EXO_OS_VM_ARGS:-} > "$out/qemu.log" 2>&1 &
-qemu=$!
-trap 'kill $qemu 2>/dev/null' EXIT
-for _ in $(seq 1 60); do ssh_vm true 2>/dev/null && break; sleep 3; done
-ssh_vm 'systemctl is-system-running --wait' >/dev/null 2>&1
+source "$here/tools/accept-common.sh"
+accept_start 1 3072
 
 # 1. desktop
 for _ in $(seq 1 30); do ssh_vm 'pgrep -u exo -x Hyprland' >/dev/null 2>&1 && break; sleep 2; done
@@ -52,7 +46,7 @@ pid2=$(as_exo systemctl --user show exod -p MainPID --value)
 state=$(as_exo systemctl --user is-active exod)
 result "exod-restarts" "$([[ $state == active && $pid2 != 0 && $pid2 != "$pid1" ]] && echo 1 || echo 0)" \
   "before kill pid=$pid1, after pid=$pid2 ($state)"
-reply=$(as_exo "sh -c 'echo \"Say hello in five words.\" | timeout 120 /opt/exo/bin/exo chat --title acceptance'" 2>&1 | grep -v -e 'warn: cwd' | tail -4)
+reply=$(as_exo "sh -c 'echo \"Say hello in five words.\" | timeout 120 /opt/exo/bin/exo chat --title acceptance'" 2>&1 | tail -4)
 models=$(as_exo /opt/exo/bin/exo config roles 2>&1 | head -3 | tr '\n' ' ')
 result "chat" "$([[ -n $reply && $reply != *rror* ]] && echo 1 || echo 0)" "reply: $(echo "$reply" | tr '\n' ' ' | cut -c1-160) | routes: ${models:0:160}"
 
@@ -64,7 +58,9 @@ host_verify=$("$here/.venv/bin/exo" log verify --root "$out/store-copy/exo" 2>&1
 rows=$("$here/.venv/bin/python" -c "
 import sqlite3,sys; c=sqlite3.connect('$out/store-copy/exo/ledger.sqlite')
 print(c.execute('select count(*) from events').fetchone()[0])" 2>/dev/null || echo '?')
-vm_ok=$(echo "$vm_verify" | grep -c '"ok": true'); host_ok=$(echo "$host_verify" | grep -c '"ok": true')
+vm_ok=0; host_ok=0
+if echo "$vm_verify" | accept_verify; then vm_ok=1; fi
+if echo "$host_verify" | accept_verify; then host_ok=1; fi
 result "store-portable" "$([[ $vm_ok == 1 && $host_ok == 1 ]] && echo 1 || echo 0)" \
   "vm: $vm_verify | host: $host_verify | ledger rows: $rows"
 
@@ -96,5 +92,4 @@ for name, kb in tot.most_common(12):
 PY' | tee -a "$report"
 shot accept-apps
 
-echo "passed $pass, failed $fail" | tee -a "$report"
-((fail == 0))
+accept_finish

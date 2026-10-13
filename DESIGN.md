@@ -12,6 +12,12 @@ benchmarks in this document except the few that a cited source measured.
 
 ## Since phase 0 (2026-10-12)
 
+Current executable boundaries and remaining shared-core requirements are in
+`docs/CORE-CONTRACT.md`, `docs/SYSTEM-TRUST.md` and `docs/SURFACE-RECOVERY.md`.
+In particular, verifying a root receipt does not establish that its caller passed the consent gate;
+the compulsory tool broker/isolation boundary is still required. OS-11 through OS-13 record the
+implemented recovery and verification decisions. The larger design below remains the target.
+
 Exo moved on while this design was written, and building started. What changed, checked against Exo
 `4e6e644`:
 

@@ -1,6 +1,7 @@
 # Exo OS roadmap: from a bootable VM image to daily use
 
-Date: 2026-10-12. Status: proposal. Read with `DESIGN.md` and `DECISIONS-PROPOSED.md`.
+Date: 2026-10-12. Status: staged implementation. Read current rulings in `DECISIONS.md`;
+`DESIGN.md` and `DECISIONS-PROPOSED.md` preserve the original design and options.
 
 Rules for every phase:
 - Each phase ends with an acceptance check that someone can run and see pass or fail.
@@ -14,7 +15,20 @@ Rules for every phase:
 
 Time estimates are not given. The phases are ordered by dependency, not by calendar.
 
-## Status (2026-10-12, branch `phase-1`)
+## Current runtime work
+
+The runtime now reconciles uncertain approval answers, treats Escape as defer, probes connection
+health, and verifies root receipts against a separate trust anchor. A receipt outbox and
+`exo-os system reconcile` repair missing ledger copies without repeating operations. Desktop ownership
+is explicit. Acceptance scripts verify the identity of their disposable VM and fail on missing evidence.
+
+Host and Linux-container validation are recorded in `docs/VALIDATION.md`. These changes have **not**
+had a new x86 image build/boot. The earlier results below apply only to the earlier image. P4 has begun
+with root transport/audit integrity; its compulsory tool isolation, credential broker, egress policy,
+separate core signer and adversarial VM acceptance remain unfinished. P5–P8 remain unstarted.
+`docs/CORE-CONTRACT.md` assigns the shared-core and OS work without introducing a core fork.
+
+## Earlier VM evidence (2026-10-12, branch `phase-1`)
 
 Each line says what the acceptance script showed in the QEMU VM, not more.
 
@@ -23,7 +37,7 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
 | P1 VM image | `tools/accept-phase1.sh`: desktop, exod restart, store verifies in VM and on host, live profile change all pass. Chat passes on Exo's offline model only; **a real-model chat needs a test key (A)**. Memory measured: `docs/MEASUREMENTS.md`. |
 | P2 gated changes | `tools/accept-phase2.sh`: 5 of 5 (20 recorded changes, broken change reverts itself, one-command undo for profile and package changes, no root outside exo-sysd's list, no boot tools). **Not built:** booting an older snapshot from the boot menu. |
 | P3 surface | `tools/accept-phase3.sh`: 5 of 5 (app from a few letters, question answered, approval card through the gate, panel in the drawer, desktop works with exod stopped). **Not done:** Orca reading the card (untested); a memory budget from A to check against. |
-| P4 to P8 | Not started. |
+| P4 to P8 | Not started in that image. See current runtime work above. |
 
 ```
  P0 design --> P1 VM image --> P2 gated changes --> P3 surface --> P4 security --> P5 voice + phone

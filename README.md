@@ -15,7 +15,10 @@ OS can close, and lays out the build path. Read it before planning a stage.
 
 ## Status
 
-Phases 1 to 3 are built on branch `phase-1` and pass their acceptance scripts in a VM, with the gaps listed in `ROADMAP.md` (Status). Built:
+The initial phases 1–3 passed their earlier VM checks, with the gaps in `ROADMAP.md`.
+The current runtime adds recoverable approvals, authenticated root receipts and stricter acceptance
+checks. The updated image still needs a fresh VM build and boot; earlier results are not evidence for
+this revision. Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
   home, snapshots and the Exo store; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
@@ -27,18 +30,22 @@ Phases 1 to 3 are built on branch `phase-1` and pass their acceptance scripts in
 - **Exo plugin.** Tools that let the agent show and change the machine, open apps, list changes, undo, and
   install packages (which asks first), placed by Exo's own gate.
 - **exo-sysd.** The one root process: five named actions (status, snapshot create, list and undo,
-  package install), signed receipts.
+  package install), kernel-authenticated peers, independently verified receipts, and reconciliation of
+  receipts that could not be written to the principal ledger.
 - **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client,
-  with approval cards in plain words.
+  with approval cards in plain words. Escape defers; lost answers are reconciled without automatic retry.
 - **Timeline.** `exo-os today` and the `timeline_show` tool: what Exo did on a day, from the ledger.
 
 Not yet: rollback that boots an older snapshot, the sandbox and secrets layers, voice and phone clients.
-See `ROADMAP.md`.
+See `ROADMAP.md` and [the core/OS contract](docs/CORE-CONTRACT.md). Same-user tools can still bypass the
+consent gate by invoking named root operations directly; the compulsory broker and sandbox remain
+required before daily use.
 
 ## Use
 
     tools/dev-env.sh                       # .venv with Exo at exo.pin and exo-os, editable
     .venv/bin/pytest                       # the tests
+    tools/test-linux.sh                    # Linux socket + GTK tests in a disposable Docker container
     tools/host-tools.sh                    # mkosi, QEMU and OVMF into ~/.local/opt/exo-os-tools (no root)
     tools/build-image.sh --profile=vmtest  # build image/out/exo-os.raw
     tools/run-vm.sh [--gui]                # boot it in QEMU (throwaway overlay; SSH on 127.0.0.1:2222)
@@ -46,13 +53,15 @@ See `ROADMAP.md`.
     tools/accept-phase1.sh                 # the phase 1 acceptance checks
 
 On a machine running Exo OS. On any other desktop, `exo-os` changes nothing there and says so; the Exo store
-still works. A desktop counts as Exo OS when `~/.config/hypr/hyprland.lua` loads `exo/profile.lua`, as the
-image's base config does.
+still works. The image explicitly marks its desktop with
+`~/.config/hypr/exo/desktop-owner` containing `exo-os-v1`, alongside the profile include. A comment
+mentioning Exo is not an ownership marker.
 
     exo-os show                            # the machine profile
     exo-os set keyboard.layouts us,ara,pk  # one change: checked, logged, undoable
     exo-os history                         # what changed, newest first, and who changed it
     exo-os undo [change]                   # put back the latest change, or the one named
+    exo-os system reconcile                # record saved root receipts; never rerun the actions
     exo-os app add WhatsApp --url https://web.whatsapp.com/ --key SUPER+1 --workspace 1
 
 ## Where things are
@@ -63,6 +72,9 @@ image's base config does.
 | `DESIGN.md` | The architecture, each idea explained from first principles |
 | `DECISIONS.md` | Decisions made, why, and what was rejected (OS-1 onward) |
 | `ROADMAP.md` | Phases from a bootable VM image to daily use, each with an acceptance check |
+| `docs/CORE-CONTRACT.md` | Principles as acceptance conditions; shared-core integration requirements |
+| `docs/SYSTEM-TRUST.md` | Root authentication, signed outcomes and audit recovery |
+| `docs/SURFACE-RECOVERY.md` | Approval recovery, connection health and protocol limits |
 | `src/exo_os/profile.py` | The machine profile: fields, checks, apps |
 | `src/exo_os/render/` | Profile to Hyprland Lua and hypridle config |
 | `src/exo_os/changes.py` | The change engine: apply, check, commit or put back, undo |

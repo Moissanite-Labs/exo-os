@@ -5,10 +5,10 @@
 #   2. a question reaches Exo and the answer shows in the bar
 #   3. an approval card appears for a risky act, Y answers it, the answer reaches the gate, the act runs
 #   4. a panel the agent opens shows in the drawer
-#   5. with exod stopped, the desktop and app keys still work and the bar says so in one line
+#   5. with exod stopped, app launch still works; the disconnected-status screenshot is saved for review
 #   6. the surface's memory (PSS), idle
 # Screenshots: image/out/p3-*.png. Results: image/out/accept-phase3.txt
-set -uo pipefail
+set -Eeuo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$here/image/out"
 report="$out/accept-phase3.txt"
@@ -23,18 +23,14 @@ result() {
 shot() { ssh_vm "cd /tmp && as-exo grim /tmp/$1.png && cat /tmp/$1.png" > "$out/$1.png" 2>/dev/null; }
 type_in() { as_exo "wtype '$1'"; }
 press() { as_exo "wtype -k $1"; }
-layers() { as_exo "hyprctl layers" | grep -o 'namespace: exo-surface-[a-z]*' | sort -u | tr '\n' ' '; }
+layers() { as_exo "hyprctl layers" | { grep -o 'namespace: exo-surface-[a-z]*' || true; } | sort -u | tr '\n' ' '; }
 bar() { as_exo "/opt/exo/bin/exo-surface $1"; sleep 1; }
-windows() { as_exo "hyprctl clients" | grep -c "class: $1"; }
+windows() { as_exo "hyprctl clients" | { grep -c "class: $1" || true; }; }
 
-: > "$report"
-echo "Exo OS phase 3 acceptance, $(date -Is), exo $(cut -c1-7 "$here/exo.pin"), exo-os $(git -C "$here" rev-parse --short HEAD)" | tee -a "$report"
-"$here/tools/run-vm.sh" --mem "${EXO_OS_VM_MEM:-1536}" ${EXO_OS_VM_ARGS:-} > "$out/qemu.log" 2>&1 &
-qemu=$!
-trap 'kill $qemu 2>/dev/null' EXIT
-for _ in $(seq 1 60); do ssh_vm true 2>/dev/null && break; sleep 3; done
-ssh_vm 'systemctl is-system-running --wait >/dev/null; until [ -e /etc/pacman.d/gnupg/trustdb.gpg ] && ! systemctl is-active -q exo-os-pacman-init; do sleep 2; done'
-for _ in $(seq 1 30); do [[ $(as_exo systemctl --user is-active exo-surface 2>/dev/null) == active ]] && break; sleep 2; done
+source "$here/tools/accept-common.sh"
+accept_start 3 1536
+accept_keyring
+as_exo systemctl --user is-active --quiet exo-surface
 
 # A scripted model: what a real model would do for these three requests.
 as_exo "/opt/exo/bin/python - <<'PY'
@@ -85,7 +81,7 @@ result "panel-drawer" "$([[ $drawer == *drawer* ]] && echo 1 || echo 0)" "layers
 press Escape
 
 # 5. exod stopped
-as_exo "systemctl --user stop exod"; as_exo "pkill -x foot"; sleep 3
+as_exo "systemctl --user stop exod"; as_exo "pkill -x foot || test \$? = 1"; sleep 3
 before=$(windows foot)
 bar show; sleep 2; shot p3-no-exod
 type_in "Termi"; press Return; sleep 3
@@ -97,5 +93,4 @@ as_exo "systemctl --user start exod"
 # 6. memory
 pss=$(ssh_vm "pid=\$(pgrep -u exo -f exo_os.surface | head -1); grep '^Pss:' /proc/\$pid/smaps_rollup | awk '{print int(\$2/1024)}'")
 echo "      surface PSS: ${pss:-?} MB; background: $(as_exo hyprctl getoption misc:background_color | head -1)" | tee -a "$report"
-echo "passed $pass, failed $fail" | tee -a "$report"
-((fail == 0))
+accept_finish

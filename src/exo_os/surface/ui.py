@@ -19,7 +19,7 @@ from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 from exo.protocol import schema as s  # noqa: E402
 
 from ..profile import Profile  # noqa: E402
-from .model import Line, SurfaceModel, panel_view  # noqa: E402
+from .model import Line, SurfaceModel, approval_key, panel_view  # noqa: E402
 
 try:
     gi.require_version("Gtk4LayerShell", "1.0")
@@ -259,10 +259,11 @@ def panel_widget(v: dict[str, Any], on_close: Callable[[str], None],
 class Card(Gtk.Window):
     """The approval card: big plain words, Yes and No, answered by click or the Y and N keys."""
 
-    def __init__(self, on_answer: Callable[[str], None]) -> None:
+    def __init__(self, on_answer: Callable[[str], None], on_defer: Callable[[], None]) -> None:
         super().__init__(title="Exo asks", css_classes=["exo", "exo-card"])
         self.layered = _layer(self, "OVERLAY", (), "EXCLUSIVE", "card")
         self.on_answer = on_answer
+        self.on_defer = on_defer
         self.shown_at = 0
         self.options: list[str] = []
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20, margin_top=32, margin_bottom=32,
@@ -304,10 +305,12 @@ class Card(Gtk.Window):
             self.on_answer(decision)
 
     def _key(self, _ctl: Any, keyval: int, _code: int, _state: Any) -> bool:
-        name = (Gdk.keyval_name(keyval) or "").lower()
-        decision = {"y": "allow", "n": "deny", "escape": "deny"}.get(name)
-        if decision:
-            self._answer(decision)
+        action = approval_key(Gdk.keyval_name(keyval) or "")
+        if action == "defer":
+            self.on_defer()
+            return True
+        if action:
+            self._answer(action)
             return True
         return False
 
@@ -328,7 +331,7 @@ class SurfaceUI:
         if model.profile.get("surface.language") in ("ar", "ur"):
             Gtk.Widget.set_default_direction(Gtk.TextDirection.RTL)
         _install_css()
-        self.bar, self.drawer, self.card = Bar(), Drawer(), Card(self._answer)
+        self.bar, self.drawer, self.card = Bar(), Drawer(), Card(self._answer, self._defer)
         for w in (self.bar, self.drawer, self.card):
             if app is not None:
                 app.add_window(w)
@@ -351,13 +354,14 @@ class SurfaceUI:
     def show(self, profile: Profile | None = None) -> None:
         if profile is not None:
             self.model.set_profile(profile)
+        self.model.show_approvals()
         self.bar.present()
         self.render({"status", "transcript", "palette", "panels", "approval"})
         self._focus_prompt()
 
     def _focus_prompt(self) -> None:
         """The prompt keeps the keyboard; the drawer's buttons are clicked. (Keyboard reach to the drawer is open.)"""
-        if self.bar.get_visible() and not self.model.approvals:
+        if self.bar.get_visible() and self.model.approval is None:
             self.bar.present()
             self.bar.entry.grab_focus()
 
@@ -436,6 +440,10 @@ class SurfaceUI:
             self._send(body)
         self.render({"approval"})
 
+    def _defer(self) -> None:
+        self.render(self.model.defer_approval())
+        self._focus_prompt()
+
     def _row_activated(self, _lb: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         self.model.selected = row.get_index()
         self.submit()
@@ -463,11 +471,11 @@ class SurfaceUI:
     def on_session(self, session: str) -> None:
         self.model.set_session(session)
 
-    def on_approvals(self, rows: list[dict[str, Any]]) -> None:
-        changes: set[str] = set()
-        for row in rows:
-            changes |= self.model.add_approval(row)
-        self.render(changes)
+    def on_approvals(self, rows: list[dict[str, Any]], through_seq: int) -> None:
+        self.render(self.model.reconcile_approvals(rows, through_seq))
+
+    def on_approval_result(self, request_id: str) -> None:
+        self.render(self.model.approval_result(request_id))
 
     def on_event(self, ev: s.Event) -> None:
         self.render(self.model.apply(ev))

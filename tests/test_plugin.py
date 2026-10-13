@@ -1,19 +1,37 @@
 """The exo-os plugin inside Exo's own engine, with Exo's gate loaded, driven by Exo's fake model."""
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import pytest
-
+from conftest import make_exo_desktop
 from exo.core.engine import CoreEngine
 from exo.core.plugins import PluginManager
 from exo.protocol import schema as s
 from exo.server.app import Dispatcher
 
-from conftest import make_exo_desktop
+
+def _gate_plugins_dir() -> Path:
+    """Find the source checkout containing the installed Exo package's plugins."""
+    core_source = os.environ.get("EXO_CORE_SOURCE")
+    if core_source:
+        root = Path(core_source).expanduser().resolve()
+    else:
+        import exo
+
+        package = getattr(exo, "__file__", None)
+        if package is None:
+            pytest.fail("Cannot locate Exo's source checkout; set EXO_CORE_SOURCE to its repository root")
+        root = Path(package).resolve().parents[2]
+    plugins = root / "plugins"
+    gate = plugins / "exo-gate"
+    if not gate.is_dir():
+        pytest.fail(f"Exo source plugins not found at {plugins}; set EXO_CORE_SOURCE to the Exo repository root")
+    return plugins
 
 
-GATE = Path(__file__).resolve().parents[1] / ".deps" / "exo" / "plugins"
+GATE = _gate_plugins_dir()
 
 
 @pytest.fixture

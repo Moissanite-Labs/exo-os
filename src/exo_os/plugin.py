@@ -112,20 +112,24 @@ def app_open(args: dict, **kw: Any) -> str:
 
 
 def system_package_install(args: dict, **kw: Any) -> str:
-    from .sysd.client import SysdClient, SysdError
+    from .sysd.client import CompletedButUnrecorded, SysdClient, SysdError
 
     try:
         out = SysdClient().call("package.install", {"names": args["names"], "reason": args.get("reason", "")})
+    except CompletedButUnrecorded as e:
+        return json.dumps(e.to_dict())
     except SysdError as e:
         raise _error(str(e)) from None
     return json.dumps(out)
 
 
 def system_snapshot_undo(args: dict, **kw: Any) -> str:
-    from .sysd.client import SysdClient, SysdError
+    from .sysd.client import CompletedButUnrecorded, SysdClient, SysdError
 
     try:
         return json.dumps(SysdClient().call("snapshot.undo", {"pre": args["pre"], "post": args["post"]}))
+    except CompletedButUnrecorded as e:
+        return json.dumps(e.to_dict())
     except SysdError as e:
         raise _error(str(e)) from None
 

@@ -8,6 +8,9 @@ dep="$here/.deps/exo"
 [[ -d $dep/.git ]] || git clone -q https://github.com/aska-digital/exo.git "$dep"
 git -C "$dep" fetch -q origin
 git -C "$dep" -c advice.detachedHead=false checkout -q "$pin"
-[[ -d $here/.venv ]] || uv venv -q --python /usr/bin/python3 --system-site-packages "$here/.venv"
+if [[ ! -d $here/.venv ]]; then
+  python="$(uv python find --system '>=3.11' 2>/dev/null || uv python find '>=3.11')"
+  uv venv -q --python "$python" --system-site-packages "$here/.venv"
+fi
 VIRTUAL_ENV="$here/.venv" uv pip install -q -e "$dep[tui,dev]" -e "$here[dev]"
 echo "exo $(git -C "$dep" rev-parse --short HEAD) and exo-os installed in .venv"
