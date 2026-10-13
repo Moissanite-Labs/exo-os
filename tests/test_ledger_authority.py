@@ -348,6 +348,28 @@ def test_boot_existing_manifest_validated_as_signer_without_reseed(tmp_path, mon
         admin.ensure_boot(state=state, store=store)
 
 
+def test_boot_rejects_root_home_without_normalizing_fresh_store(tmp_path, monkeypatch):
+    import stat
+    from types import SimpleNamespace
+    from exo_os.ledgerd import admin
+
+    state, store = tmp_path / "signer", tmp_path / "store"
+    state.mkdir()
+    store.mkdir()
+    (store / "exo").mkdir(mode=0o700)
+    (store / "root").mkdir(mode=0o700)
+    monkeypatch.setattr(admin, "validate_boot_mounts", lambda *a: None)
+    monkeypatch.setattr(admin.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(admin, "account_uid", lambda name: 777)
+    monkeypatch.setattr(__import__("pwd"), "getpwnam", lambda name: SimpleNamespace(pw_gid=778))
+    # The image principal skeleton is root-owned; host tests use a modeled UID.
+    monkeypatch.setattr(Path, "lstat", lambda path: SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=0))
+    monkeypatch.setattr(admin, "provision", lambda *a, **kw: pytest.fail("unexpected store provisioned"))
+    with pytest.raises(AuthorityError, match="unexpected entries"):
+        admin.ensure_boot(state=state, store=store)
+    assert (store / "root").is_dir()
+
+
 def test_image_login_and_socket_require_boot_provisioning():
     image = Path(__file__).resolve().parents[1] / "image/mkosi.extra/usr/lib"
     units = image / "systemd/system"
@@ -363,6 +385,7 @@ def test_image_login_and_socket_require_boot_provisioning():
     assert "EXO_LEDGER_AUTHORITY=exo-os" in env and "EXO_LEDGER_AUTHORITY_REQUIRED=1" in env
     for name in ("exod.service", "exo-os-setup.service"):
         unit = (image / "systemd/user" / name).read_text()
+        assert "ConditionUser=exo" in unit.split("[Service]", 1)[0]
         assert "Environment=EXO_LEDGER_AUTHORITY=exo-os" in unit
         assert "Environment=EXO_LEDGER_AUTHORITY_REQUIRED=1" in unit
     helper = (Path(__file__).resolve().parents[1] /
