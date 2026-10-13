@@ -18,9 +18,11 @@ def git_root(root: Path) -> bool:
     try:
         top = subprocess.check_output(['git', '-C', str(root), 'rev-parse', '--show-toplevel'],
                                       text=True, stderr=subprocess.DEVNULL).removesuffix('\n')
+        # Git can report a different spelling on a case-insensitive filesystem.
+        # Compare physical directories while still rejecting an enclosing repo.
+        return Path(top).samefile(root)
     except (OSError, subprocess.CalledProcessError):
         return False
-    return Path(top).resolve() == root.resolve()
 
 
 def source_identity(root: Path, *, require_clean: bool = False, label: str = 'source') -> str:
