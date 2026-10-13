@@ -48,8 +48,11 @@ fetch() {
 
 mkdir -p "$PREFIX/cache"
 
-# -Sp prints the URLs pacman would download for what is missing on this host; it needs no root.
-listing="$(pacman -Sp --needed "${PKGS[@]}")"
+# -Sp prints the URLs pacman would download for what is missing on this host; it needs no root. An empty
+# cache directory of ours stands in for the host's, so a package cached there still gets a remote URL
+# (otherwise pacman prints file:///var/cache/... for it) and is fetched and verified like the rest.
+mkdir "$gnupghome/pacman-cache"
+listing="$(pacman -Sp --needed --cachedir "$gnupghome/pacman-cache" "${PKGS[@]}")"
 urls=(); while IFS= read -r u; do [[ -z $u ]] || urls+=("$u"); done <<<"$listing"
 if ((${#urls[@]} == 0)); then
   echo "nothing to fetch: this host already has every package"

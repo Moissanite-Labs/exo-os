@@ -18,7 +18,11 @@ pytestmark = pytest.mark.skipif(
 
 PACMAN = """#!/bin/sh
 [ -z "$STUB_PACMAN_FAIL" ] || exit 1
-cat "$STUB_URLS"
+echo "$@" > "$STUB_PACMAN_ARGS"
+# A real pacman prints file:// for a package found in a cache directory; ours is told to use an empty one.
+cachedir=
+while [ $# -gt 0 ]; do [ "$1" = --cachedir ] && cachedir=$2; shift; done
+if [ -n "$cachedir" ] && [ -z "$(ls -A "$cachedir")" ]; then cat "$STUB_URLS"; else sed 's|^https://[^/]*/pool|file:///var/cache/pacman/pkg|' "$STUB_URLS"; fi
 """
 # Serves $STUB_SERVE/<basename of url>; STUB_PARTIAL names a file to cut short, as a dropped connection does.
 CURL = """#!/bin/bash
@@ -108,7 +112,7 @@ class Host:
         self.env = {
             **os.environ, "HOME": str(tmp_path / "home"), "EXO_OS_TOOLS": str(self.prefix),
             "EXO_OS_KEYRINGS": str(self.keyrings), "PATH": f"{self.stubs}:{os.environ['PATH']}",
-            "STUB_URLS": str(self.urls), "STUB_SERVE": str(self.serve), "STUB_CALLS": str(self.calls),
+            "STUB_URLS": str(self.urls), "STUB_PACMAN_ARGS": str(tmp_path / "pacman-args"), "STUB_SERVE": str(self.serve), "STUB_CALLS": str(self.calls),
         }
         self.env.pop("PYTHONPATH", None)
         self.listed = []
@@ -358,3 +362,14 @@ def test_a_pacman_list_without_pefile_is_reported(host):
     host.mirror("mkosi-1-1-any.pkg.tar.xz", {"usr/bin/mkosi": "x\n"})
     result = host.run()
     assert result.returncode != 0 and "python-pefile" in result.stderr
+
+
+def test_pacman_is_pointed_at_an_empty_cache_so_it_prints_remote_urls(host):
+    host.tools()
+    result = host.run()
+    assert result.returncode == 0, result.stderr
+    args = (host.root / "pacman-args").read_text().split()
+    assert args[:2] == ["-Sp", "--needed"] and "--cachedir" in args
+    # The directory handed to pacman is not the host's cache, and it is empty (the stub prints file:// otherwise).
+    assert args[args.index("--cachedir") + 1] != "/var/cache/pacman/pkg"
+    assert all(u.startswith("https://") for u in host.fetched)
