@@ -2,20 +2,30 @@
 
 Checks on 2026-10-13. The current Exo dependency is
 `b3149a91d2981d1a6f71fdb2400b99b1f8e21499`, as recorded in `exo.pin`.
-Integrated OS `bfaa8f2` has the same source tree as published `2e13245`.
+Integrated OS `ee327a8` has the same source tree as published `8d79fdd`.
 Results below name the revision they exercised. Source and container checks do
 not establish a booted current image or a successful recovery reboot.
 
 | Check | Result | Boundary of evidence |
 |---|---|---|
-| macOS arm64, Python 3.13, `.venv/bin/pytest -q` | 389 passed, 16 skipped | Integrated OS `bfaa8f2`, core `b3149a9`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
+| macOS arm64, Python 3.13, `.venv/bin/pytest -q` | 396 passed, 16 skipped | Integrated OS `ee327a8`, core `b3149a9`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
 | Linux arm64, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 373 passed, 10 skipped | Authority branch before its final systemd ordering/environment assertions and the additional integrated VM harness tests; includes actual inherited-listener and signer service identity checks |
 | Linux arm64, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Earlier OS `5773dc4` and core `a915e62`; actual bubblewrap, Landlock and seccomp in a disposable privileged container with no host mounts |
 | Shared core authority, witness and read-only verification | 82 passed | Core `b3149a9`; durable commits, replay, independent receipt validation, canonical CLI corruption checks and concurrent verification |
+| Full core suite and plugins, macOS arm64, Python 3.13 | 1,434 core tests and 749 plugin tests passed | Core `b3149a9`; 65 core skips and one explicitly deselected external legacy-relay integration; all six plugins also passed separately |
 | systemd unit dependency graph | passed | Provision/socket/service/firstboot graph checked in Linux with unavailable image executable paths replaced only in temporary validation copies; actual first boot remains necessary |
 | Ruff `--select F`, `src tests` | passed | Python static checks |
 | `bash -n tools/*.sh` | passed | Shell syntax, not a VM acceptance run |
 | `git diff --check` | passed | Whitespace/conflict-marker check |
+
+The full core run used an isolated checkout and a closed local bus address. The
+legacy-relay test was deselected because it autodetects an unrelated local
+checkout. The inherited `NO_COLOR=1` setting initially caused four TUI tests to
+fail by selecting the accessible plain theme. All 31 tests in that UI file and
+then the full suite passed with `NO_COLOR` and `EXO_REDUCED_MOTION` unset for the
+test process. No application setting was changed. GitHub Actions jobs for core
+PR 80 did not start because of an account billing restriction; these are local
+results, not a CI pass.
 
 The Linux runner creates a disposable container with two CPUs and 2 GiB of RAM.
 It copies an explicit source list and archives the pinned core commit, installs
