@@ -240,6 +240,22 @@ def test_choice_acts_and_sends_the_label():
     assert panel_view(m.panels["p4"])["options"] == [("a", "Short"), ("Long", "Long")]
 
 
+def test_choice_while_disconnected_sends_no_message_and_says_so():
+    m = _model()
+    m.apply(ev(s.UiPanel(panel_id="p4", action="open", kind="choice", text="Which one?",
+                         data={"options": [{"id": "a", "label": "Short"}]})))
+    m.set_connected(False)
+    # Only the learning signal goes out; the label is not sent as a message, and the person is told.
+    assert m.choose("p4", "a") == [s.UiRespond(panel_id="p4", action="acted", value={"choice": "a"})]
+    assert m.lines[-1] == Line("error", NOT_RUNNING)
+    assert not any(line.role == "you" for line in m.lines)
+    m.set_connected(True)
+    m.session = None  # connected but no thread yet: the same
+    m.lines.clear()
+    assert [type(b) for b in m.choose("p4", "a")] == [s.UiRespond]
+    assert m.lines[-1] == Line("error", NOT_RUNNING)
+
+
 def test_panel_view_shapes():
     def view(kind, data, text="t"):
         return panel_view(Panel("p", kind, "T", text, data))
