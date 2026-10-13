@@ -1,0 +1,261 @@
+"""Recovery operates only in these directory/command fixtures, never host boot/data."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import struct
+
+import pytest
+
+from exo_os import recovery as r
+
+FS_UUID = "22222222-2222-2222-2222-222222222222"
+SNAP_UUID = "33333333-3333-3333-3333-333333333333"
+KERNEL = "6.17.1-arch1-1"
+FSTAB = """/dev/gpt-auto-root /home btrfs subvol=@home,compress=zstd 0 0
+/dev/gpt-auto-root /.snapshots btrfs subvol=@snapshots,compress=zstd 0 0
+/dev/gpt-auto-root /var/lib/exo btrfs subvol=@store,compress=zstd 0 0
+"""
+
+
+def uki(cmdline="rw quiet rootflags=subvol=@", kernel=KERNEL):
+    sections = {".linux": b"kernel", ".initrd": b"initrd", ".uname": kernel.encode() + b"\0",
+                ".cmdline": cmdline.encode() + b"\0"}
+    data = bytearray(512)
+    data[:2] = b"MZ"
+    struct.pack_into("<I", data, 0x3C, 64)
+    data[64:68] = b"PE\0\0"
+    struct.pack_into("<HH", data, 68, 0x8664, len(sections))
+    struct.pack_into("<H", data, 84, 0)
+    for i, (name, value) in enumerate(sections.items()):
+        pos = 88 + i * 40
+        data[pos:pos + 8] = name.encode().ljust(8, b"\0")
+        struct.pack_into("<IIII", data, pos + 8, len(value), 0, len(value), len(data))
+        data.extend(value)
+    return bytes(data)
+
+
+@pytest.fixture
+def image(tmp_path, monkeypatch):
+    root, snapshots, esp = (tmp_path / name for name in ("root", "snapshots", "esp"))
+    for path in (root / "etc", root / "usr/lib/modules" / KERNEL, root / "home",
+                 root / "var/lib/exo", snapshots, esp / "EFI/Linux"):
+        path.mkdir(parents=True, exist_ok=True)
+    (root / "etc/fstab").write_text(FSTAB)
+    (root / "etc/revision").write_text("old system")
+    (root / "home/person").write_text("current home")
+    (root / "var/lib/exo/ledger").write_text("current store")
+    (esp / "EFI/Linux/exo-os.efi").write_bytes(uki())
+    calls = []
+    readonly = set()
+
+    def run(*args):
+        calls.append(args)
+        if args[0] == "findmnt":
+            path = Path(args[args.index("--mountpoint") + 1])
+            roots = {root: "/@", root / "home": "/@home", root / "var/lib/exo": "/@store", snapshots: "/@snapshots"}
+            row = {"target": str(path), "fstype": "vfat" if path == esp else "btrfs",
+                   "fsroot": roots.get(path), "uuid": FS_UUID}
+            return json.dumps({"filesystems": [row]})
+        if args[:3] == ("btrfs", "subvolume", "snapshot"):
+            source, target = map(Path, args[-2:])
+            # Separate mount data do not belong to the native root snapshot.
+            shutil.copytree(source, target, ignore=shutil.ignore_patterns("home", "var"))
+            if "-r" in args:
+                readonly.add(str(target))
+            return ""
+        if args[:3] == ("btrfs", "subvolume", "show"):
+            return "UUID: " + SNAP_UUID
+        if args[:3] == ("btrfs", "property", "get"):
+            return "ro=true" if args[-2] in readonly else "ro=false"
+        if args[0] == "sync":
+            return ""
+        raise AssertionError(args)
+
+    original = r.secure_file
+    monkeypatch.setattr(r, "secure_file", lambda path: original(path, os.getuid()))
+    helper = r.Recovery(root=root, snapshots=snapshots, esp=esp, run=run)
+    return helper, root, snapshots, esp, calls, readonly
+
+
+def test_checkpoint_stage_preserves_home_store_and_original_root(image):
+    helper, root, snapshots, esp, calls, _ = image
+    checkpoint = helper.checkpoint()
+    (root / "etc/revision").write_text("broken system")
+    (root / "home/person").write_text("newer home")
+    (root / "var/lib/exo/ledger").write_text("newer store")
+    # ESP no longer has the checkpoint kernel; stage must use the archive.
+    (esp / "EFI/Linux/exo-os.efi").write_bytes(uki(kernel="later"))
+    staged = helper.stage(checkpoint["id"])
+    clone = snapshots / "exo-recovery/roots" / checkpoint["id"]
+    assert (clone / "etc/revision").read_text() == "old system"
+    assert (root / "etc/revision").read_text() == "broken system"
+    assert (root / "home/person").read_text() == "newer home"
+    assert (root / "var/lib/exo/ledger").read_text() == "newer store"
+    entry = (esp / "loader/entries" / staged["entry"]).read_text()
+    assert f"rootflags=subvol=@snapshots/exo-recovery/roots/{checkpoint['id']}" in entry
+    assert "efi /EFI/exo-recovery/" in entry
+    assert hashlib.sha256((esp / "EFI/exo-recovery" / (checkpoint["id"] + ".efi")).read_bytes()).hexdigest() == checkpoint["sha256"]
+    assert not any(args[0] in ("bootctl", "reboot", "systemctl") for args in calls)
+    assert not any("delete" in args or "set-default" in args for args in calls)
+    with pytest.raises(r.RecoveryError, match="already staged"):
+        helper.stage(checkpoint["id"])
+
+
+@pytest.mark.parametrize("ident", ["../root", "/etc", "a" * 31, "A" * 32, "a\n" * 16, "0;reboot"])
+def test_stage_rejects_unsafe_id_before_commands(image, ident):
+    helper, *_, calls, _ = image
+    with pytest.raises(r.RecoveryError, match="Invalid"):
+        helper.stage(ident)
+    assert calls == []
+
+
+@pytest.mark.parametrize("field,value", [("id", "a" * 32), ("filesystem_uuid", "other"),
+                                         ("snapshot_uuid", "other"), ("version", 2),
+                                         ("sha256", "other"), ("kernel", "other"), ("cmdline", "other")])
+def test_manifest_tampering_is_rejected_before_clone(image, field, value):
+    helper, _, snapshots, _, calls, _ = image
+    checkpoint = helper.checkpoint()
+    path = snapshots / "exo-recovery/checkpoints" / checkpoint["id"] / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest[field] = value
+    path.write_text(json.dumps(manifest))
+    calls.clear()
+    with pytest.raises(r.RecoveryError):
+        helper.stage(checkpoint["id"])
+    assert not any(args[:3] == ("btrfs", "subvolume", "snapshot") for args in calls)
+
+
+@pytest.mark.parametrize("name", ["manifest.json", "kernel.efi", "root"])
+def test_checkpoint_symlink_rejected(image, name, tmp_path):
+    helper, _, snapshots, _, _, _ = image
+    checkpoint = helper.checkpoint()
+    path = snapshots / "exo-recovery/checkpoints" / checkpoint["id"] / name
+    outside = tmp_path / ("outside-" + name)
+    path.rename(outside)
+    path.symlink_to(outside, target_is_directory=name == "root")
+    with pytest.raises(r.RecoveryError, match="Unsafe path"):
+        helper.stage(checkpoint["id"])
+
+
+def test_writable_manifest_rejected(image):
+    helper, _, snapshots, *_ = image
+    checkpoint = helper.checkpoint()
+    path = snapshots / "exo-recovery/checkpoints" / checkpoint["id"] / "manifest.json"
+    path.chmod(0o666)
+    with pytest.raises(r.RecoveryError, match="not writable"):
+        helper.stage(checkpoint["id"])
+
+
+def test_writable_snapshot_rejected(image):
+    helper, *_, readonly = image
+    checkpoint = helper.checkpoint()
+    readonly.clear()
+    with pytest.raises(r.RecoveryError, match="read-only"):
+        helper.stage(checkpoint["id"])
+
+
+@pytest.mark.parametrize("data", [b"invalid", b"MZ", uki()[:520]])
+def test_malformed_uki_rejected(data):
+    with pytest.raises(r.RecoveryError):
+        r.uki_sections(data)
+
+
+@pytest.mark.parametrize("cmdline", ["rw", "rw rootflags=subvol=@home", "rootflags=subvol=@ rootflags=subvol=@",
+                                     "rootflags=subvol=@\nreboot", 'rootflags=subvol=@ "other"'])
+def test_unsafe_root_command_line_rejected(cmdline):
+    with pytest.raises(r.RecoveryError):
+        r.recovery_options(cmdline, "@snapshots/exo-recovery/roots/test")
+
+
+def test_root_device_and_console_options_preserved():
+    assert r.recovery_options("root=PARTUUID=abc rw rootflags=subvol=@ console=ttyS0,115200", "@snapshots/clone") == (
+        "root=PARTUUID=abc rw rootflags=subvol=@snapshots/clone console=ttyS0,115200")
+
+
+@pytest.mark.parametrize("edit", [lambda s: s.replace("@home", "@"), lambda s: s.replace("@store", "@home"),
+                                  lambda s: s + "/dev/gpt-auto-root / btrfs subvol=@ 0 0\n",
+                                  lambda s: s.replace("/dev/gpt-auto-root /home", "UUID=other /home")])
+def test_wrong_data_mounts_rejected(image, edit):
+    helper, root, *_ = image
+    (root / "etc/fstab").write_text(edit(FSTAB))
+    with pytest.raises(r.RecoveryError):
+        helper.checkpoint()
+
+
+def test_no_matching_uki_refuses_checkpoint(image):
+    helper, _, _, esp, *_ = image
+    (esp / "EFI/Linux/exo-os.efi").write_bytes(uki(kernel="missing"))
+    with pytest.raises(r.RecoveryError, match="exactly one"):
+        helper.checkpoint()
+
+
+def test_uki_companions_refused(image):
+    helper, _, _, esp, *_ = image
+    (esp / "EFI/Linux/exo-os.efi.extra.d").mkdir()
+    with pytest.raises(r.RecoveryError, match="companion"):
+        helper.checkpoint()
+
+
+def test_missing_or_enabled_secure_boot_refused(monkeypatch):
+    monkeypatch.setattr(Path, "read_bytes", lambda _: b"\0\0\0\0\1")
+    with pytest.raises(r.RecoveryError, match="Secure Boot disabled"):
+        r.firmware_check()
+    monkeypatch.setattr(Path, "read_bytes", lambda _: b"")
+    with pytest.raises(r.RecoveryError):
+        r.firmware_check()
+
+
+def test_administrator_required(monkeypatch, capsys):
+    monkeypatch.setattr(r.sys, "platform", "linux")
+    monkeypatch.setattr(r.os, "geteuid", lambda: 1000)
+    assert r.main(["checkpoint"]) == 1
+    assert "root administrator" in capsys.readouterr().err
+
+
+def test_failed_boot_copy_never_publishes_menu(image, monkeypatch):
+    helper, _, _, esp, *_ = image
+    checkpoint = helper.checkpoint()
+    original = Path.open
+    def fail(path, *args, **kwargs):
+        if "exo-recovery" in str(path) and path.suffix == ".efi" and "xb" in args:
+            raise OSError("ESP full")
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "open", fail)
+    with pytest.raises(OSError, match="ESP full"):
+        helper.stage(checkpoint["id"])
+    assert not list((esp / "loader/entries").glob("*.conf"))
+
+
+def test_writable_checkpoint_parent_rejected(image):
+    helper, _, snapshots, *_ = image
+    checkpoint = helper.checkpoint()
+    (snapshots / "exo-recovery/checkpoints").chmod(0o777)
+    with pytest.raises(r.RecoveryError, match="not writable"):
+        helper.stage(checkpoint["id"])
+
+
+def test_snapshot_fstab_symlink_rejected(image, tmp_path):
+    helper, _, snapshots, *_ = image
+    checkpoint = helper.checkpoint()
+    fstab = snapshots / "exo-recovery/checkpoints" / checkpoint["id"] / "root/etc/fstab"
+    outside = tmp_path / "fstab"
+    fstab.rename(outside)
+    fstab.symlink_to(outside)
+    with pytest.raises(r.RecoveryError, match="Unsafe path"):
+        helper.stage(checkpoint["id"])
+
+
+def test_recovery_does_not_expand_model_root_actions():
+    from exo_os.sysd.protocol import NAMED_ACTIONS
+    from exo_os.plugin import TOOLS
+    assert NAMED_ACTIONS == {"status", "snapshot.create", "snapshot.list", "snapshot.undo", "package.install"}
+    assert not any("recovery" in tool[0] or "boot" in tool[0] for tool in TOOLS)
+
+
+def test_image_exposes_manual_entrypoint_and_regular_uki_default():
+    project = Path(__file__).resolve().parents[1]
+    config = (project / "image/mkosi.extra/boot/loader/loader.conf").read_text()
+    assert "default *.efi" in config and "timeout 5" in config and "editor no" in config
+    assert "exo-os-recovery" in (project / "image/mkosi.postinst.chroot").read_text()
