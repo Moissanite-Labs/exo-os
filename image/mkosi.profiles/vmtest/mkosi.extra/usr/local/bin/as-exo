@@ -4,4 +4,6 @@ U=$(id -u exo)
 S=$(ls "/run/user/$U/hypr" 2>/dev/null | head -1)
 exec runuser -u exo -- env XDG_RUNTIME_DIR="/run/user/$U" WAYLAND_DISPLAY=wayland-1 HYPRLAND_INSTANCE_SIGNATURE="$S" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$U/bus" HOME=/home/exo USER=exo \
-  EXO_HOME=/var/lib/exo/exo EXO_PRINCIPAL=exo EXO_PLUGIN_DIRS=/opt/exo/plugins "$@"
+  EXO_HOME=/var/lib/exo/exo EXO_PRINCIPAL=exo EXO_PLUGIN_DIRS=/opt/exo/plugins \
+  EXO_TOOL_EXECUTOR=exo-os EXO_TOOL_EXECUTOR_REQUIRED=1 \
+  EXO_LEDGER_AUTHORITY=exo-os EXO_LEDGER_AUTHORITY_REQUIRED=1 "$@"

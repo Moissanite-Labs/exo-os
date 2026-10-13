@@ -10,7 +10,7 @@ python -m venv --system-site-packages --without-pip /opt/exo
 python -m pip --python /opt/exo/bin/python install --quiet --no-index --no-cache-dir \
     --find-links /opt/exo/wheels exo exo-os
 rm -rf /opt/exo/wheels
-for b in exo exo-os exo-surface exo-os-setup exo-os-recovery; do ln -sf "/opt/exo/bin/$b" "/usr/local/bin/$b"; done
+for b in exo exo-os exo-surface exo-os-setup exo-os-recovery exo-ledger-admin; do ln -sf "/opt/exo/bin/$b" "/usr/local/bin/$b"; done
 
 # The person. Phase 1 has one account with automatic login; onboarding will create it in later phases.
 getent group exo-sys >/dev/null || groupadd --system exo-sys
@@ -21,6 +21,11 @@ id exo-egress >/dev/null 2>&1 || useradd --system --gid exo-egress --no-create-h
 # Repart copies this root-controlled source into persistent @egress. On boot,
 # StateDirectory changes its ownership after the required mount is present.
 install -d -m 0700 /var/lib/exo-egress
+getent group exo-ledger >/dev/null || groupadd --system exo-ledger
+id exo-ledger >/dev/null 2>&1 || useradd --system --gid exo-ledger --no-create-home \
+    --home-dir /var/lib/exo-ledger --shell /usr/bin/nologin exo-ledger
+# Root-owned public identity on @signer; provisioning creates the private service-owned subtree.
+install -d -m 0755 /var/lib/exo-ledger
 id exo >/dev/null 2>&1 || useradd --create-home --groups wheel,exo-sys,video,input --shell /bin/bash exo
 passwd --lock exo >/dev/null
 install -d -m 0700 /var/lib/exo/exo /var/lib/exo-sysd

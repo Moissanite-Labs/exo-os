@@ -18,7 +18,22 @@ FSTAB = """/dev/gpt-auto-root /home btrfs subvol=@home,compress=zstd 0 0
 /dev/gpt-auto-root /var/lib/exo btrfs subvol=@store,compress=zstd 0 0
 /dev/gpt-auto-root /var/lib/exo-sysd btrfs subvol=@sysd,compress=zstd 0 0
 /dev/gpt-auto-root /var/lib/exo-egress btrfs subvol=@egress,compress=zstd 0 0
+/dev/gpt-auto-root /var/lib/exo-ledger btrfs subvol=@signer,compress=zstd 0 0
 """
+
+
+def test_fstab_without_persistent_signer_refuses_recovery(tmp_path):
+    path = (tmp_path / "fstab").resolve()
+    path.write_text("\n".join(line for line in FSTAB.splitlines() if "/var/lib/exo-ledger" not in line))
+    with pytest.raises(r.RecoveryError, match="signer"):
+        r.check_fstab(path)
+
+
+def test_fstab_signer_on_system_root_refuses_recovery(tmp_path):
+    path = (tmp_path / "fstab").resolve()
+    path.write_text(FSTAB.replace("subvol=@signer", "subvol=@"))
+    with pytest.raises(r.RecoveryError):
+        r.check_fstab(path)
 
 
 def uki(cmdline="rw quiet rootflags=subvol=@", kernel=KERNEL):
@@ -42,7 +57,8 @@ def uki(cmdline="rw quiet rootflags=subvol=@", kernel=KERNEL):
 def image(tmp_path, monkeypatch):
     root, snapshots, esp = (tmp_path / name for name in ("root", "snapshots", "esp"))
     for path in (root / "etc", root / "usr/lib/modules" / KERNEL, root / "home",
-                 root / "var/lib/exo", root / "var/lib/exo-sysd", root / "var/lib/exo-egress", snapshots, esp / "EFI/Linux"):
+                 root / "var/lib/exo", root / "var/lib/exo-sysd", root / "var/lib/exo-egress",
+                 root / "var/lib/exo-ledger", snapshots, esp / "EFI/Linux"):
         path.mkdir(parents=True, exist_ok=True)
     (root / "etc/fstab").write_text(FSTAB)
     (root / "etc/revision").write_text("old system")
@@ -58,7 +74,7 @@ def image(tmp_path, monkeypatch):
         calls.append(args)
         if args[0] == "findmnt":
             path = Path(args[args.index("--mountpoint") + 1])
-            roots = {root: "/@", root / "home": "/@home", root / "var/lib/exo": "/@store", root / "var/lib/exo-sysd": "/@sysd", root / "var/lib/exo-egress": "/@egress", snapshots: "/@snapshots"}
+            roots = {root: "/@", root / "home": "/@home", root / "var/lib/exo": "/@store", root / "var/lib/exo-sysd": "/@sysd", root / "var/lib/exo-egress": "/@egress", root / "var/lib/exo-ledger": "/@signer", snapshots: "/@snapshots"}
             row = {"target": str(path), "fstype": "vfat" if path == esp else "btrfs",
                    "fsroot": roots.get(path), "uuid": FS_UUID}
             return json.dumps({"filesystems": [row]})
@@ -70,7 +86,7 @@ def image(tmp_path, monkeypatch):
                 if directory == source:
                     return ["home"] if "home" in names else []
                 if directory == source / "var/lib":
-                    return [name for name in ("exo", "exo-sysd", "exo-egress") if name in names]
+                    return [name for name in ("exo", "exo-sysd", "exo-egress", "exo-ledger") if name in names]
                 return []
             shutil.copytree(source, target, ignore=separate_mounts, symlinks=True)
             if "-r" in args:

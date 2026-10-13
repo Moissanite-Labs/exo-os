@@ -34,16 +34,13 @@ class MemorySink:
 
 
 class ExoLedgerSink:
-    """Appends to <store>/ledger.sqlite, signed with the exo-os key (created on first use, 0600)."""
+    """Appends to the principal ledger through the configured signing backend."""
 
     def __init__(self, store: Path, key_path: Path) -> None:
-        from exo import crypto
-        from exo.ledger import Ledger
-
-        if not key_path.exists():
-            key_path.parent.mkdir(parents=True, exist_ok=True)
-            crypto.save_key(crypto.keygen(), key_path)
-        self.ledger = Ledger(store / "ledger.sqlite", crypto.Signer.from_file(AUTHOR, key_path))
+        from exo.ledger_authority.factory import open_writable_ledger
+        # Backend selection must precede all local key reads or generation.
+        self.ledger = open_writable_ledger(store / "ledger.sqlite", AUTHOR, key_path,
+                                           writer=AUTHOR, auto_keygen=True)
 
     def append(self, phase: str, body: dict[str, Any]) -> str | None:
         ev = self.ledger.append("action", {"os": "exo-os", "phase": phase, **body}, author=AUTHOR)
@@ -53,6 +50,10 @@ class ExoLedgerSink:
 def open_sink(store: Path | None, exo_home: Path | None) -> Sink:
     """The principal's ledger when a store exists, else nothing (changes still work and are still in git)."""
     if store is None or not store.is_dir():
+        from exo.ledger_authority import AuthorityUnavailable
+        from exo.ledger_authority.factory import configured
+        if configured():
+            raise AuthorityUnavailable("protected authority requires an initialized bound store")
         return NullSink()
     home = exo_home or Path(os.environ.get("EXO_HOME", Path.home() / ".exo"))
     return ExoLedgerSink(store, home / "keys" / f"{AUTHOR}.key")

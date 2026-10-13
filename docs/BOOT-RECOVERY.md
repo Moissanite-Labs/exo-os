@@ -36,7 +36,7 @@ Staging creates a writable clone under
 `@snapshots/exo-recovery/roots/ID`, copies the archived UKI onto the mounted ESP at
 `EFI/exo-recovery/ID.efi`, and publishes a Boot Loader Specification Type #1 entry
 last. That entry changes only `rootflags=subvol=...`; the UKI's root-device and
-console options remain intact. `@home`, `@store`, `@sysd`, `@egress` and `@snapshots` are separately
+console options remain intact. `@home`, `@store`, `@sysd`, `@egress`, `@signer` and `@snapshots` are separately
 mounted from the existing filesystem according to the checked snapshot fstab.
 User data and the principal's signed ledger therefore stay current while system
 files return to the checkpoint. The original `@` remains available as the regular

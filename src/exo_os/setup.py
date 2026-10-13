@@ -59,6 +59,12 @@ def main() -> int:
     cfg_path = home / "config.json"
     cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
     store = home / "principals" / principal
+    from exo.ledger_authority.factory import configured
+    if configured():
+        # Root must bind/provision the empty stream before even the first initializer write.
+        from .ledgerd.client import create_authority
+        authority = create_authority(store / "ledger.sqlite", principal)
+        authority.head()
     if not store.is_dir():
         subprocess.run([sys.executable, "-m", "exo.cli", "init", principal], check=True,
                        env={**os.environ, "EXO_HOME": str(home)})
