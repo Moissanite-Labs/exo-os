@@ -1,6 +1,7 @@
 """The exo-os plugin for Exo: tools that let the agent look at and change this machine.
 
-Loaded by Exo through the `exo.plugins` entry point. The tools carry Exo's registry risk labels
+The image loads the explicit `/opt/exo/plugins/exo-os` folder adapter; ordinary installs can use
+the `exo.plugins` entry point. The tools carry Exo's registry risk labels
 ("low": the agent runs it and it is logged; "high": the gate asks the person first). The names are
 chosen so the gate rules Exo OS writes at setup (setup.py: `system_package_*` and
 `system_snapshot_undo` ask, `machine_*` acts, `app_open` acts) sort them the way DESIGN.md §5.2 wants

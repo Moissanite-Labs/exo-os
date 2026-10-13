@@ -48,7 +48,12 @@ uv build -q --wheel -o "$extra/opt/exo/wheels" "$here"
 uvx -q pip download -q --only-binary=:all: --dest "$extra/opt/exo/wheels" \
   --python-version 3.14 --platform manylinux2014_x86_64 --platform manylinux_2_28_x86_64 \
   "$extra"/opt/exo/wheels/exo-*.whl "textual>=1"
+# Runtime plugin folders: required executor mode does not load ambient entry points.
 for p in exo-gate exo-memory exo-context; do cp -r "$dep/plugins/$p" "$extra/opt/exo/plugins/"; done
+# Include the OS adapter in the generated extra tree as well as the checked-in
+# overlay so either extra-tree application order has the complete inventory.
+cp -r "$here/image/mkosi.extra/opt/exo/plugins/exo-os" "$extra/opt/exo/plugins/"
+# End runtime plugin folders.
 echo "$pin" > "$extra/opt/exo/EXO_PIN"
 python3 "$here/tools/build-provenance.py" \
   --source-root "$here" --pin "$pin" --profile "$build_profile" \

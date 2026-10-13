@@ -1,0 +1,3 @@
+name: exo-os
+version: "0.1.0"
+description: "Exo OS machine profile, apps and system changes, gated and undoable"
