@@ -73,6 +73,23 @@ def test_spend_stop_has_no_retry_prompt_after_turn_completion():
     assert isinstance(model.submit().command, s.ModelsList)
 
 
+def test_spend_refusal_does_not_claim_a_global_stop_or_prompt_a_blind_retry():
+    model = SurfaceModel()
+    model.set_connected(True)
+    for seq, body in enumerate((s.TurnStarted(turn_id="refused"),
+                               s.Error(code="model_spend_refused", message="unpriced route", retryable=False),
+                               s.TurnCompleted(turn_id="refused", stop_reason="error")), 1):
+        model.apply(s.Event.of(body, seq))
+    text = "\n".join(line.text for line in model.visible_lines())
+    assert "This request cannot run" in text and "Type budget" in text
+    assert "work is stopped" not in text and "try again" not in text.lower()
+    assert not model.busy
+    # A later, unrelated failure must retain its ordinary explanation.
+    model.apply(s.Event.of(s.TurnStarted(turn_id="next"), 4))
+    model.apply(s.Event.of(s.TurnCompleted(turn_id="next", stop_reason="error"), 5))
+    assert "try again" in model.lines[-1].text.lower()
+
+
 def test_connection_delivers_spending_result_without_a_turn_or_approval(tmp_path):
     class Listener:
         def on_model_spend(self, value):

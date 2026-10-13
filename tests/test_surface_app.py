@@ -137,6 +137,25 @@ CHILD = textwrap.dedent('''
     msg.id = "m1"
     ui.on_event(ev(s.MessageCompleted(message=msg)))
     ui.on_event(ev(s.TurnCompleted(turn_id="t1")))
+    n = len(sent)
+    ui.bar.entry.set_text("budget")
+    ui.bar.entry.emit("activate")
+    pump()
+    assert len(sent) == n + 1 and isinstance(sent[-1], s.ModelsList)
+    ui.on_model_spend({"state": "stopped", "daily_cap_usd": "1.000000000",
+        "monthly_cap_usd": "5.000000000", "day_charged_usd": "0.000000001",
+        "month_charged_usd": "0.000000001", "pending_reserved_usd": "0.500000000",
+        "pending_count": 1})
+    pump()
+    child, texts = ui.bar.lines.get_first_child(), []
+    while child is not None:
+        texts.append(child.get_text())
+        child = child.get_next_sibling()
+    shown = "\\n".join(texts)
+    assert "Daily limit: $1.00. Monthly limit: $5.00." in shown, shown
+    assert "$0.000000001 today" in shown and "Unsettled calls: 1" in shown, shown
+    assert "administrator" in shown and not ui.card.get_visible()
+    assert len(sent) == n + 1  # inspection creates no turn or consent response
     ui.on_event(ev(s.ApprovalRequested(request_id="a1", summary="Send this message to Ahmed?", binding="h1")))
     pump()
     assert ui.card.get_visible() and ui.card.summary.get_text() == "Send this message to Ahmed?"

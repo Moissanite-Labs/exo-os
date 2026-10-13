@@ -38,6 +38,7 @@ PLAIN_ERRORS = {
     "forbidden": "You cannot answer that one here.",
     "session_locked": "This conversation is closed. Close the bar and open it again to start a new one.",
     "not_connected": NOT_RUNNING,
+    "model_spend_refused": "This request cannot run under the current spending policy. Type budget to inspect the limits, or ask an administrator to review the model configuration.",
     "model_spend_stopped": "Model work is stopped. Type budget to inspect spending and limits, then ask an administrator to review them.",
 }
 PLAIN_ERROR = "Something went wrong. Please try again."
@@ -111,7 +112,7 @@ class SurfaceModel:
         self.lines: list[Line] = []
         self.streaming: dict[str, str] = {}  # message_id -> text so far
         self.busy = False
-        self._spend_stopped = False
+        self._spend_error = False
         self.shown_from = 0  # transcript lines before this were cleared from view when the bar hid
         self.outbox: list[Any] = []  # commands an event calls for (a panel closed unseen is "ignored")
         self.activity = ""  # what the running turn is doing, for the status line
@@ -167,7 +168,7 @@ class SurfaceModel:
 
     def _on_TurnStarted(self, b: s.TurnStarted) -> set[str]:
         self.busy = True
-        self._spend_stopped = False
+        self._spend_error = False
         self.activity = WORKING if self.plain or not b.model else f"{WORKING} ({b.model})"
         return {"status", "transcript"}
 
@@ -207,7 +208,7 @@ class SurfaceModel:
                 self.lines.append(Line("exo", text.strip()))
         self.streaming.clear()
         self.busy = False
-        if b.stop_reason not in ("end", "tool_use") and not (b.stop_reason == "error" and self._spend_stopped):
+        if b.stop_reason not in ("end", "tool_use") and not (b.stop_reason == "error" and self._spend_error):
             if self.plain:
                 self.lines.append(Line("note", PLAIN_STOPS.get(b.stop_reason, PLAIN_STOPS["error"])))
             else:
@@ -236,8 +237,8 @@ class SurfaceModel:
         return {"transcript"}
 
     def _on_Error(self, b: s.Error) -> set[str]:
-        if b.code == "model_spend_stopped":
-            self._spend_stopped = True
+        if b.code in {"model_spend_refused", "model_spend_stopped"}:
+            self._spend_error = True
         self.lines.append(Line("error", self.error_text(b.code, b.message)))
         return {"transcript"}
 
