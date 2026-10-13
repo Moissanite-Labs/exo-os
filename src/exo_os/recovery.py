@@ -136,6 +136,31 @@ class Recovery:
                 raise RecoveryError("Path is outside its trusted mount")
             current = current.parent
 
+    def mount_row(self, path: Path, fields: str) -> dict:
+        try:
+            data = json.loads(self.run("findmnt", "--json", "--mountpoint", str(path),
+                                       "--output", fields))
+            rows = data["filesystems"]
+            if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+                raise ValueError()
+            return rows[0]
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            raise RecoveryError(f"Cannot identify image mount: {path}") from None
+
+    def esp_mount(self) -> dict:
+        row = self.mount_row(self.esp, "TARGET,FSTYPE")
+        if row.get("target") == str(self.esp) and row.get("fstype") == "autofs":
+            # systemd-gpt-auto-generator exposes the ESP through efi.automount.
+            # Activate only that known root-image mount, then validate the
+            # resulting filesystem exactly as for an already-mounted ESP.
+            if self.root != Path("/") or self.esp != Path("/efi"):
+                raise RecoveryError("EFI system partition is not mounted")
+            self.run("systemctl", "start", "efi.mount")
+            row = self.mount_row(self.esp, "TARGET,FSTYPE")
+        if row.get("target") != str(self.esp) or row.get("fstype") != "vfat":
+            raise RecoveryError("EFI system partition is not mounted")
+        return row
+
     def preflight(self) -> str:
         # Exact mount identity matters: a directory on @ is not a data subvolume.
         for path in (self.root, self.snapshots, self.esp):
@@ -145,18 +170,14 @@ class Recovery:
                              (self.root / "var/lib/exo", "/@store"), (self.root / "var/lib/exo-sysd", "/@sysd"),
                              (self.root / "var/lib/exo-egress", "/@egress"),
                              (self.root / "var/lib/exo-ledger", "/@signer"), (self.snapshots, "/@snapshots")):
-            row = json.loads(self.run("findmnt", "--json", "--mountpoint", str(path),
-                                      "--output", "TARGET,FSTYPE,FSROOT,UUID"))["filesystems"][0]
+            row = self.mount_row(path, "TARGET,FSTYPE,FSROOT,UUID")
             if row["target"] != str(path) or row["fstype"] != "btrfs" or row["fsroot"] != fsroot:
                 raise RecoveryError(f"Unexpected image mount: {path}")
             rows.append(row)
         fs_uuid = rows[0]["uuid"]
         if not re.fullmatch(r"[0-9a-fA-F-]{36}", fs_uuid or "") or any(r["uuid"] != fs_uuid for r in rows):
             raise RecoveryError("System and data must be on the image's one btrfs filesystem")
-        esp = json.loads(self.run("findmnt", "--json", "--mountpoint", str(self.esp),
-                                   "--output", "TARGET,FSTYPE"))["filesystems"][0]
-        if esp["target"] != str(self.esp) or esp["fstype"] != "vfat":
-            raise RecoveryError("EFI system partition is not mounted")
+        self.esp_mount()
         # Companions could change cmdline/initrd outside the archived UKI.
         for p in (self.esp / "loader/addons", self.esp / "loader/extensions",
                   self.esp / "loader/credentials"):
