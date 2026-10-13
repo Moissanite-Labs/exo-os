@@ -211,6 +211,58 @@ def test_wrong_data_mounts_rejected(image, edit):
         helper.checkpoint()
 
 
+def test_root_esp_automount_is_activated_and_revalidated():
+    calls = []
+    activated = False
+
+    def run(*args):
+        nonlocal activated
+        calls.append(args)
+        if args[0] == "systemctl":
+            assert args == ("systemctl", "start", "efi.mount")
+            activated = True
+            return ""
+        assert args[0] == "findmnt"
+        return json.dumps({"filesystems": [{"target": "/efi", "fstype": "vfat" if activated else "autofs"}]})
+
+    helper = r.Recovery(root=Path("/"), esp=Path("/efi"), run=run)
+    assert helper.esp_mount() == {"target": "/efi", "fstype": "vfat"}
+    assert [call[0] for call in calls] == ["findmnt", "systemctl", "findmnt"]
+
+
+@pytest.mark.parametrize("filesystems", [[], [{"target": "/efi", "fstype": "ext4"}],
+                                            [{"target": "/other", "fstype": "vfat"}]])
+def test_missing_or_wrong_esp_mount_is_refused(filesystems):
+    helper = r.Recovery(root=Path("/"), esp=Path("/efi"),
+                        run=lambda *args: json.dumps({"filesystems": filesystems}))
+    with pytest.raises(r.RecoveryError, match="mount"):
+        helper.esp_mount()
+
+
+def test_esp_automount_that_does_not_become_vfat_is_refused():
+    calls = []
+
+    def run(*args):
+        calls.append(args)
+        if args[0] == "systemctl":
+            return ""
+        return json.dumps({"filesystems": [{"target": "/efi", "fstype": "autofs"}]})
+
+    helper = r.Recovery(root=Path("/"), esp=Path("/efi"), run=run)
+    with pytest.raises(r.RecoveryError, match="not mounted"):
+        helper.esp_mount()
+    assert [call[0] for call in calls] == ["findmnt", "systemctl", "findmnt"]
+
+
+def test_esp_automount_is_supported_only_at_the_image_root(tmp_path):
+    esp = tmp_path / "efi"
+    helper = r.Recovery(root=tmp_path, esp=esp,
+                        run=lambda *args: json.dumps({"filesystems": [
+                            {"target": str(esp), "fstype": "autofs"}]}))
+    with pytest.raises(r.RecoveryError, match="not mounted"):
+        helper.esp_mount()
+
+
 def test_no_matching_uki_refuses_checkpoint(image):
     helper, _, _, esp, *_ = image
     (esp / "EFI/Linux/exo-os.efi").write_bytes(uki(kernel="missing"))
