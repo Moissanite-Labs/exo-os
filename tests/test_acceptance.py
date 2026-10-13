@@ -285,7 +285,9 @@ def test_acceptance_boot_or_ssh_failure_cannot_pass(tmp_path):
     elif [[ $* == *base64* ]]; then echo ok;
     elif [[ $* == *systemctl* ]]; then return 255; fi'''
     r = run_harness(tmp_path, "accept_start 1 1024; echo FALSE_PASS", ssh_body=ssh)
-    assert r.returncode != 0 and "required command failed" in r.stdout
+    assert r.returncode != 0
+    assert ("required command failed" in r.stdout or
+            "readiness: systemd did not reach running" in r.stdout)
     assert "FALSE_PASS" not in r.stdout
 
 
