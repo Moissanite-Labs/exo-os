@@ -90,7 +90,10 @@ endpoint can echo its injected token with arbitrary encoding. The result is
 HTTP status and outcome metadata, suitable for credentialed actions. Numeric
 status establishes an HTTP response, not semantic success of the requested
 operation. General read APIs need separately reviewed response adapters.
-Neither plaintext request/response bodies nor Authorization are logged or saved.
+The service does not log or save plaintext request/response bodies or
+Authorization. The proposed request is still part of Exo's normal tool and
+approval history; this is not a promise to erase the person's approved payload
+from session storage. Credential values are supplied only by the service.
 
 ## Durable outcomes and recovery
 

@@ -164,3 +164,25 @@ avoid host Git inspection of tool-writable repositories. The actual kernel
 tests include network/socket denial, hidden credentials and detached-child
 cleanup. The remaining trust in installed code and desktop applications is
 explicit in `docs/TOOL-ISOLATION.md`.
+
+## OS-16. Credentialed actions preserve both consent and uncertainty
+
+**Decision.** A separate unprivileged `exo-egress` service injects named systemd
+credentials into HTTPS requests permitted by root-owned profiles. The exact
+expected origin, method, path, body and operation ID are bound to one-shot
+approval and shown in full. The service checks the expected origin against its
+loaded policy, never treats it as routing authority, and returns only bounded
+outcome metadata. No destination or credential is granted in the shipped image.
+
+Before sending, the service durably reserves each ID and argument fingerprint.
+An uncertain operation is never sent again; its journal persists on `@egress`
+across system recovery. Missing enforcement, unavailable identity, changed
+arguments or unverifiable approval details refuse the action. Root's activated
+listener and the service sender are authenticated separately with Linux kernel
+credentials. Details: `docs/CREDENTIAL-EGRESS.md`.
+
+**Why.** A lost reply does not establish that an external action failed, and
+rolling back the OS must not erase that uncertainty. A destination label alone
+does not reveal what the person is approving. Arbitrary upstream response text
+can also reflect an injected credential in an encoding a generic redactor
+misses, so read APIs need reviewed response adapters before being enabled.

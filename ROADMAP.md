@@ -26,8 +26,10 @@ The pinned core now requires the OS executor. Workspace tools run without host s
 or network; unsupported execution routes are refused. Administrator recovery checkpoints preserve
 a system snapshot with its matching kernel image, while home, store and helper identity/audit persist.
 Host and Linux-container validation are recorded in `docs/VALIDATION.md`. A fresh x86 image is being
-validated; earlier results below apply only to the earlier image. P4 still needs credential-injecting
-egress, the separate core signer and audit anchor, and adversarial VM acceptance. Recovery also needs
+validated; earlier results below apply only to the earlier image. A separate credential service now
+supports exact, one-shot HTTPS actions with full approval previews and durable duplicate suppression.
+It withholds upstream payloads and ships with no allowed destinations; general read APIs still need
+reviewed response adapters. P4 still needs the separate core signer and audit anchor, and adversarial VM acceptance. Recovery also needs
 its actual reboot acceptance. P5–P8 remain unstarted.
 `docs/CORE-CONTRACT.md` assigns the shared-core and OS work without introducing a core fork.
 

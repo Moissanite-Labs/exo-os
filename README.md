@@ -35,8 +35,11 @@ not evidence for this revision. Built:
   Unsupported adapters refuse execution. Reviewed desktop operations use structured arguments.
 - **Boot recovery.** An administrator can checkpoint a system together with its matching kernel image
   and stage a separate recovery boot. Home, the store and the helper's identity/audit persist.
+- **Credentialed actions.** A separate service sends approved HTTPS requests to administrator-defined
+  destinations. The full outgoing request is inspectable in the approval card; keys stay in the service.
+  Durable request IDs prevent an uncertain action from being sent again. The shipped policy grants no destinations.
 
-Still required: current-image boot/recovery acceptance, credential-injecting egress, a separate core
+Still required: current-image boot/recovery acceptance, general API response adapters, a separate core
 ledger signer and off-machine anchor, voice and phone clients, and the hardware trials in `ROADMAP.md`.
 Isolation covers model tool processes. Installed providers/plugins and the person's other desktop
 applications remain trusted; this is not a claim of separation between every same-user process.
@@ -79,6 +82,7 @@ mentioning Exo is not an ownership marker.
 | `docs/SURFACE-RECOVERY.md` | Approval recovery, connection health and protocol limits |
 | `docs/TOOL-ISOLATION.md` | Compulsory execution, working set and trust limits |
 | `docs/BOOT-RECOVERY.md` | Administrator checkpoints and matching-kernel recovery |
+| `docs/CREDENTIAL-EGRESS.md` | Approved HTTPS actions, key isolation and uncertain outcomes |
 | `src/exo_os/profile.py` | The machine profile: fields, checks, apps |
 | `src/exo_os/render/` | Profile to Hyprland Lua and hypridle config |
 | `src/exo_os/changes.py` | The change engine: apply, check, commit or put back, undo |

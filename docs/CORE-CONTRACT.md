@@ -38,15 +38,20 @@ The operator's root-owned policy fixes the working set, runtime and executor;
 principal plugin-directory overrides cannot replace the required plugins.
 Enforcement failure is a refusal, with no unsandboxed fallback. Host Git
 inspection of tool-writable repositories is disabled in handoff and completion
-because repository configuration can execute commands. A credential-injecting
-outbound broker remains separate work: tool children have no network or
-credential-store access.
+because repository configuration can execute commands. Credentialed HTTPS
+actions use a separate service after exact one-shot approval; tool children
+have no network or credential-store access. The approved arguments include
+the expected origin, and the service checks it against its fixed policy before
+sending. General API response adapters remain separate work.
 
 Exo OS supplies bubblewrap namespaces, Landlock, seccomp, bounded resources and
 process-tree cleanup. The Linux tests attempt direct socket, filesystem,
 `/proc`, environment, descriptor and detached-process bypasses. Booted-image
 acceptance is recorded separately from these container results. See
 [TOOL-ISOLATION.md](TOOL-ISOLATION.md).
+The service's durable request history lives outside system snapshots, preventing
+rollback from forgetting an uncertain outgoing action. Its narrower response
+contract and limits are in [CREDENTIAL-EGRESS.md](CREDENTIAL-EGRESS.md).
 
 Root receipt verification is implemented separately in
 [SYSTEM-TRUST.md](SYSTEM-TRUST.md). Group membership still permits a same-user

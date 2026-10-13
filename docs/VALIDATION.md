@@ -7,7 +7,8 @@ do not establish a newly booted image or a successful recovery reboot.
 
 | Check | Result | Boundary of evidence |
 |---|---|---|
-| macOS arm64, Python 3.13, `.venv/bin/pytest -q` | 260 passed, 12 skipped | GTK, Hyprland, root integration and nine actual Linux isolation checks are unavailable on this host |
+| macOS arm64, Python 3.13, `.venv/bin/pytest -q` | 321 passed, 13 skipped | Includes persistent egress recovery checks at OS `b155182`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
+| Linux arm64, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 321 passed, 10 skipped | OS `8aca057`, before nine additional recovery tests; includes GTK full-payload rendering and actual inherited-listener service identity; skips Hyprland and the separately enabled namespace suite |
 | Linux arm64, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Actual bubblewrap, Landlock and seccomp; disposable privileged container, no host mounts |
 | Shared core protocol and strict shutdown checks | 49 passed; 13 passed with warnings treated as errors | Includes delayed handler registration and unread transport shutdown regressions |
 | Ruff `--select F`, `src tests` | passed | Python static checks |
@@ -68,8 +69,10 @@ Orca, real-model chat, and hardware/soak behavior were not exercised in this run
 
 Kernel tests establish the stated tool-process boundary on the tested Linux
 runner, not consent enforcement inside sysd or separation of all desktop
-processes. Credential-injecting egress, the separate core signer and off-machine
-audit anchor remain integration work. See [CORE-CONTRACT.md](CORE-CONTRACT.md).
+processes. The credentialed-action service passes synthetic local TLS tests;
+no live API or credential provisioning was exercised. General response adapters,
+the separate core signer and off-machine audit anchor remain integration work.
+See [CORE-CONTRACT.md](CORE-CONTRACT.md).
 No working machine was migrated. Shared core changes are developed separately
 in [Exo PR 70](https://github.com/aska-digital/exo/pull/70); another development
 checkout is not modified by these checks.
