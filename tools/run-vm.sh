@@ -24,7 +24,9 @@ smp="${EXO_OS_VM_SMP:-2}"
 gui=0 gl=0 keep=0 mem=2048
 while (($#)); do
   case $1 in
-    --gui) gui=1 ;; --gl) gl=1 ;; --keep) keep=1 ;; --mem) mem=$2; shift ;;
+    --gui) gui=1 ;; --gl) gl=1 ;; --keep) keep=1 ;; --mem)
+      [[ ${2:-} =~ ^[1-9][0-9]*$ ]] || { echo "--mem needs a number of megabytes" >&2; exit 2; }
+      mem=$2; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
   shift

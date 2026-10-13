@@ -5,6 +5,16 @@
 set -eu
 umask 022
 
+# The offline wheelhouse was resolved for one interpreter version (tools/build-image.sh). If Arch
+# has moved `python` since, stop here with the reason instead of failing inside pip.
+want=$(cat /opt/exo/GUEST_PYTHON)
+have=$(python -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+if [ "$have" != "$want" ]; then
+    echo "guest python is $have but the wheelhouse was built for $want; rebuild with EXO_OS_GUEST_PYTHON=$have" >&2
+    exit 1
+fi
+rm -f /opt/exo/GUEST_PYTHON
+
 # Exo and exo-os in one venv. --system-site-packages: the prompt bar uses the distribution's PyGObject.
 python -m venv --system-site-packages --without-pip /opt/exo
 python -m pip --python /opt/exo/bin/python install --quiet --no-index --no-cache-dir \
