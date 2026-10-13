@@ -1,6 +1,7 @@
 [Unit]
 Description=Exo OS: create this machine's pacman keyring (first boot)
 # The keyring holds a private key, so each machine makes its own instead of sharing one baked into the image.
+# mkosi.postinst.chroot removes /etc/pacman.d/gnupg from the image so this condition holds on first boot.
 ConditionPathExists=!/etc/pacman.d/gnupg/trustdb.gpg
 After=time-sync.target
 
