@@ -186,7 +186,7 @@ def test_pending_approvals_are_fetched_on_connect(paths):
     c = Connection(rec, socket=sock, state=state, post=_direct)
     c.start()
     try:
-        rec.wait(lambda: rec.last("session"))
+        rec.wait(lambda: rec.last("connected") is True and rec.last("session"))
         c.send_turn("approve: late client")
         rec.wait(lambda: rec.events("approval.requested"))
     finally:
