@@ -48,8 +48,9 @@ not evidence for this revision. Built:
 
 Still required: current-image boot/recovery acceptance, general API response adapters, independent
 witness deployment, voice and phone clients, and the hardware trials in `ROADMAP.md`.
-Independent witness state and transport are staged in a separate core draft, outside this pin.
-An independently administered endpoint and OS delivery remain unconfigured.
+This branch pins the draft witness transport and adds optional explicit administrator
+[witness delivery](docs/WITNESS-PUBLISHER.md). Enrollment remains disabled by default;
+an independently administered endpoint and Linux image acceptance remain unconfigured.
 Isolation covers model tool processes. Installed providers/plugins and the person's other desktop
 applications remain trusted; this is not a claim of separation between every same-user process.
 See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL-ISOLATION.md).
@@ -97,6 +98,7 @@ mentioning Exo is not an ownership marker.
 | `docs/CREDENTIAL-EGRESS.md` | Approved HTTPS actions, key isolation and uncertain outcomes |
 | `docs/LEDGER-AUTHORITY.md` | Protected append history, first boot and independent witness handoff |
 | `docs/MODEL-SPEND.md` | Zero-paid boot policy, journal persistence and trust limits |
+| `docs/WITNESS-PUBLISHER.md` | Optional checkpoint publication, cached/fresh receipts and trust limits |
 | `src/exo_os/profile.py` | The machine profile: fields, checks, apps |
 | `src/exo_os/render/` | Profile to Hyprland Lua and hypridle config |
 | `src/exo_os/changes.py` | The change engine: apply, check, commit or put back, undo |

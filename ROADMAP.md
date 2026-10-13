@@ -32,8 +32,11 @@ It withholds upstream payloads and ships with no allowed destinations; general r
 reviewed response adapters. The shared-core ledger authority now runs under a separate OS identity,
 with a persistent journal, root-pinned public identity and explicit fresh-image provisioning before login.
 Both normal verification commands detect modified or missing copies without repairing them first.
-Independent witness state and transport are staged in a separate core draft, outside this pin;
-independent deployment and OS delivery remain open.
+The staged OS candidate pins core `b060974a514cf08c0765119e2e8d952682102a0c` and adds a
+default-disabled witness publisher that requires explicit administrator action. Its host suite
+passes, but three Linux-specific tests remain unrun. Image delivery, booted-image checks, Linux
+enforcement, and an independent witness endpoint remain unverified; no phase status advances on
+this source result.
 P4 now has a zero-paid model-spend implementation and disposable-VM acceptance script. The root
 policy starts with no paid routes; actual paid caps and billing accuracy have not been exercised.
 P4 still needs current-image adversarial VM acceptance and its spend-cap criterion. Recovery also

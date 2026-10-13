@@ -1,20 +1,22 @@
 # Runtime and isolation validation
 
-Checks on 2026-10-13. The current Exo dependency is
-`cb36a4a6d19a5192d8fe92b600efcef8f69062d5`, as recorded in `exo.pin`.
+Checks on 2026-10-13. The staged witness-publisher candidate pins Exo
+`b060974a514cf08c0765119e2e8d952682102a0c`, as recorded in `exo.pin`.
 OS `67fe0c7` pins the protected spending policy; `8b02677` adds the VM-only boot
 timing fix below; `a3cdf74` adds the portable Linux spend-test fixture. The
-current pin includes the model-spend boundary, the required executor/gate binding
-follow-up, and the CoreRuntime/application composition split. It also removes
-the earlier unused witness module;
-witness transport remains a separate draft. Earlier integrated OS `ee327a8`
-has the same source tree as published `8d79fdd`.
-Results below name the revision they exercised. Source and container checks do
-not establish a booted current image or a successful recovery reboot.
+candidate pin includes the model-spend boundary, required executor/gate binding,
+CoreRuntime/application composition split, and the witness transport implementation.
+The publisher is disabled by default and requires explicit administrator action.
+Results below name the source and dependency they exercised. Host tests do not
+establish Linux enforcement, a booted candidate image, an independent witness
+endpoint, or a successful recovery reboot. A separate image build in progress at
+OS `eb50e7c` and core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5` excludes this
+witness candidate; its evidence does not transfer here.
 
 | Check | Result | Boundary of evidence |
 |---|---|---|
-| Current combined Linux arm64 suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 484 passed, 10 skipped | OS `25313dfc2ef1e6c09f46c1c0a1569c70ca23d2c2`, core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5`; includes private Broadway GTK and actual model-spend child UID/GID checks. Hyprland and nine namespace checks were skipped under the unchanged container policy; actual Wayland and deployment-kernel acceptance remain pending |
+| Current staged witness candidate host suite, macOS arm64, `.venv/bin/pytest -q` | 525 passed, 20 skipped | Staged source tree `a9401a6c7061ca44336fa451d5e911d94e580c15`, based on OS `e9cec25`, core `b060974a514cf08c0765119e2e8d952682102a0c`; includes 53 witness host cases and a real loopback mTLS protocol check. Root-ownership behavior is simulated. Three explicit Linux tests were not run; this does not establish Linux ownership/enforcement, image delivery or boot, or an independent endpoint |
+| Previous combined Linux arm64 suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 484 passed, 10 skipped | OS `25313dfc2ef1e6c09f46c1c0a1569c70ca23d2c2`, core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5`; includes private Broadway GTK and actual model-spend child UID/GID checks. Hyprland and nine namespace checks were skipped under the unchanged container policy; actual Wayland and deployment-kernel acceptance remain pending |
 | macOS arm64, Python 3.14, `.venv/bin/pytest -q` | 465 passed, 17 skipped | OS working tree `3f40ffe` plus updated `exo.pin`, core `cb36a4a`; all host tests pass against the exact published core dependency, including the CoreRuntime compatibility aliases; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
 | macOS arm64, Python 3.14, `.venv/bin/pytest -q` | 464 passed, 16 skipped | OS `67fe0c7`, core `11008a8`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
 | Accessibility stack Linux arm64 main suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 482 passed, 10 skipped | OS `2b55be925279443163df6f30c022fef0ae00de3b`, core `11008a8bdf6a3c8dee2900434ca0a57054300bc8`; includes a passing private Broadway GTK smoke for focus transitions, bounded reading view, approval details and simulated held-key events. This historical run does not establish AT-SPI, Orca or Wayland behavior, and was not against the new core pin |

@@ -115,11 +115,13 @@ claim an independent witness exists.
 
 An operator transfers the root-pinned public stream `identity` from
 `/var/lib/exo-ledger/manifest.json` and the exported signed genesis through an
-independently authenticated route. The separate core witness draft pins those inputs explicitly
-with `WitnessJournal.provision`; that API is outside the current OS pin. A witness must never adopt identity from an
-append RPC reply. Later checkpoint exports are verified against that pin and
-previous checkpoint. Witness endpoints, delivery/acknowledgment and live
-off-machine acceptance remain unconfigured.
+independently authenticated route. The pinned core witness draft binds those inputs
+explicitly with `WitnessJournal.provision`. A witness must never adopt identity from
+an append RPC reply. Later checkpoint exports are verified against that pin and
+previous checkpoint. Optional [administrator witness delivery](WITNESS-PUBLISHER.md)
+captures and verifies a complete bounded prefix before transmission, and keeps cached
+receipts separate from challenged fresh status. Enrollment is disabled by default;
+independent endpoints and live off-machine acceptance remain unconfigured.
 
 For the core verifier's raw checkpoint JSONL input, use
 `exo-ledger-admin export-checkpoints --stream STREAM_ID --raw`; this requires one
