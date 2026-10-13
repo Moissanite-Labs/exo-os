@@ -1,10 +1,12 @@
 # Runtime and isolation validation
 
 Checks on 2026-10-13. The current Exo dependency is
-`11008a8bdf6a3c8dee2900434ca0a57054300bc8`, as recorded in `exo.pin`.
+`cb36a4a6d19a5192d8fe92b600efcef8f69062d5`, as recorded in `exo.pin`.
 OS `67fe0c7` pins the protected spending policy; `8b02677` adds the VM-only boot
-timing fix below; `a3cdf74` adds the portable Linux spend-test fixture. This pin
-also removes the earlier unused witness module;
+timing fix below; `a3cdf74` adds the portable Linux spend-test fixture. The
+current pin includes the model-spend boundary, the required executor/gate binding
+follow-up, and the CoreRuntime/application composition split. It also removes
+the earlier unused witness module;
 witness transport remains a separate draft. Earlier integrated OS `ee327a8`
 has the same source tree as published `8d79fdd`.
 Results below name the revision they exercised. Source and container checks do
@@ -12,14 +14,16 @@ not establish a booted current image or a successful recovery reboot.
 
 | Check | Result | Boundary of evidence |
 |---|---|---|
+| macOS arm64, Python 3.14, `.venv/bin/pytest -q` | 465 passed, 17 skipped | OS working tree `3f40ffe` plus updated `exo.pin`, core `cb36a4a`; all host tests pass against the exact published core dependency, including the CoreRuntime compatibility aliases; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
 | macOS arm64, Python 3.14, `.venv/bin/pytest -q` | 464 passed, 16 skipped | OS `67fe0c7`, core `11008a8`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
-| Current Linux arm64 main suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 477 passed, 10 skipped | OS `a3cdf745cc52089c004a05862f601519b86b3a21`, core `11008a8bdf6a3c8dee2900434ca0a57054300bc8`; includes 21 model-spend tests, with an actual child UID/GID drop and `0600` file-ownership check in the disposable root container |
-| Current Linux namespace rerun, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 1 passed, 8 environment-blocked | OS `a3cdf745cc52089c004a05862f601519b86b3a21`, core `11008a8bdf6a3c8dee2900434ca0a57054300bc8`; the unchanged Colima policy has `kernel.apparmor_restrict_unprivileged_userns=1`, so bubblewrap cannot write the nested UID map or configure loopback; no system setting was changed |
+| Earlier Linux arm64 main suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 477 passed, 10 skipped | OS `a3cdf745cc52089c004a05862f601519b86b3a21`, core `11008a8bdf6a3c8dee2900434ca0a57054300bc8`; includes 21 model-spend tests, with an actual child UID/GID drop and `0600` file-ownership check in the disposable root container; this is not a run against the new pin |
+| Earlier Linux namespace rerun, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 1 passed, 8 environment-blocked | OS `a3cdf745cc52089c004a05862f601519b86b3a21`, core `11008a8bdf6a3c8dee2900434ca0a57054300bc8`; the unchanged Colima policy has `kernel.apparmor_restrict_unprivileged_userns=1`, so bubblewrap cannot write the nested UID map or configure loopback; no system setting was changed |
 | Linux arm64, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 407 passed, 10 skipped | OS `2866fcb`, core `b3149a9`; same installed payload as `8d79fdd`, with corrected test inputs; includes actual inherited-listener and signer service identity checks |
 | Historical Linux namespace run, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Earlier OS `5773dc4` and core `a915e62`; actual bubblewrap, Landlock and seccomp in a disposable privileged container with no host mounts |
 | Shared core authority, witness and read-only verification | 82 passed | Core `b3149a9`; durable commits, replay, independent receipt validation, canonical CLI corruption checks and concurrent verification |
 | Full core suite and plugins, macOS arm64, Python 3.13 | 1,434 core tests and 749 plugin tests passed | Core `b3149a9`; 65 core skips and one explicitly deselected external legacy-relay integration; all six plugins also passed separately |
-| Current core suite and plugins, macOS arm64, Python 3.13 | 1,581 core tests and 752 plugin tests passed | Core `11008a8`; 65 core skips, no deselection; all six plugins passed separately and together; the unchanged core budget test measures 15,982 lines against a 16,000 ceiling |
+| Current core suite and plugins, macOS arm64, Python 3.13 | 1,611 core tests and 753 plugin tests passed | Core `cb36a4a`; 65 core skips, no deselection; the core budget test measures 15,989 lines against a 16,000 ceiling; these are source tests, not independent security review or image acceptance |
+| Earlier core suite and plugins, macOS arm64, Python 3.13 | 1,581 core tests and 752 plugin tests passed | Core `11008a8`; 65 core skips, no deselection; all six plugins passed separately and together; the earlier budget test measured 15,982 lines |
 | systemd unit dependency graph | passed | Provision/socket/service/firstboot graph checked in Linux with unavailable image executable paths replaced only in temporary validation copies; actual first boot remains necessary |
 | Ruff `--select F`, `src tests` | passed | Python static checks |
 | `bash -n tools/*.sh` | passed | Shell syntax, not a VM acceptance run |
@@ -39,9 +43,10 @@ turn on the session callback before the connection finished its pending-approval
 snapshot. A controlled delay reproduced `not_connected` before the connected
 callback. The test now waits for both readiness and a session; all 21 connection
 tests and the full OS suite passed. Runtime connection behavior was unchanged.
-The current image build is held for the independently reported required-executor
-argument-binding and gate-loading follow-up; these source counts do not clear
-that security finding or establish OS activation.
+The pinned core now contains the required-executor argument-binding and gate-loading
+follow-up (`52b4418`) and passes its source tests. Independent security review of
+that follow-up and current-image boot/acceptance are still pending; these host
+counts do not establish OS activation.
 
 The Linux runner creates a disposable container with two CPUs and 2 GiB of RAM.
 It copies an explicit source list and archives the pinned core commit, installs
@@ -50,7 +55,7 @@ credential directory, socket or desktop. GTK widgets use a private Broadway
 display. An explicit container-only test runs an unprivileged client against a
 root helper with actual Linux kernel peer credentials and the default
 root-owned public-key path. macOS tests simulate those Linux credentials.
-The current Linux run also exercises the model-spend child process without
+The earlier Linux run at core `11008a8` also exercised the model-spend child process without
 mocking its identity transition: the child runs as the unprivileged account and
 creates a file owned by that UID and GID with mode `0600`. The 21 focused
 model-spend tests passed before the full main-suite result above.
