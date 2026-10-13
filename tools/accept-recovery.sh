@@ -14,8 +14,13 @@ result() {
 }
 source "$here/tools/accept-common.sh"
 accept_start recovery 2048
-required_checks=5
+required_checks=6
 accept_keyring
+# Keep daemon/runtime SQLite/WAL writes out of durable-data hash comparisons.
+# This mask is in @home and remains in effect across recovery of @.
+ssh_vm 'as-exo systemctl --user mask --now exod.service'
+ssh_vm 'test "$(as-exo systemctl --user is-enabled exod.service 2>/dev/null || true)" = masked'
+ssh_vm 'as-exo /opt/exo/bin/exo-os system status >/dev/null'
 old_boot=$(ssh_vm 'cat /proc/sys/kernel/random/boot_id')
 ssh_vm 'test ! -e /etc/exo-recovery-proof; printf old-system > /etc/exo-recovery-proof'
 checkpoint=$(ssh_vm 'exo-os-recovery checkpoint')
@@ -23,7 +28,11 @@ id=$(echo "$checkpoint" | "$here/.venv/bin/python" -c 'import json,sys; print(js
 [[ $id =~ ^[0-9a-f]{32}$ ]]
 # Newer data must survive selection of an older system snapshot.
 ssh_vm 'printf newer-home > /home/exo/exo-recovery-proof; printf newer-store > /var/lib/exo/exo-recovery-proof; printf broken-system > /etc/exo-recovery-proof'
-ssh_vm 'as-exo systemctl --user stop exod'
+# A real helper receipt made AFTER the checkpoint must survive the older boot.
+ssh_vm 'as-exo /opt/exo/bin/exo-os system status >/dev/null'
+helper_key_before=$(ssh_vm 'sha256sum /var/lib/exo-sysd/sysd.key | cut -d " " -f 1')
+helper_pub_before=$(ssh_vm 'sha256sum /run/exo-sysd/receipt.pub | cut -d " " -f 1')
+helper_audit_before=$(ssh_vm 'sha256sum /var/lib/exo-sysd/audit.log | cut -d " " -f 1')
 store_before=$(ssh_vm 'find /var/lib/exo/exo -type f -exec sha256sum {} + | LC_ALL=C sort | sha256sum')
 staged=$(ssh_vm "exo-os-recovery stage $id")
 entry=$(echo "$staged" | "$here/.venv/bin/python" -c 'import json,sys; print(json.load(sys.stdin)["entry"])')
@@ -46,7 +55,7 @@ done
 actual=$(ssh_vm 'cat /sys/class/dmi/id/product_uuid' | tr '[:upper:]' '[:lower:]')
 [[ $actual == "$EXO_OS_VM_UUID" ]] || { result identity 0 'Reboot reached a different machine'; exit 1; }
 ssh_vm 'timeout 120 systemctl is-system-running --wait'
-ssh_vm 'as-exo systemctl --user stop exod'
+ssh_vm 'test "$(as-exo systemctl --user is-enabled exod.service 2>/dev/null || true)" = masked'
 ssh_vm 'test ! -e /var/lib/pacman/db.lck'
 root=$(ssh_vm 'findmnt -n -o FSROOT /')
 revision=$(ssh_vm 'cat /etc/exo-recovery-proof')
@@ -56,6 +65,14 @@ home=$(ssh_vm 'cat /home/exo/exo-recovery-proof; findmnt -n -o FSROOT /home')
 store=$(ssh_vm 'cat /var/lib/exo/exo-recovery-proof; findmnt -n -o FSROOT /var/lib/exo')
 store_after=$(ssh_vm 'find /var/lib/exo/exo -type f -exec sha256sum {} + | LC_ALL=C sort | sha256sum')
 result current-data "$([[ $home == newer-home/@home && $store == newer-store/@store && $store_before == "$store_after" ]] && echo 1 || echo 0)" "home/store mount original subvolumes; principal store hashes unchanged"
+helper_mount=$(ssh_vm 'findmnt -n -o FSROOT /var/lib/exo-sysd')
+helper_key_after=$(ssh_vm 'sha256sum /var/lib/exo-sysd/sysd.key | cut -d " " -f 1')
+helper_audit_after=$(ssh_vm 'sha256sum /var/lib/exo-sysd/audit.log | cut -d " " -f 1')
+# Activate the recovered helper and verify its independently published identity.
+ssh_vm 'as-exo /opt/exo/bin/exo-os system status >/dev/null'
+helper_pub_after=$(ssh_vm 'sha256sum /run/exo-sysd/receipt.pub | cut -d " " -f 1')
+helper_mode=$(ssh_vm 'stat -c "%a %U %G" /var/lib/exo-sysd')
+result persistent-helper "$([[ $helper_mount == /@sysd && $helper_key_after == "$helper_key_before" && $helper_pub_after == "$helper_pub_before" && $helper_audit_after == "$helper_audit_before" && $helper_mode == '700 root root' ]] && echo 1 || echo 0)" "mounted @sysd; key identity and post-checkpoint root audit preserved; helper starts on recovery root"
 verify=$(ssh_vm 'as-exo /opt/exo/bin/exo log verify' | tail -1)
 ledger_ok=0
 if echo "$verify" | accept_verify; then ledger_ok=1; fi

@@ -22,7 +22,7 @@ id exo-egress >/dev/null 2>&1 || useradd --system --gid exo-egress --no-create-h
 install -d -m 0700 /var/lib/exo-egress
 id exo >/dev/null 2>&1 || useradd --create-home --groups wheel,exo-sys,video,input --shell /bin/bash exo
 passwd --lock exo >/dev/null
-install -d -m 0700 /var/lib/exo/exo
+install -d -m 0700 /var/lib/exo/exo /var/lib/exo-sysd
 cp -rT /etc/skel /home/exo   # explicit: useradd did not copy the skeleton in the image build
 mkdir -p /home/exo/.config/hypr/exo
 mkdir -p /home/exo/Workspace

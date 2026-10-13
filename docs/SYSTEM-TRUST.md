@@ -59,7 +59,7 @@ step fails. An `ok: false` response does not promise that nothing changed.
 
 ## Auditing without repeating an operation
 
-Execution, receipt signing, and append to `/var/log/exo-sysd.log` are serialized
+Execution, receipt signing, and append to `/var/lib/exo-sysd/audit.log` are serialized
 under one helper lock. The log is opened and checked before execution. The helper
 refuses an operation if that preflight fails. A write/fsync failure after an
 operation succeeds keeps its successful result and signs an explicit
@@ -134,3 +134,9 @@ The CLI preserves a completed audit fault in JSON and exits 3, distinct from an 
 `exo-os system reconcile` (or `exo-os --json system reconcile`) records saved receipts only; it exits
 nonzero while rejected receipts or unresolved audit faults remain. The plugin returns the structured
 completed outcome, including the message to show the person, rather than a retryable tool error.
+
+The fresh image mounts `/var/lib/exo-sysd` from its persistent `@sysd` subvolume.
+The helper requires that mount and asserts it is a mount point before starting.
+Its signing identity and root audit log therefore remain current when an
+administrator boots an older system checkpoint. This changes the fresh-image
+layout only; existing installations need an explicit state migration.

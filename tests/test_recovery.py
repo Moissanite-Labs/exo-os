@@ -16,6 +16,7 @@ KERNEL = "6.17.1-arch1-1"
 FSTAB = """/dev/gpt-auto-root /home btrfs subvol=@home,compress=zstd 0 0
 /dev/gpt-auto-root /.snapshots btrfs subvol=@snapshots,compress=zstd 0 0
 /dev/gpt-auto-root /var/lib/exo btrfs subvol=@store,compress=zstd 0 0
+/dev/gpt-auto-root /var/lib/exo-sysd btrfs subvol=@sysd,compress=zstd 0 0
 """
 
 
@@ -40,12 +41,14 @@ def uki(cmdline="rw quiet rootflags=subvol=@", kernel=KERNEL):
 def image(tmp_path, monkeypatch):
     root, snapshots, esp = (tmp_path / name for name in ("root", "snapshots", "esp"))
     for path in (root / "etc", root / "usr/lib/modules" / KERNEL, root / "home",
-                 root / "var/lib/exo", snapshots, esp / "EFI/Linux"):
+                 root / "var/lib/exo", root / "var/lib/exo-sysd", snapshots, esp / "EFI/Linux"):
         path.mkdir(parents=True, exist_ok=True)
     (root / "etc/fstab").write_text(FSTAB)
     (root / "etc/revision").write_text("old system")
     (root / "home/person").write_text("current home")
     (root / "var/lib/exo/ledger").write_text("current store")
+    (root / "var/lib/exo-sysd/sysd.key").write_text("fixture-key-never-a-real-key")
+    (root / "var/lib/exo-sysd/audit.log").write_text("old root receipt")
     (esp / "EFI/Linux/exo-os.efi").write_bytes(uki())
     calls = []
     readonly = set()
@@ -54,7 +57,7 @@ def image(tmp_path, monkeypatch):
         calls.append(args)
         if args[0] == "findmnt":
             path = Path(args[args.index("--mountpoint") + 1])
-            roots = {root: "/@", root / "home": "/@home", root / "var/lib/exo": "/@store", snapshots: "/@snapshots"}
+            roots = {root: "/@", root / "home": "/@home", root / "var/lib/exo": "/@store", root / "var/lib/exo-sysd": "/@sysd", snapshots: "/@snapshots"}
             row = {"target": str(path), "fstype": "vfat" if path == esp else "btrfs",
                    "fsroot": roots.get(path), "uuid": FS_UUID}
             return json.dumps({"filesystems": [row]})
@@ -66,7 +69,7 @@ def image(tmp_path, monkeypatch):
                 if directory == source:
                     return ["home"] if "home" in names else []
                 if directory == source / "var/lib":
-                    return ["exo"] if "exo" in names else []
+                    return [name for name in ("exo", "exo-sysd") if name in names]
                 return []
             shutil.copytree(source, target, ignore=separate_mounts, symlinks=True)
             if "-r" in args:
@@ -300,3 +303,58 @@ def test_staging_refuses_unsafe_captured_pacman_lock(image, tmp_path, kind):
         helper.stage(checkpoint["id"])
     assert outside.read_text() == "must survive"
     assert not list((esp / "loader/entries").glob("*.conf"))
+
+
+def test_persistent_helper_identity_and_new_audit_excluded_from_system_snapshot(image):
+    helper, root, snapshots, *_ = image
+    checkpoint = helper.checkpoint()
+    state = root / "var/lib/exo-sysd"
+    (state / "sysd.key").write_text("newer-fixture-key")
+    (state / "audit.log").write_text("old root receipt\npost-checkpoint root receipt")
+    before = {name: hashlib.sha256((state / name).read_bytes()).hexdigest() for name in ("sysd.key", "audit.log")}
+    helper.stage(checkpoint["id"])
+    for name in before:
+        assert hashlib.sha256((state / name).read_bytes()).hexdigest() == before[name]
+        for directory in ("checkpoints", "roots"):
+            location = snapshots / "exo-recovery" / directory / checkpoint["id"]
+            if directory == "checkpoints":
+                location /= "root"
+            assert not (location / "var/lib/exo-sysd" / name).exists()
+
+
+def test_missing_helper_fstab_mount_rejects_old_image_checkpoint(image):
+    helper, root, *_ = image
+    (root / "etc/fstab").write_text("\n".join(line for line in FSTAB.splitlines() if "exo-sysd" not in line))
+    with pytest.raises(r.RecoveryError, match="helper"):
+        helper.checkpoint()
+
+
+def test_wrong_helper_subvolume_rejected_before_snapshot(image):
+    helper, root, *_, calls, _ = image
+    run = helper.run
+    def wrong_mount(*args):
+        response = run(*args)
+        if args[0] == "findmnt" and str(root / "var/lib/exo-sysd") in args:
+            value = json.loads(response)
+            value["filesystems"][0]["fsroot"] = "/@"
+            return json.dumps(value)
+        return response
+    helper.run = wrong_mount
+    with pytest.raises(r.RecoveryError, match="Unexpected image mount"):
+        helper.checkpoint()
+    assert not any(args[:3] == ("btrfs", "subvolume", "snapshot") for args in calls)
+
+
+def test_helper_state_is_persistently_mounted_and_unit_fails_without_mount():
+    from exo_os.sysd.server import KEY, LOG
+    project = Path(__file__).resolve().parents[1]
+    assert KEY.parent == LOG.parent == Path("/var/lib/exo-sysd")
+    fstab = (project / "image/mkosi.extra/etc/fstab").read_text()
+    assert "/var/lib/exo-sysd btrfs subvol=@sysd" in fstab
+    repart = (project / "image/mkosi.repart/10-root.conf").read_text()
+    assert "CopyFiles=/var/lib/exo-sysd:/@sysd" in repart
+    assert "/@/var/lib/exo-sysd/" in repart
+    unit = (project / "image/mkosi.extra/usr/lib/systemd/system/exo-sysd.service").read_text()
+    assert "RequiresMountsFor=/var/lib/exo-sysd" in unit
+    assert "AssertPathIsMountPoint=/var/lib/exo-sysd" in unit
+    assert "StateDirectoryMode=0700" in unit

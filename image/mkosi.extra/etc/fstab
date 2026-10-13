@@ -2,4 +2,5 @@
 /dev/gpt-auto-root  /home        btrfs  subvol=@home,compress=zstd       0 0
 /dev/gpt-auto-root  /.snapshots  btrfs  subvol=@snapshots,compress=zstd  0 0
 /dev/gpt-auto-root  /var/lib/exo btrfs  subvol=@store,compress=zstd      0 0
+/dev/gpt-auto-root  /var/lib/exo-sysd btrfs subvol=@sysd,compress=zstd 0 0
 /dev/gpt-auto-root  /var/lib/exo-egress btrfs subvol=@egress,compress=zstd 0 0

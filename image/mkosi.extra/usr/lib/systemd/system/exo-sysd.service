@@ -1,6 +1,8 @@
 [Unit]
 Description=Exo OS system helper (named root actions only)
 Requires=exo-sysd.socket
+RequiresMountsFor=/var/lib/exo-sysd
+AssertPathIsMountPoint=/var/lib/exo-sysd
 
 [Service]
 ExecStart=/opt/exo/bin/exo-sysd

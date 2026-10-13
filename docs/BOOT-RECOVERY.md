@@ -36,7 +36,7 @@ Staging creates a writable clone under
 `@snapshots/exo-recovery/roots/ID`, copies the archived UKI onto the mounted ESP at
 `EFI/exo-recovery/ID.efi`, and publishes a Boot Loader Specification Type #1 entry
 last. That entry changes only `rootflags=subvol=...`; the UKI's root-device and
-console options remain intact. `@home`, `@store` and `@snapshots` are separately
+console options remain intact. `@home`, `@store`, `@sysd` and `@snapshots` are separately
 mounted from the existing filesystem according to the checked snapshot fstab.
 User data and the principal's signed ledger therefore stay current while system
 files return to the checkpoint. The original `@` remains available as the regular
@@ -46,13 +46,19 @@ Staging removes the checkpoint-era pacman database lock only from this writable
 clone. The read-only checkpoint retains its captured file and the original system's
 live lock remains held until the administrator operation finishes.
 
-The helper's `/var/lib/exo-sysd` signing key, receipt outbox and root audit state
-currently live on `@`, so they return to the checkpoint's older state on the clone.
-The principal ledger on `@store` stays current, but it cannot recover helper receipts
-that had not reached it before recovery, and a later helper key rotation may no
-longer match the recovered helper identity. This path does not establish continuous
-root audit history across rollback. A separately mounted persistent helper-state
-subvolume is required before claiming that property; it is not implemented here.
+The helper's signing key and root audit log live on the separate persistent
+`@sysd` mount at `/var/lib/exo-sysd`; the caller's receipt outbox stays on `@store`.
+These remain current across recovery, together with the principal ledger.
+`exo-sysd.service` requires its state mount and asserts that it is a mount point,
+so a missing mount cannot silently create a replacement identity on the system
+root. The helper state directory is root-owned mode 0700. Recovery checks the
+same btrfs filesystem UUID and exact `@sysd` mount/fstab entry before checkpoint
+or staging. The snapshot excludes this mounted helper state.
+
+This is a **fresh-image layout**. Existing installations with helper state on
+`@`, or a root audit log at the old `/var/log/exo-sysd.log` location, need a separate
+administrator migration before adopting it. The recovery command provides no live
+migration and rejects checkpoints without the persistent helper mount contract.
 
 Only checkpoints made by this command are eligible. A plain snapper snapshot
 without archived boot artifacts is not claimed bootable: the EFI partition is
@@ -93,9 +99,11 @@ makes a checkpoint, writes newer home/store data and a changed system marker,
 checks that systemd-boot recognizes the menu entry, selects it once and **actually
 reboots**. It then verifies a changed boot ID, the same VM identity, the recovery
 root mount, the older system marker, current home/store mounts and data, unchanged
-principal-store hashes with exod stopped at both measurements, a valid signed
+principal-store hashes with exod masked across the entire test, a valid signed
 ledger, absence of a stale pacman lock on the recovery root, and preservation of
-original `@`.
+original `@`. It also verifies the actual persistent helper mount, unchanged
+signing-key/public-key hashes (never key material), and preservation of a real
+root audit receipt made after the checkpoint; the recovered helper must start.
 Any missing prerequisite, malformed output, wrong VM or missed reboot fails.
 A successful host fixture test is not evidence of an actual boot. The report is
 `image/out/accept-recovery.txt` when this script is run; this implementation has
