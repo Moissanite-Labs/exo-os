@@ -11,6 +11,10 @@
 set -euo pipefail
 
 PREFIX="${EXO_OS_TOOLS:-$HOME/.local/opt/exo-os-tools}"
+# The Python supervisor holds an advisory lock for this entire process, including publication.
+if [[ ${EXO_OS_HOST_TOOLS_LOCKED:-} != "$PREFIX" ]]; then
+  exec python3 "$(dirname "$0")/host-tools-generation.py" run "$PREFIX" "$0"
+fi
 KEYRINGS="${EXO_OS_KEYRINGS:-/usr/share/pacman/keyrings}"
 PKGS=(mkosi systemd-ukify python-pefile sbsigntools qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci qemu-hw-display-virtio-gpu-gl qemu-hw-display-virtio-gpu-pci-gl qemu-ui-gtk qemu-ui-opengl qemu-ui-egl-headless virglrenderer qemu-hw-display-virtio-vga-gl qemu-hw-display-virtio-vga qemu-system-x86 qemu-img edk2-ovmf mtools erofs-utils squashfs-tools arch-install-scripts)
 
@@ -48,15 +52,14 @@ fetch() {
 
 mkdir -p "$PREFIX/cache"
 
-# -Sp prints the URLs pacman would download for what is missing on this host; it needs no root. An empty
+# -Sp resolves the entire requested inventory, even packages already installed on the host. An empty
 # cache directory of ours stands in for the host's, so a package cached there still gets a remote URL
 # (otherwise pacman prints file:///var/cache/... for it) and is fetched and verified like the rest.
 mkdir "$gnupghome/pacman-cache"
-listing="$(pacman -Sp --needed --cachedir "$gnupghome/pacman-cache" "${PKGS[@]}")"
+listing="$(pacman -Sp --cachedir "$gnupghome/pacman-cache" "${PKGS[@]}")"
 urls=(); while IFS= read -r u; do [[ -z $u ]] || urls+=("$u"); done <<<"$listing"
 if ((${#urls[@]} == 0)); then
-  echo "nothing to fetch: this host already has every package"
-  exit 0
+  die "pacman returned no packages for the requested inventory"
 fi
 
 # Check every URL before fetching any.
@@ -80,19 +83,15 @@ for url in "${urls[@]}"; do
   files+=("$file")
 done
 
-# Unpack into a fresh directory and swap it in, so files from an older Python or an old package set cannot
-# linger and a failed run leaves the previous install alone.
-stage="$PREFIX/root.new"
-rm -rf "$stage"
-mkdir -p "$stage"
+# A generation has its final absolute pathname from creation onward: venv shebangs and .pth
+# entries must never be invalidated by renaming the directory after construction.
+generation="$(mktemp -d "$PREFIX/generations/gen-XXXXXXXX")"
+stage="$generation/root"
+mkdir -p "$stage" "$generation/bin"
 for file in "${files[@]}"; do
   bsdtar -xf "$file" -C "$stage" --exclude '.PKGINFO' --exclude '.BUILDINFO' \
     --exclude '.MTREE' --exclude '.INSTALL'
 done
-rm -rf "$PREFIX/root.old"
-if [[ -e $PREFIX/root ]]; then mv "$PREFIX/root" "$PREFIX/root.old"; fi
-mv "$stage" "$PREFIX/root"
-rm -rf "$PREFIX/root.old"
 
 # mkosi runs ukify inside its own sandbox, where PYTHONPATH is not passed through. Python always puts a
 # script's own folder first on sys.path, so put ukify and the modules it imports side by side.
@@ -104,22 +103,33 @@ while IFS= read -r dir; do
   [[ -f $dir/pefile.py ]] || continue
   [[ -n $best ]] || best=$dir
   if [[ ${dir%/site-packages} == */python$host_python ]]; then site=$dir; break; fi
-done < <(printf '%s\n' "$PREFIX"/root/usr/lib/python3*/site-packages | sort -rV)
+done < <(printf '%s\n' "$generation"/root/usr/lib/python3*/site-packages | sort -rV)
 site="${site:-$best}"
 [[ -n $site ]] || die "python-pefile was not among the packages fetched"
-[[ -f $PREFIX/root/usr/bin/ukify ]] || die "systemd-ukify was not among the packages fetched"
-mkdir -p "$PREFIX/bin"
-cp "$PREFIX/root/usr/bin/ukify" "$PREFIX/bin/ukify"
-rm -rf "$PREFIX/bin/ordlookup"
-cp -r "$site/pefile.py" "$site/peutils.py" "$site/ordlookup" "$PREFIX/bin/"
+[[ -f $generation/root/usr/bin/ukify ]] || die "systemd-ukify was not among the packages fetched"
+mkdir -p "$generation/bin"
+cp "$generation/root/usr/bin/ukify" "$generation/bin/ukify"
+rm -rf "$generation/bin/ordlookup"
+cp -r "$site/pefile.py" "$site/peutils.py" "$site/ordlookup" "$generation/bin/"
 # mkosi also runs `python3 -c "import pefile"` in that sandbox. When mkosi itself runs from an interpreter
 # outside /usr it looks python3 up on its search path, so give it a venv whose .pth adds our modules.
 # The venv is rebuilt each run: its site-packages directory is named after the Python that made it.
-rm -rf "$PREFIX/venv"
-python3 -m venv --without-pip "$PREFIX/venv"
-venv_site="$("$PREFIX/venv/bin/python3" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+
+python3 -m venv --without-pip "$generation/venv"
+venv_site="$("$generation/venv/bin/python3" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
 echo "$site" > "$venv_site/exo-os-tools.pth"
-rm -f "$PREFIX/bin/python3"
-printf '#!/bin/sh\nexec "%s/venv/bin/python3" "$@"\n' "$PREFIX" > "$PREFIX/bin/python3"
-chmod +x "$PREFIX/bin/python3"
+rm -f "$generation/bin/python3"
+printf '#!/bin/sh\nexec "%s/venv/bin/python3" "$@"\n' "$generation" > "$generation/bin/python3"
+chmod +x "$generation/bin/python3"
+# Validate all requested command entrypoints and Python modules before changing the live pointer.
+for entry in mkosi ukify sbsign qemu-system-x86_64 qemu-img mcopy mkfs.erofs mksquashfs pacstrap; do
+  [[ -x $stage/usr/bin/$entry ]] || die "missing required tool: $entry"
+done
+for firmware in OVMF_CODE.4m.fd OVMF_VARS.4m.fd; do
+  [[ -s $stage/usr/share/edk2/x64/$firmware ]] || die "missing firmware: $firmware"
+done
+"$generation/venv/bin/python3" -I -c 'import pefile, peutils, ordlookup, mkosi'
+"$generation/bin/python3" -I -c 'import pefile, peutils, ordlookup, mkosi'
+printf 'validated\n' > "$generation/.complete"
+python3 "$(dirname "$0")/host-tools-generation.py" publish "$PREFIX" "$generation"
 echo "installed ${#urls[@]} packages into $PREFIX/root"
