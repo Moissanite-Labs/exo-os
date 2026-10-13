@@ -67,7 +67,7 @@ as_exo 'systemctl --user is-active --quiet exo-surface.service'
 guest_dir=$(ssh_vm 'mktemp -d /run/exo-atspi.XXXXXX')
 [[ $guest_dir =~ ^/run/exo-atspi\.[A-Za-z0-9]{6}$ ]]
 ssh_vm "chmod 0755 '$guest_dir'"
-for file in atspi_vm_guard.py atspi_contract.py atspi_fixture.py atspi_inspect.py; do
+for file in atspi_vm_guard.py atspi_contract.py atspi_fixture.py atspi_inspect.py atspi_fixture_process.py; do
   ssh_vm "cat > '$guest_dir/$file' && chown root:root '$guest_dir/$file' && chmod 0644 '$guest_dir/$file'" \
     < "$here/tools/$file"
 done
@@ -80,12 +80,16 @@ probe_output=$(as_exo "timeout 120 env EXO_OS_VM_ACCEPTANCE=1 GDK_BACKEND=waylan
   --fixture '$guest_dir/atspi_fixture.py' --image-source '$image_source' \
   --diagnostic-source '$diagnostic_source'" | head -c 131073) || probe_rc=$?
 printf '%s\n' "$probe_output" > "$out/atspi-diagnostic.json"
-# timeout normally signals the whole command group. If the fixture survived,
-# terminate only this fixed child command in the disposable guest.
-ssh_vm "pkill -TERM -u exo -f '^/opt/exo/bin/python $guest_dir/atspi_fixture.py --vm-acceptance\$' || test \$? = 1"
+# The inspector normally reaps its child, and timeout signals the command
+# group. Audit only the exact exo UID and argv. A survivor fails this isolated
+# run; teardown of the disposable VM removes it without a race-prone PID kill.
 fixture_gone=0
 for _ in 1 2 3 4 5; do
-  if ! ssh_vm "pgrep -u exo -f '^/opt/exo/bin/python $guest_dir/atspi_fixture.py --vm-acceptance\$'" >/dev/null; then
+  cleanup_rc=0
+  cleanup_output=$(ssh_vm "EXO_OS_VM_ACCEPTANCE=1 python3 '$guest_dir/atspi_fixture_process.py' \
+    --guest-check --fixture '$guest_dir/atspi_fixture.py'") || cleanup_rc=$?
+  if printf '%s\n' "$cleanup_output" | "$here/.venv/bin/python" \
+      "$here/tools/atspi_fixture_process.py" --validate --exit-code "$cleanup_rc"; then
     fixture_gone=1
     break
   fi

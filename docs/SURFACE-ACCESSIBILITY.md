@@ -34,7 +34,8 @@ surfaces, alongside its separate real protocol and `wtype` checks.
 
 An additional, optional AT-SPI diagnostic can inspect a synthetic surface in
 the disposable `vmtest` image. It is separate from Phase 3 and does not change
-that suite's seven checks. After the image built from
+that suite's seven workload checks plus provenance (eight reported results).
+After the image built from
 `e9cec25f63154fb15af72de43c6a9d14c74324bc` is available in this
 worktree's ignored `image/out/` and `tools/dev-env.sh` has provided its local
 `.venv`, run `EXO_OS_VM_ACCEPTANCE=1 tools/diagnose-atspi.sh --vm-acceptance`.
@@ -43,7 +44,7 @@ its exact committed hash in `.EXO_OS_SOURCE_ID`; the latter is the standard
 isolated build-host form. The harness requires the image manifest to name the
 published `e9cec25` revision while separately recording the diagnostic hash.
 The root harness binds SSH to its newly generated VM UUID and verifies the
-installed pin and source digest before copying four diagnostic-only Python
+installed pin and source digest before copying five diagnostic-only Python
 files to root-owned `/run` state. It stops the actual surface temporarily,
 launches the synthetic fixture as `exo` on that guest's Wayland compositor,
 and restores the service afterward. It records the image source commit and

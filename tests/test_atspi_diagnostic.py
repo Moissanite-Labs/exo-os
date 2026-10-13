@@ -16,6 +16,7 @@ import pytest
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 import atspi_contract as contract  # noqa: E402
+import atspi_fixture_process as process  # noqa: E402
 import atspi_inspect as inspect  # noqa: E402
 import atspi_vm_guard as guard  # noqa: E402
 
@@ -229,3 +230,27 @@ def test_validator_rejects_malformed_and_nonzero_process():
     failed = subprocess.run([*cmd, "--exit-code", "1"], input=raw, capture_output=True,
                             text=True, timeout=5)
     assert ok.returncode == 0 and failed.returncode == 1
+
+
+def test_fixture_cleanup_requires_explicit_remote_gone_and_exact_argv(tmp_path):
+    fixture = Path("/run/exo-atspi.abcdef/atspi_fixture.py")
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    matching = proc / "123"
+    matching.mkdir()
+    matching.joinpath("cmdline").write_bytes(
+        b"/opt/exo/bin/python\0/run/exo-atspi.abcdef/atspi_fixture.py\0--vm-acceptance\0")
+    similar = proc / "124"
+    similar.mkdir()
+    similar.joinpath("cmdline").write_bytes(
+        b"/opt/exo/bin/python\0/run/exo-atspiXabcdef/atspi_fixture.py\0--vm-acceptance\0")
+    assert process.matching_pids(proc, fixture, os.getuid()) == [123]
+    assert not process.confirmed_gone("gone\n", 255)  # SSH transport failure
+    assert not process.confirmed_gone("remaining\n", 0)
+    assert process.confirmed_gone("gone\n", 0)
+    validator = [sys.executable, str(TOOLS / "atspi_fixture_process.py"), "--validate", "--exit-code"]
+    absent = subprocess.run([*validator, "0"], input="gone\n", text=True,
+                            capture_output=True, timeout=5)
+    broken_ssh = subprocess.run([*validator, "255"], input="gone\n", text=True,
+                                capture_output=True, timeout=5)
+    assert absent.returncode == 0 and broken_ssh.returncode == 1
