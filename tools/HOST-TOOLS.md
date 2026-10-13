@@ -1,6 +1,6 @@
 `host-tools.sh` asks pacman for the complete requested inventory, including packages already installed on the host. Downloads and cached packages must pass detached-signature and revoked-key checks before extraction.
 
-Each installation is built under `EXO_OS_TOOLS/generations/gen-*` at its final absolute path. The script checks command entrypoints, firmware, helper files and Python imports before publication. `root`, `bin` and `venv` are compatibility symlinks through `current`.
+Each installation is built under `EXO_OS_TOOLS/generations/gen-*` at its final absolute path. The script checks command entrypoints, firmware, helper files and Python imports before publication. On a fresh prefix, `root`, `bin` and `venv` are compatibility symlinks through `current`.
 
 Replacing that single symlink publishes all three components together. A Python supervisor holds a nonblocking advisory lock for the whole installation. Concurrent runs fail without changing the active generation.
 
