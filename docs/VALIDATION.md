@@ -9,7 +9,7 @@ not establish a booted current image or a successful recovery reboot.
 | Check | Result | Boundary of evidence |
 |---|---|---|
 | macOS arm64, Python 3.13, `.venv/bin/pytest -q` | 396 passed, 16 skipped | Integrated OS `ee327a8`, core `b3149a9`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
-| Linux arm64, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 373 passed, 10 skipped | Authority branch before its final systemd ordering/environment assertions and the additional integrated VM harness tests; includes actual inherited-listener and signer service identity checks |
+| Linux arm64, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 407 passed, 10 skipped | OS `2866fcb`, core `b3149a9`; same installed payload as `8d79fdd`, with corrected test inputs; includes actual inherited-listener and signer service identity checks |
 | Linux arm64, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Earlier OS `5773dc4` and core `a915e62`; actual bubblewrap, Landlock and seccomp in a disposable privileged container with no host mounts |
 | Shared core authority, witness and read-only verification | 82 passed | Core `b3149a9`; durable commits, replay, independent receipt validation, canonical CLI corruption checks and concurrent verification |
 | Full core suite and plugins, macOS arm64, Python 3.13 | 1,434 core tests and 749 plugin tests passed | Core `b3149a9`; 65 core skips and one explicitly deselected external legacy-relay integration; all six plugins also passed separately |
