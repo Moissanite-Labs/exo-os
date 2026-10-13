@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import pwd
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -212,53 +213,271 @@ assert "Daily limit: $1.00. Monthly limit: $5.00." in shown, shown
 assert "$0.000000001 today" in shown and "Unsettled calls: 1" in shown, shown
 assert "administrator" in shown and not ui.card.get_visible()
 assert len(sent) == n + 1  # inspection creates no turn or consent response
+def unarmed_answer(decision):
+    """Timing-only assertion has a frozen clock, independent of compositor focus latency."""
+    original = A.GLib.get_monotonic_time
+    try:
+        A.GLib.get_monotonic_time = lambda: ui.card.shown_at
+        before = len(sent)
+        ui.card._answer(decision)
+        assert len(sent) == before
+    finally:
+        A.GLib.get_monotonic_time = original
+
+
+def start_keys(*args):
+    return subprocess.Popen(["wtype", *args], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+
+
+def finish_keys(proc):
+    try:
+        wait_until("bounded wtype delivery", lambda: proc.poll() is not None, seconds=30)
+        _, stderr = proc.communicate(timeout=1)
+        assert proc.returncode == 0, stderr
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=2)
+
+
+def review_with_f6():
+    if backend == "wayland-layer":
+        finish_keys(start_keys("-k", "F6"))
+    else:
+        assert ui._bar_key(None, A.Gdk.KEY_F6, 0, None)
+        ui.card._key_released(None, A.Gdk.KEY_F6, 0, None)
+    wait_until("explicit approval review", lambda: ui.card.get_visible()
+               and ui.card.reviewing and focus_within(ui.card, ui.card.summary))
+
+
+# Wayland uses actual compositor keyboard delivery, including the late tod|ay boundary.
+# Private Broadway has no compositor keyboard: it covers widget focus/model text only.
+for index, (text, offset) in enumerate((("who are my calls today", 20), ("yesterday", 0),
+                                      ("next meeting", 0), ("y", 0), ("n", 0))):
+    rid = f"typing_{index}"
+    ui.bar.entry.set_text("")
+    before = len(sent)
+    proc, injected, handler = None, [], None
+    request = s.ApprovalRequested(request_id=rid, summary="Read this request", binding=rid)
+    if backend == "wayland-layer" and offset:
+        def inject_at_prefix(entry):
+            if not injected and len(entry.get_text()) == offset:
+                injected.append(entry.get_text())
+                ui.on_event(ev(request))
+        handler = ui.bar.entry.connect("changed", inject_at_prefix)
+        proc = start_keys("-d", "150", text)
+        try:
+            wait_until("actual tod|ay request injection", lambda: bool(injected), seconds=30)
+        except BaseException:
+            proc.kill()
+            proc.wait(timeout=2)
+            ui.bar.entry.disconnect(handler)
+            raise
+        assert injected == [text[:offset]]
+    else:
+        if offset:
+            ui.bar.entry.set_text(text[:offset])
+        ui.on_event(ev(request))
+    wait_until("pending request preserves prompt focus", lambda: ui.bar.is_active()
+               and focus_within(ui.bar, ui.bar.entry))
+    assert ui.bar.review.get_visible() and ui.bar.review.get_label() == "Review request (F6)"
+    assert not ui.card.reviewing and model.reviewed_approval is None
+    assert ui.card.get_visible() == (backend == "wayland-layer")
+    if backend == "wayland-layer":
+        try:
+            finish_keys(proc or start_keys("-d", "150", text))
+        finally:
+            if handler is not None:
+                ui.bar.entry.disconnect(handler)
+    else:
+        for char in text[offset:]:
+            ui._bar_key(None, A.Gdk.keyval_from_name(char) or 0, 0, None)
+            ui.bar.entry.set_text(ui.bar.entry.get_text() + char)
+            ui.card._key_released(None, A.Gdk.keyval_from_name(char) or 0, 0, None)
+            pump()
+    assert ui.bar.entry.get_text() == text and model.text == text
+    assert len(sent) == before and ui.bar.is_active() and focus_within(ui.bar, ui.bar.entry)
+    ui.on_event(ev(s.ApprovalResolved(request_id=rid, decision="deny")))
+ui.bar.entry.set_text("")
 ui.on_event(ev(s.ApprovalRequested(request_id="a1", summary="Send this message to Ahmed?", binding="h1")))
-wait_until("approval safe first focus", lambda: ui.card.get_visible()
-           and focus_within(ui.card, ui.card.summary))
-assert ui.card.get_visible() and ui.card.summary.get_text() == "Send this message to Ahmed?"
-assert focus_within(ui.card, ui.card.summary)  # safe first focus, before any consent button
+assert model.reviewed_approval is None
+review_with_f6()
+assert ui.card.summary.get_text() == "Send this message to Ahmed?"
 n = len(sent)
-ui.card._answer("allow")  # too soon after it appeared: ignored
-assert len(sent) == n and ui.card.get_visible()
+unarmed_answer("allow")
+assert ui.card.get_visible()
 ui.card.shown_at -= (A.ARM_MS + 50) * 1000
 for modifier in (A.Gdk.ModifierType.CONTROL_MASK, A.Gdk.ModifierType.ALT_MASK,
                  A.Gdk.ModifierType.SUPER_MASK, A.Gdk.ModifierType.META_MASK):
     ui.card._key(None, A.Gdk.KEY_y, 0, modifier)
     assert len(sent) == n and ui.card.get_visible()
     ui.card._key_released(None, A.Gdk.KEY_y, 0, modifier)
-ui.card._key(None, A.Gdk.KEY_y, 0, None)
-wait_until("approved card hides", lambda: not ui.card.get_visible())
+if backend == "wayland-layer":
+    finish_keys(start_keys("-k", "y"))
+    # Retain the separate synthetic held-key test after real delivery released Y.
+    ui.card.observe_key_press(A.Gdk.KEY_y, 0)
+else:
+    ui.card._key(None, A.Gdk.KEY_y, 0, None)
+wait_until("answer exits review", lambda: not ui.card.reviewing)
 assert sent[-1] == s.ApprovalRespond(request_id="a1", decision="allow", client="exo-surface", binding="h1")
-assert not ui.card.get_visible()
-
+assert len(sent) == n + 1
 ui.on_event(ev(s.ApprovalRequested(request_id="a2", summary="Delete everything?", binding="h2")))
-wait_until("second approval safe first focus", lambda: ui.card.get_visible()
-           and focus_within(ui.card, ui.card.summary))
-assert ui.card.get_visible() and ui.card.summary.get_text() == "Delete everything?"
 n = len(sent)
-ui.card._answer("allow")  # a key still held from the last answer: the new card is not armed yet
-assert len(sent) == n and ui.card.get_visible()
+assert not ui.card.reviewing
+ui.card._key(None, A.Gdk.KEY_y, 0, None)  # held Y cannot answer a newly pending request
+assert len(sent) == n and model.reviewed_approval is None
+review_with_f6()
+unarmed_answer("allow")
 ui.card.shown_at -= (A.ARM_MS + 50) * 1000
-ui.card._key(None, A.Gdk.KEY_y, 0, None)  # held Y repeats after the arm interval
-assert len(sent) == n and ui.card.get_visible()
+ui.card._key(None, A.Gdk.KEY_y, 0, None)  # held Y remains held even after explicit review
+assert len(sent) == n
 ui.card._key_released(None, A.Gdk.KEY_y, 0, None)
-
-ui.card._key(None, A.Gdk.KEY_Escape, 0, None)  # dismissal works even before arming
-wait_until("approval Escape defers", lambda: not ui.card.get_visible())
-assert len(sent) == n and not ui.card.get_visible()
-assert model.approvals[-1].request_id == "a2" and not model.answer_check
-ui.show()
-wait_until("deferred approval reopens", lambda: ui.card.get_visible()
-           and focus_within(ui.card, ui.card.summary))
-assert ui.card.get_visible() and ui.card.summary.get_text() == "Delete everything?"
-ui.card._answer("deny")
-assert len(sent) == n  # reopening also gets the anti-misclick arm window
+ui.card._key(None, A.Gdk.KEY_Escape, 0, None)
+wait_until("approval Escape restores prompt", lambda: not ui.card.get_visible()
+           and ui.bar.is_active() and focus_within(ui.bar, ui.bar.entry))
+assert len(sent) == n and model.approvals[-1].request_id == "a2"
+ui.show()  # a generic prompt opening is not a consent gesture
+assert model.reviewed_approval is None and not ui.card.get_visible()
+ui.bar.entry.set_text("yesterday")
+assert len(sent) == n and model.text == "yesterday"
+ui.bar.entry.set_text("")
+review_with_f6()
+assert ui.card.summary.get_text() == "Delete everything?"
+unarmed_answer("deny")
 ui.on_event(ev(s.ApprovalResolved(request_id="a2", decision="deny")))
+
+# Held F6 must not become a fresh gesture for the next request after A is answered.
+ui.show()
+ui.on_event(ev(s.ApprovalRequested(request_id="held_f6_a", summary="First held-F6 request", binding="fa")))
+ui.on_event(ev(s.ApprovalRequested(request_id="held_f6_b", summary="Second held-F6 request", binding="fb")))
+n = len(sent)
+if backend == "wayland-layer":
+    # One virtual keyboard retains F6 while Y is pressed/released and a repeat is delivered.
+    # Exiting wtype itself releases held keys, so this must remain one invocation.
+    proc = start_keys("-P", "F6", "-s", "1200", "-k", "y", "-s", "800",
+                      "-P", "F6", "-s", "800", "-d", "150", "yesterday", "-p", "F6")
+    try:
+        wait_until("held F6 enters only first review", lambda: model.reviewed_approval is not None
+                   and model.reviewed_approval.request_id == "held_f6_a" and ui.card.is_active())
+        ui.card.shown_at -= (A.ARM_MS + 50) * 1000
+        finish_keys(proc)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=2)
+else:
+    assert ui._bar_key(None, A.Gdk.KEY_F6, 77, None)
+    wait_until("held F6 enters first fallback review", lambda: ui.card.reviewing and ui.card.is_active())
+    armed_at = ui.card.shown_at
+    ui.card._key(None, A.Gdk.KEY_F6, 77, None)
+    assert ui.card.shown_at == armed_at  # a repeat does not reset the current review's guard
+    ui.card.shown_at -= (A.ARM_MS + 50) * 1000
+    ui.card._key(None, A.Gdk.KEY_y, 78, None)
+    ui.card._key_released(None, A.Gdk.KEY_y, 78, None)
+    assert ui._bar_key(None, A.Gdk.KEY_F6, 77, None)
+    assert model.reviewed_approval is None
+    ui.bar.entry.set_text("yesterday")  # fallback covers widgets; Wayland above supplies real keys
+    ui.card._key_released(None, A.Gdk.KEY_F6, 77, None)
+assert len(sent) == n + 1 and sent[-1] == s.ApprovalRespond(
+    request_id="held_f6_a", decision="allow", client="exo-surface", binding="fa")
+assert model.reviewed_approval is None and model.approval.request_id == "held_f6_b"
+assert ui.bar.entry.get_text() == "yesterday" and model.text == "yesterday"
+ui.bar.entry.set_text("")
+review_with_f6()  # only the observed release permits a new gesture for B
+ui.card.shown_at -= (A.ARM_MS + 50) * 1000
+if backend == "wayland-layer":
+    finish_keys(start_keys("-k", "n"))
+else:
+    ui.card._key(None, A.Gdk.KEY_n, 0, None)
+    ui.card._key_released(None, A.Gdk.KEY_n, 0, None)
+assert len(sent) == n + 2 and sent[-1] == s.ApprovalRespond(
+    request_id="held_f6_b", decision="deny", client="exo-surface", binding="fb")
+ui.on_event(ev(s.ApprovalResolved(request_id="held_f6_a", decision="allow")))
+ui.on_event(ev(s.ApprovalResolved(request_id="held_f6_b", decision="deny")))
+
+# A modified F6 press cannot become unmodified review through autorepeat after modifier release.
+ui.on_event(ev(s.ApprovalRequested(request_id="modified_f6", summary="Modifier request")))
+for modifier in (A.Gdk.ModifierType.SHIFT_MASK, A.Gdk.ModifierType.CONTROL_MASK,
+                 A.Gdk.ModifierType.ALT_MASK, A.Gdk.ModifierType.SUPER_MASK, A.Gdk.ModifierType.META_MASK):
+    n = len(sent)
+    assert ui._bar_key(None, A.Gdk.KEY_F6, 79, modifier)
+    assert ui._drawer_key(None, A.Gdk.KEY_F6, 79, None)  # same held key after modifier release
+    assert model.reviewed_approval is None and len(sent) == n
+    ui.card._key_released(None, A.Gdk.KEY_F6, 79, None)
+ui.on_event(ev(s.ApprovalResolved(request_id="modified_f6", decision="deny")))
+
+# An old widget's queued click cannot answer a replacement or the next request.
+ui.on_event(ev(s.ApprovalRequested(request_id="stale_a", summary="Old request", binding="old")))
+old_yes = ui.card.buttons.get_first_child()
+old_token = ui.card.token
+ui.on_event(ev(s.ApprovalRequested(request_id="stale_b", summary="Next request", binding="new")))
+ui.on_event(ev(s.ApprovalResolved(request_id="stale_a", decision="deny")))
+n = len(sent)
+ui.card.shown_at -= (A.ARM_MS + 50) * 1000
+old_yes.emit("clicked")
+ui._answer("allow", old_token, explicit_click=True)
+assert len(sent) == n and model.approval.request_id == "stale_b"
+if backend == "broadway-private":
+    review_with_f6()  # fallback never maps an unreviewed standalone card
+    ui.card.shown_at -= (A.ARM_MS + 50) * 1000
+ui.card.buttons.get_first_child().emit("clicked")  # a targeted click on the displayed exact request
+assert sent[-1] == s.ApprovalRespond(request_id="stale_b", decision="allow", client="exo-surface", binding="new")
+assert len(sent) == n + 1 and model.reviewed_approval is None
+ui.on_event(ev(s.ApprovalResolved(request_id="stale_b", decision="allow")))
+
+# Same request ID and empty binding still cannot transfer a review to new content.
+ui.on_event(ev(s.ApprovalRequested(request_id="changed", summary="First text")))
+review_with_f6()
+old_yes = ui.card.buttons.get_first_child()
+ui.on_event(ev(s.ApprovalRequested(request_id="changed", summary="Changed text")))
+n = len(sent)
+assert not ui.card.reviewing and model.reviewed_approval is None
+old_yes.emit("clicked")
+assert len(sent) == n
+ui.on_event(ev(s.ApprovalResolved(request_id="changed", decision="deny")))
+
+# Losing activation after actual review revokes keyboard consent without refocusing the bar.
+ui.show()
+ui.on_event(ev(s.ApprovalRequested(request_id="focus_loss", summary="Focus loss request", binding="focus")))
+review_with_f6()
+wait_until("review actually active", lambda: ui.card.is_active())
+other = Gtk.Window(title="Synthetic other work")
+if backend == "wayland-layer":
+    assert A._layer(other, "OVERLAY", (), "EXCLUSIVE", "test-other")
+other_entry = Gtk.Entry()
+other.set_child(other_entry)
+other.set_default_size(400, 100)
+other.present()
+other_entry.grab_focus()
+wait_until("external fixture focus revokes review", lambda: other.is_active()
+           and model.reviewed_approval is None and not ui.card.reviewing)
+n = len(sent)
+ui.card.shown_at -= (A.ARM_MS + 50) * 1000
+ui.card._key(None, A.Gdk.KEY_y, 0, None)
+if backend == "wayland-layer":
+    finish_keys(start_keys("yesterday"))
+    assert other_entry.get_text() == "yesterday"
+assert len(sent) == n and other.is_active()
+ui.on_event(ev(s.ApprovalRequested(request_id="external_pending", summary="Another pending request")))
+wait_until("new pending request preserves other window focus", lambda: other.is_active())
+ui.on_event(ev(s.ApprovalResolved(request_id="external_pending", decision="deny")))
+assert other.is_active() and len(sent) == n
+other.destroy()
+ui.show()
+wait_until("prompt after external work", lambda: ui.bar.is_active() and focus_within(ui.bar, ui.bar.entry))
+review_with_f6()
+ui.card.shown_at -= (A.ARM_MS + 50) * 1000
+ui.card._key(None, A.Gdk.KEY_n, 0, None)
+assert sent[-1] == s.ApprovalRespond(request_id="focus_loss", decision="deny", client="exo-surface", binding="focus")
+assert len(sent) == n + 1
+ui.card._key_released(None, A.Gdk.KEY_n, 0, None)
+ui.on_event(ev(s.ApprovalResolved(request_id="focus_loss", decision="deny")))
 generic_payload = "<b>literal</b>" + "long body " * 1200 + "GENERIC_SUFFIX"
 generic_call = s.ToolCall(id="c_generic", name="send_message", arguments={
     "target": "Ahmed", "message": generic_payload})
 ui.on_event(ev(s.ApprovalRequested(request_id="a_generic", summary="Send?", call=generic_call,
                                  binding="generic_bound")))
+review_with_f6()
 wait_until("full generic approval details", lambda: ui.card.detail_scroll.get_visible()
            and focus_within(ui.card, ui.card.summary))
 assert ui.card.detail_scroll.get_visible() and focus_within(ui.card, ui.card.summary)
@@ -287,6 +506,7 @@ call = s.ToolCall(id="c_outbound", name="credential_request", arguments={
     "method": "POST", "path": "/messages/send", "body": payload})
 ui.on_event(ev(s.ApprovalRequested(request_id="a3", summary="Misleading recipient", call=call,
                                  binding="bound_origin_and_payload")))
+review_with_f6()
 wait_until("credential approval detail presentation", lambda: ui.card.detail_scroll.get_visible()
            and focus_within(ui.card, ui.card.summary))
 assert ui.card.detail_scroll.get_visible() and isinstance(ui.card.detail, Gtk.TextView)

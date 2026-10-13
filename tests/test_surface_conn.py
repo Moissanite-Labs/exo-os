@@ -325,6 +325,7 @@ def test_answer_delivery_is_reconciled_without_automatic_resend(paths, failure):
     c.start()
     try:
         rec.wait(lambda: rec.last("connected") is True and rec.model.approval is not None)
+        rec.model.show_approvals()
         body = rec.model.answer("allow")
         assert rec.model.answer("allow") is None
         c.send(body)
@@ -333,6 +334,7 @@ def test_answer_delivery_is_reconciled_without_automatic_resend(paths, failure):
         if failure in ("lost_unapplied", "rejected"):
             assert rec.model.approval.request_id == "a1"
             assert rec.model.approval.binding == "h1"
+            assert rec.model.reviewed_approval is None and rec.model.answer("allow") is None
         else:
             assert rec.model.approval is None
         if failure and failure.startswith("lost"):
@@ -516,6 +518,7 @@ def test_reconnect_cancels_inflight_answer_before_rearming(paths, applied):
     c.start()
     try:
         rec.wait(lambda: rec.model.approval is not None and rec.model.connected)
+        rec.model.show_approvals()
         c.send(rec.model.answer("allow"))
         assert entered.wait(2)
         c._loop.call_soon_threadsafe(c._reconnect.set)

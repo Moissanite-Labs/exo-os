@@ -109,7 +109,8 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
   Needs Exo's `ui.panel` event and `ui` tool (planned in Exo wave 3, D-014).
 - **Acceptance:**
   1. Everything on Shahid's key card can be reached from the prompt bar by typing a few letters or a question.
-  2. An approval card appears, is answered with Y or N or a click, and the answer reaches the gate.
+  2. A pending request preserves typing; **Review request (F6)** enters keyboard review before Y/N,
+     or a click answers the exact displayed request, and the answer reaches the gate.
   3. Orca reads the approval card and the transcript (note 02 §5 open risk).
   4. Memory of the surface, idle and with one panel open, is within the budget A sets.
   5. With `exod` stopped, the person still has a working desktop and app keys.

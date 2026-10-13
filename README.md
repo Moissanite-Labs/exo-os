@@ -29,7 +29,8 @@ not evidence for this revision. Built:
   receipts that could not be written to the principal ledger.
 - **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client,
   with keyboard-accessible panels and recent loaded history, plus full selectable approval details.
-  Escape defers; lost answers are reconciled without automatic retry.
+  Pending requests preserve typing; **Review request (F6)** enters keyboard review.
+  Escape defers; losing review focus revokes keyboard consent; lost answers are reconciled without automatic retry.
 - **Timeline.** `exo-os today` and the `timeline_show` tool: what Exo did on a day, from the ledger.
 - **Tool boundary.** Every registry call passes through the required executor. Workspace tools run
   under bubblewrap, Landlock and seccomp with no network, credentials or host control sockets.

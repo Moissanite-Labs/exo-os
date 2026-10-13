@@ -19,7 +19,7 @@ from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 from exo.protocol import schema as s  # noqa: E402
 
 from ..profile import Profile  # noqa: E402
-from .model import Line, SurfaceModel, approval_key, panel_view  # noqa: E402
+from .model import Line, SurfaceModel, approval_key, approval_token, panel_view  # noqa: E402
 
 try:
     gi.require_version("Gtk4LayerShell", "1.0")
@@ -132,15 +132,19 @@ class Bar(Gtk.Window):
         self.entry = Gtk.Entry(placeholder_text=PLACEHOLDER, hexpand=True, css_classes=["prompt"])
         self.entry.update_property([Gtk.AccessibleProperty.LABEL], [PLACEHOLDER])
         self.status = _label("", "status", wrap=False)
+        self.review = Gtk.Button(label="Review request (F6)", visible=False)
+        self.pending = _label("", "status")
+        self.pending.set_visible(False)
         row.append(self.entry)
         row.append(self.status)
+        row.append(self.review)
         self.suggestions = Gtk.ListBox(css_classes=["suggestions"], visible=False)
         self.suggestions.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.lines = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.scroll = Gtk.ScrolledWindow(child=self.lines, visible=False, propagate_natural_height=True,
                                          max_content_height=420)
         self.scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        for w in (row, self.suggestions, self.scroll):
+        for w in (row, self.pending, self.suggestions, self.scroll):
             outer.append(w)
         self.set_child(outer)
 
@@ -312,19 +316,27 @@ def panel_widget(v: dict[str, Any], on_close: Callable[[str], None],
 class Card(Gtk.Window):
     """The approval card: big plain words, Yes and No, answered by click or the Y and N keys."""
 
-    def __init__(self, on_answer: Callable[[str], None], on_defer: Callable[[], None]) -> None:
+    def __init__(self, on_answer: Callable[..., None], on_defer: Callable[[], None],
+                 on_review_lost: Callable[[], None]) -> None:
         super().__init__(title="Exo asks", css_classes=["exo", "exo-card"])
-        self.layered = _layer(self, "OVERLAY", (), "EXCLUSIVE", "card")
+        self.layered = _layer(self, "OVERLAY", (), "NONE", "card")
         self.on_answer = on_answer
         self.on_defer = on_defer
+        self.on_review_lost = on_review_lost
         self.shown_at = 0
         self.options: list[str] = []
+        self.token: tuple[Any, ...] | None = None
+        self.reviewing = False
+        self._review_was_active = False
+        self.connect("notify::is-active", self._activation_changed)
         self.pressed_keys: set[int] = set()  # persists across cards until a real release is observed
+        self.review_keys: set[int] = set()  # F6 also needs a fresh physical press for each request
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20, margin_top=32, margin_bottom=32,
                       margin_start=40, margin_end=40)
         self.summary = _label("", "card-summary")
         self.summary.set_max_width_chars(40)
         self.summary.set_selectable(True)  # safe first focus target; the request is read before the buttons
+        self.review_hint = _label("Choose Review request (F6) to use Y/N keys.", "status")
         self.detail = Gtk.TextView(editable=False, cursor_visible=True, monospace=True,
                                    wrap_mode=Gtk.WrapMode.WORD_CHAR, css_classes=["mono"])
         self.detail.set_direction(Gtk.TextDirection.LTR)
@@ -335,7 +347,7 @@ class Card(Gtk.Window):
         self.detail_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.set_default_size(720, -1)
         self.buttons = Gtk.Box(spacing=24, halign=Gtk.Align.CENTER)
-        for w in (self.summary, self.detail_scroll, self.buttons):
+        for w in (self.summary, self.review_hint, self.detail_scroll, self.buttons):
             box.append(w)
         self.set_child(box)
         keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
@@ -343,45 +355,88 @@ class Card(Gtk.Window):
         keys.connect("key-released", self._key_released)
         self.add_controller(keys)
 
-    def show_card(self, summary: str, detail: str, options: list[str]) -> None:
+    def show_card(self, summary: str, detail: str, options: list[str], token: tuple[Any, ...],
+                  *, reviewing: bool = False) -> None:
+        changed = token != self.token or reviewing != self.reviewing
+        self.token, self.reviewing = token, reviewing
+        self.review_hint.set_visible(not reviewing)
         self.summary.set_text(summary)
         self.detail.get_buffer().set_text(detail)  # literal text; never model-controlled markup
         self.detail_scroll.set_visible(bool(detail))
         self.detail_scroll.get_vadjustment().set_value(0)
-        self.options = options
+        self.options = list(options)
         _clear(self.buttons)
         for label, decision, cls in ((YES, "allow", ["big", "yes"]), (NO, "deny", ["big"]),
                                      (ALWAYS, "allow_always", ["big"])):
             if decision in options:
                 b = Gtk.Button(label=label, css_classes=cls)
-                b.connect("clicked", lambda _b, d=decision: self._answer(d))
+                b.connect("clicked", lambda _b, d=decision, t=token: self._answer(d, t, explicit_click=True))
                 self.buttons.append(b)
         self.update_property([Gtk.AccessibleProperty.LABEL], [summary])
         # Every card shown gets a fresh arm window, even one that replaces another while visible:
         # a key still being typed must never land on the next question.
-        self.shown_at = GLib.get_monotonic_time()
-        self.present()
-        self.summary.grab_focus()
+        if changed:
+            self.shown_at = GLib.get_monotonic_time()
+        _keyboard(self, "EXCLUSIVE" if reviewing else "NONE")
+        if reviewing:
+            if changed:
+                self._review_was_active = self.is_active()
+                self.present()
+                self.summary.grab_focus()
+        else:
+            # Layer keyboard NONE is a compositor-enforced noninteractive preview.
+            # Plain GTK windows have no equivalent nonactivation guarantee: the bar
+            # displays their pending summary until the person explicitly reviews it.
+            self.set_visible(self.layered)
+
+    def _activation_changed(self, *_args: Any) -> None:
+        if not self.reviewing:
+            return
+        if self.is_active():
+            self._review_was_active = True
+        elif self._review_was_active:
+            self._review_was_active = False
+            self.on_review_lost()
 
     def armed(self) -> bool:
         return (GLib.get_monotonic_time() - self.shown_at) / 1000 >= ARM_MS
 
-    def _answer(self, decision: str) -> None:
-        if self.armed() and decision in self.options:
-            self.on_answer(decision)
+    def _answer(self, decision: str, token: tuple[Any, ...] | None = None,
+                *, explicit_click: bool = False) -> None:
+        token = self.token if token is None else token
+        if (token == self.token and token is not None and self.get_visible()
+                and self.armed() and decision in self.options
+                and (explicit_click or self.reviewing)):
+            self.on_answer(decision, token, explicit_click=explicit_click)
 
     @staticmethod
     def _physical_key(keyval: int, code: int) -> int:
         return code or keyval  # synthetic tests may not supply a hardware code
 
     def _key_released(self, _ctl: Any, keyval: int, code: int, _state: Gdk.ModifierType) -> None:
-        self.pressed_keys.discard(self._physical_key(keyval, code))
+        physical = self._physical_key(keyval, code)
+        self.pressed_keys.discard(physical)
+        self.review_keys.discard(physical)
+
+    def fresh_review_key(self, keyval: int, code: int, state: Gdk.ModifierType) -> bool:
+        """Track F6 across all windows; repeats or modifier changes never reopen review."""
+        physical = self._physical_key(keyval, code)
+        repeated = physical in self.review_keys
+        self.review_keys.add(physical)
+        blocked = (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK |
+                   Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.META_MASK)
+        return not repeated and not (state and state & blocked)
 
     def observe_key_press(self, keyval: int, code: int) -> None:
         if approval_key(Gdk.keyval_name(keyval) or "") in ("allow", "deny"):
             self.pressed_keys.add(self._physical_key(keyval, code))
 
     def _key(self, _ctl: Any, keyval: int, code: int, state: Gdk.ModifierType) -> bool:
+        if keyval == Gdk.KEY_F6:
+            self.fresh_review_key(keyval, code, state)  # observe, never restart an active review
+            return True
+        if not self.reviewing:
+            return False
         action = approval_key(Gdk.keyval_name(keyval) or "")
         physical = self._physical_key(keyval, code)
         if action == "defer":
@@ -415,13 +470,14 @@ class SurfaceUI:
         self.launch = launch
         self._direction(model.profile)
         _install_css()
-        self.bar, self.drawer, self.card = Bar(), Drawer(), Card(self._answer, self._defer)
+        self.bar, self.drawer, self.card = Bar(), Drawer(), Card(self._answer, self._defer, self._review_lost)
         for w in (self.bar, self.drawer, self.card):
             if app is not None:
                 app.add_window(w)
             w.set_hide_on_close(True)
         self.bar.entry.connect("changed", lambda e: self.render(model.set_input(e.get_text())))
         self.bar.entry.connect("activate", lambda *_: self.submit())
+        self.bar.review.connect("clicked", lambda *_: self.review_approval())
         self.bar.suggestions.connect("row-activated", self._row_activated)
         keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
         keys.connect("key-pressed", self._bar_key)
@@ -438,11 +494,12 @@ class SurfaceUI:
         self.hide() if self.bar.get_visible() else self.show()
 
     def show(self, profile: Profile | None = None) -> None:
+        self.model.leave_approval_review()
         if profile is not None:
             self.model.set_profile(profile)
         self._direction(self.model.profile)
-        self.model.show_approvals()
         self.bar.present()
+        _keyboard(self.bar, "EXCLUSIVE")  # explicit prompt opening owns the keys
         self.render({"status", "transcript", "palette", "panels", "approval"})
         self._focus_prompt()
 
@@ -454,39 +511,53 @@ class SurfaceUI:
                 window.set_direction(direction)
 
     def _focus_prompt(self) -> None:
-        """Return keys to the prompt when no approval card is visible."""
-        if self.bar.get_visible() and self.model.approval is None:
+        """Return keys to the prompt when no request is being explicitly reviewed."""
+        if self.bar.get_visible() and self.model.reviewed_approval is None:
             self.bar.present()
             self.bar.entry.grab_focus()
 
     def hide(self) -> None:
+        self.model.leave_approval_review()
         self._close_drawer(restore_focus=False)
         self.bar.set_visible(False)
         self.bar.entry.set_text("")
-        self.render(self.model.clear_transcript())
+        self.render(self.model.clear_transcript() | {"approval"})
 
     # -- drawing
 
     def render(self, changes: set[str]) -> None:
         m = self.model
         self.bar.status.set_text(m.status)
+        self.bar.review.set_visible(bool(m.approvals) and m.reviewed_approval is None)
+        self.bar.review.set_sensitive(m.connected)
+        pending = m.approval
+        self.bar.pending.set_text(pending.summary if pending is not None else "")
+        self.bar.pending.set_visible(pending is not None and not self.card.layered
+                                     and m.reviewed_approval is None)
         if "transcript" in changes:
             self.bar.show_transcript(m.visible_lines(), m.stream_text())
         if "palette" in changes:
             self.bar.show_suggestions(m.suggestions, m.selected)
         if "approval" in changes:
-            card = m.approval
+            was_reviewing = self.card.reviewing
+            reviewed = m.reviewed_approval
+            card = reviewed or m.approval
             if card is None:
-                was_visible = self.card.get_visible()
+                self.card.reviewing = False
                 self.card.set_visible(False)
-                _keyboard(self.bar, "EXCLUSIVE")
-                if was_visible:
+                if was_reviewing:
+                    _keyboard(self.bar, "EXCLUSIVE")
                     self._focus_prompt()
             else:
-                if self.drawer.interactive:
+                if reviewed is not None and self.drawer.interactive:
                     self._close_drawer(restore_focus=False)
-                _keyboard(self.bar, "ON_DEMAND")  # the card takes the keys while it is up
-                self.card.show_card(card.summary, card.detail, card.options)
+                if reviewed is not None:
+                    _keyboard(self.bar, "ON_DEMAND")
+                self.card.show_card(card.summary, card.detail, card.options, approval_token(card),
+                                    reviewing=reviewed is not None)
+                if reviewed is None and was_reviewing:
+                    _keyboard(self.bar, "EXCLUSIVE")
+                    self._focus_prompt()
         if "panels" in changes:
             self._render_panels()
         if self.drawer.get_visible():  # the bar grows with the transcript; keep the drawer under it
@@ -556,7 +627,7 @@ class SurfaceUI:
         self.drawer.set_visible(False)
         self.drawer.mode = "panels"
         self.drawer.transcript_view = None
-        if self.model.approval is None:
+        if self.model.reviewed_approval is None:
             _keyboard(self.bar, "EXCLUSIVE")
             if restore_focus:
                 self._focus_prompt()
@@ -571,10 +642,22 @@ class SurfaceUI:
             self._send(body)
         self.render({"transcript"})
 
-    def _answer(self, decision: str) -> None:
-        if (body := self.model.answer(decision)) is not None:
+    def _answer(self, decision: str, token: tuple[Any, ...], *, explicit_click: bool = False) -> None:
+        if (body := self.model.answer(decision, token, explicit_click=explicit_click)) is not None:
             self._send(body)
         self.render({"approval"})
+
+    def review_approval(self) -> None:
+        """A button or F6 in this surface, never ordinary typing, enters request review."""
+        self.render(self.model.show_approvals())
+
+    def _review_lost(self) -> None:
+        """A previously active review lost focus; release it without activating another window."""
+        self.model.leave_approval_review()
+        self.card.reviewing = False
+        _keyboard(self.card, "NONE")
+        self.card.set_visible(False)
+        self.render({"status"})  # no present(), focus restoration, or background remapping
 
     def _defer(self) -> None:
         self.render(self.model.defer_approval())
@@ -589,6 +672,10 @@ class SurfaceUI:
         if keyval == Gdk.KEY_Escape:
             self.hide()
             return True
+        if keyval == Gdk.KEY_F6:
+            if self.card.fresh_review_key(keyval, code, _state):
+                self.review_approval()
+            return True
         if keyval in (Gdk.KEY_Down, Gdk.KEY_Up) and self.model.suggestions:
             self.render(self.model.move(1 if keyval == Gdk.KEY_Down else -1))
             return True
@@ -596,6 +683,10 @@ class SurfaceUI:
 
     def _drawer_key(self, _ctl: Any, keyval: int, code: int, _state: Any) -> bool:
         self.card.observe_key_press(keyval, code)
+        if keyval == Gdk.KEY_F6:
+            if self.card.fresh_review_key(keyval, code, _state):
+                self.review_approval()
+            return True
         if keyval == Gdk.KEY_Escape:
             self._close_drawer()
             return True

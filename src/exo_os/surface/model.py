@@ -75,6 +75,13 @@ class ApprovalCard:
     risk: str = "medium"
     session: str | None = None
     detail: str = ""  # full literal request in both modes when a tool call is available
+    generation: object = field(default_factory=object, compare=False, repr=False)
+
+
+def approval_token(card: ApprovalCard) -> tuple[Any, ...]:
+    """Detached displayed content plus local request generation, including unbound requests."""
+    return (card.generation, card.request_id, card.binding, card.summary, card.detail,
+            tuple(card.options), card.risk, card.session)
 
 
 @dataclass
@@ -125,7 +132,8 @@ class SurfaceModel:
         self.answer_check: set[str] = set()  # delivery finished or uncertain; safe to reconcile
         self.approval_seq: dict[str, int] = {}
         self.approval_floor = 0  # a snapshot supersedes approval.requested replay through this seq
-        self.deferred: set[str] = set()  # Esc: stays pending, returns when the surface is opened
+        self.deferred: set[str] = set()  # Esc: stays pending until explicitly reviewed again
+        self._reviewed_token: tuple[Any, ...] | None = None
         self.panels: dict[str, Panel] = {}
         self.question: s.QuestionAsked | None = None
         self.text = ""
@@ -141,12 +149,13 @@ class SurfaceModel:
         return self.set_input(self.text)
 
     def set_connected(self, up: bool) -> set[str]:
+        self._reviewed_token = None
         self.connected = up
         if not up:
             self.busy = False
             self.streaming.clear()
             self.approval_seq.clear()  # a restarted daemon may reuse lower sequence numbers
-        return {"status", "transcript"}
+        return {"status", "transcript", "approval"}
 
     def set_session(self, session: str) -> None:
         self.session = session
@@ -274,7 +283,7 @@ class SurfaceModel:
         """An approval from an event or from `approvals.list` (which a late client reads on connect)."""
         rid = req.get("request_id") or ""
         approvers = req.get("approvers") or []
-        if not rid or rid in self.answering or any(a.request_id == rid for a in self.approvals):
+        if not rid or rid in self.answering:
             return set()
         if approvers and "principal" not in approvers:
             return set()  # a seat answers this one, not the person at the desk
@@ -293,12 +302,21 @@ class SurfaceModel:
                 options = ["deny"]  # no approval when the destination cannot be verified
         elif self.plain:
             summary = (describe_call(call.name, call.arguments) if call else None) or plain_summary(summary)
-        self.approvals.append(ApprovalCard(rid, summary,
-                                           req.get("binding") or "", options or ["allow", "deny"],
-                                           req.get("risk") or "medium", req.get("session"), detail))
+        card = ApprovalCard(rid, summary, req.get("binding") or "", options or ["allow", "deny"],
+                            req.get("risk") or "medium", req.get("session"), detail)
+        previous = next((a for a in self.approvals if a.request_id == rid), None)
+        if previous is not None:
+            if previous == card:
+                return set()
+            self.approvals[self.approvals.index(previous)] = card
+            self._reviewed_token = None
+        else:
+            self.approvals.append(card)
         return {"approval", "status"}
 
     def _approval_resolved(self, rid: str) -> set[str]:
+        if self._reviewed_token is not None and self._reviewed_token[1] == rid:
+            self._reviewed_token = None
         before = len(self.approvals)
         self.approvals = [a for a in self.approvals if a.request_id != rid]
         self.answering.pop(rid, None)
@@ -309,34 +327,57 @@ class SurfaceModel:
 
     @property
     def approval(self) -> ApprovalCard | None:
-        """The card on screen: the oldest open approval."""
+        """The oldest pending approval that has not been deferred."""
         return next((a for a in self.approvals if a.request_id not in self.deferred), None)
 
-    def answer(self, decision: str) -> s.ApprovalRespond | None:
+    @property
+    def reviewed_approval(self) -> ApprovalCard | None:
+        """Only the exact request snapshot the person explicitly opened can receive an answer."""
+        if not self.connected:
+            return None
+        return next((a for a in self.approvals if approval_token(a) == self._reviewed_token), None)
+
+    def answer(self, decision: str, token: tuple[Any, ...] | None = None,
+               *, explicit_click: bool = False) -> s.ApprovalRespond | None:
         """The person answered the card. The binding is echoed back so an edited request cannot pass on an
         answer given to an older text."""
-        card = self.approval
+        card = self.approval if explicit_click else self.reviewed_approval
         if not self.connected or card is None or decision not in card.options:
             return None
+        if token is not None and approval_token(card) != token:
+            return None
+        if explicit_click and token is None:
+            return None  # an untargeted click cannot authorize whichever request is now first
         self.approvals.remove(card)
+        self._reviewed_token = None
         self.answering[card.request_id] = card
         return s.ApprovalRespond(request_id=card.request_id, decision=decision, client=CLIENT, binding=card.binding)
 
     def defer_approval(self) -> set[str]:
         """Esc dismisses the visible card without answering or removing the open request."""
-        if self.approval is not None:
-            self.deferred.add(self.approval.request_id)
+        if self.reviewed_approval is not None:
+            self.deferred.add(self.reviewed_approval.request_id)
+        self._reviewed_token = None
         return {"approval", "status"}
 
     def show_approvals(self) -> set[str]:
-        self.deferred.clear()
+        """Explicitly review one request, including a previously deferred request."""
+        if self.connected and self.approvals:
+            card = self.approval or self.approvals[0]
+            self.deferred.discard(card.request_id)
+            self._reviewed_token = approval_token(card)
+        return {"approval", "status"}
+
+    def leave_approval_review(self) -> set[str]:
+        self._reviewed_token = None
         return {"approval", "status"}
 
     def approval_result(self, request_id: str) -> set[str]:
         """Delivery finished (possibly with a lost reply). Only a pending snapshot permits another answer."""
+        self._reviewed_token = None
         if request_id in self.answering:
             self.answer_check.add(request_id)
-        return {"status"}
+        return {"approval", "status"}
 
     def reconcile_approvals(self, rows: list[dict[str, Any]], through_seq: int) -> set[str]:
         """Replace stale state, rearm uncertain answers still pending, and suppress older request replay.
@@ -345,14 +386,18 @@ class SurfaceModel:
         resolutions arrive; the list has no atomic event cursor in the current core protocol.
         """
         old = {a.request_id: a for a in self.approvals} | self.answering
+        self._reviewed_token = None  # a snapshot is not another human review gesture
         self.approval_floor = through_seq
         newer = [a for a in self.approvals if self.approval_seq.get(a.request_id, 0) > through_seq]
+        newer_ids = {a.request_id for a in newer}
         self.approvals = newer
         for rid in self.answer_check:
             self.answering.pop(rid, None)
         self.answer_check.clear()
         for row in rows:
             rid = row.get("request_id")
+            if rid in newer_ids:
+                continue  # this older snapshot cannot replace a newer event or restore stale details
             previous = old.get(rid)
             if previous is not None:
                 row = {"summary": previous.summary, "binding": previous.binding,

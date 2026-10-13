@@ -266,6 +266,7 @@ def main() -> int:
                 type_key("-k", "Return")
             elif stage == "approval":
                 fixture.command("approval")  # synthetic event, not keyboard input
+                type_key("-k", "F6")  # the person explicitly enters review from this surface
             elif stage == "escape":
                 type_key("-k", "Escape")
             deadline = time.monotonic() + STAGE_SECONDS

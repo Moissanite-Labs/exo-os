@@ -148,6 +148,8 @@ def test_approval_requested_then_answered_echoes_binding():
     assert json.loads(card.detail.split("\n", 1)[1]) == {
         "approval_request_id": "a1", "tool": "whatsapp_send", "arguments": {"to": "Ahmed"}}
     assert m.status == WAITING
+    assert m.answer("allow") is None  # arrival is only a pending notification
+    m.show_approvals()
     resp = m.answer("allow")
     assert resp == s.ApprovalRespond(request_id="a1", decision="allow", client="exo-surface", binding="h1")
     assert m.approval is None
@@ -180,6 +182,8 @@ def test_approval_resolved_elsewhere_closes_the_card_and_queue_moves_on():
     assert "allow_always" in m.approval.options
     m.apply(ev(s.ApprovalResolved(request_id="a1", decision="deny", by="phone")))
     assert m.approval.request_id == "a2" and m.approval.session == "s_scheduled"
+    assert m.reviewed_approval is None  # the next request needs its own review gesture
+    m.show_approvals()
     assert m.answer("maybe") is None  # not an offered option
     assert m.answer("deny").decision == "deny"
     assert m.status == "Checking your answer…"
@@ -384,6 +388,7 @@ def test_transcript_collapses_to_last_exchange_and_clears_when_hidden():
 def test_uncertain_answer_rearms_only_after_pending_snapshot():
     m = _model()
     m.apply(ev(_ask()))
+    m.show_approvals()
     assert m.answer("allow") is not None
     assert m.answer("allow") is None  # duplicate tap never sends the same request twice
     m.apply(ev(_ask()))  # replay while sending stays suppressed
@@ -392,6 +397,8 @@ def test_uncertain_answer_rearms_only_after_pending_snapshot():
     m.approval_result("a1")
     m.reconcile_approvals([{"request_id": "a1"}], 50001)
     assert m.approval.binding == "h1"  # minimal list rows retain the text and binding actually shown
+    assert m.reviewed_approval is None and m.answer("deny") is None
+    m.show_approvals()
     assert m.answer("deny").binding == "h1"  # a fresh human answer, never an automatic resend
 
 
@@ -399,6 +406,7 @@ def test_lost_reply_but_resolved_snapshot_does_not_reopen_request():
     m = _model()
     requested = ev(_ask())
     m.apply(requested)
+    m.show_approvals()
     m.answer("allow")
     m.approval_result("a1")
     m.reconcile_approvals([], requested.seq)
@@ -426,17 +434,123 @@ def test_snapshot_retains_newer_event_until_resolution_replay():
     assert m.approval is None
 
 
-def test_escape_defers_without_answer_and_reopening_returns_card():
+def test_old_snapshot_cannot_replace_newer_same_id_content_or_generation():
+    from exo_os.surface.model import approval_token
+    m = _model(plain=False)
+    requested = ev(s.ApprovalRequested(request_id="a1", summary="NEW", binding="new",
+        options=["deny"], call=ToolCall(id="new_call", name="send_message", arguments={"message": "new body"})))
+    m.apply(requested)
+    m.show_approvals()
+    original = approval_token(m.reviewed_approval)
+    for row in (
+        {"request_id": "a1", "summary": "OLD", "binding": "old", "options": ["allow", "deny"],
+         "call": {"id": "old_call", "name": "send_message", "arguments": {"message": "old body"}}},
+        {"request_id": "a1", "summary": "STALE WITHOUT CALL", "binding": "older"},
+    ):
+        m.reconcile_approvals([row], requested.seq - 1)
+        assert approval_token(m.approval) == original
+        assert m.approval_seq["a1"] == requested.seq
+        assert m.reviewed_approval is None and m.answer("deny") is None
+        assert m.approval.summary == "NEW" and "new body" in m.approval.detail
+        assert m.approval.binding == "new" and m.approval.options == ["deny"]
+
+
+def test_escape_defers_without_answer_and_only_explicit_review_returns_card():
     m = _model()
     m.apply(ev(_ask()))
+    m.show_approvals()
     m.defer_approval()
     assert m.approval is None and len(m.approvals) == 1 and not m.answering
     m.reconcile_approvals([{"request_id": "a1"}], 50000)
     assert m.approval is None  # incidental render or reconnect does not steal focus back
     m.show_approvals()
     assert m.approval.request_id == "a1" and m.approval.binding == "h1"
+    assert m.reviewed_approval is m.approval
     m.set_connected(False)
     assert m.answer("allow") is None
+
+
+def test_stale_displayed_click_cannot_answer_the_next_request():
+    from exo_os.surface.model import approval_token
+    m = _model()
+    m.apply(ev(_ask("a1")))
+    old = approval_token(m.approval)
+    m.apply(ev(_ask("a2")))
+    m.apply(ev(s.ApprovalResolved(request_id="a1", decision="deny")))
+    assert m.answer("allow", old, explicit_click=True) is None
+    current = approval_token(m.approval)
+    assert m.answer("deny", current, explicit_click=True).request_id == "a2"
+    assert m.answering["a2"].binding == "h1"
+
+
+def test_retained_callback_cannot_answer_recreated_request_with_identical_content():
+    from exo_os.surface.model import approval_token
+    m = _model()
+    m.apply(ev(_ask(binding="")))
+    token = approval_token(m.approval)
+    m.apply(ev(s.ApprovalResolved(request_id="a1", decision="deny")))
+    m.apply(ev(_ask(binding="")))
+    assert m.answer("allow", token, explicit_click=True) is None
+    m.show_approvals()
+    assert m.answer("allow", token) is None
+    assert m.answer("deny").request_id == "a1"
+
+
+@pytest.mark.parametrize("change", ["binding", "summary", "detail", "options"])
+def test_replacement_of_unbound_or_bound_request_revokes_review_and_old_click(change):
+    from exo_os.surface.model import approval_token
+    m = _model(plain=False)
+    request = {"request_id": "a1", "binding": "", "summary": "Original", "options": ["allow", "deny"],
+               "call": {"id": "c1", "name": "send_message", "arguments": {"message": "old"}}}
+    m.add_approval(request)
+    m.show_approvals()
+    old = approval_token(m.reviewed_approval)
+    changed = dict(request)
+    if change == "detail":
+        changed["call"] = {"id": "c1", "name": "send_message", "arguments": {"message": "new"}}
+    else:
+        changed[change] = ["deny"] if change == "options" else "new"
+    m.add_approval(changed)
+    assert m.reviewed_approval is None
+    assert m.answer("deny", old, explicit_click=True) is None
+    assert m.answer("deny") is None
+    m.show_approvals()
+    assert m.answer("deny").request_id == "a1"
+
+
+def test_review_content_is_detached_from_mutable_input_and_invalidated_by_live_mutation():
+    from exo_os.surface.model import approval_token
+    m = _model(plain=False)
+    options = ["allow", "deny"]
+    args = {"message": "original"}
+    m.add_approval({"request_id": "a1", "options": options,
+                    "call": {"id": "c", "name": "send_message", "arguments": args}})
+    m.show_approvals()
+    token = approval_token(m.reviewed_approval)
+    options.clear(); args["message"] = "changed"
+    assert m.reviewed_approval is not None and "original" in m.reviewed_approval.detail
+    m.approval.options.remove("allow")
+    assert m.reviewed_approval is None
+    assert m.answer("deny", token, explicit_click=True) is None
+
+
+@pytest.mark.parametrize("reset", ["snapshot", "disconnect", "reconnect", "prompt", "uncertain"])
+def test_review_requires_fresh_gesture_after_state_reset(reset):
+    m = _model()
+    m.apply(ev(_ask()))
+    m.show_approvals()
+    if reset == "snapshot":
+        m.reconcile_approvals([{"request_id": "a1"}], 50000)
+    elif reset == "prompt":
+        m.leave_approval_review()
+    elif reset == "uncertain":
+        m.approval_result("a1")
+    else:
+        m.set_connected(False)
+        if reset == "reconnect":
+            m.set_connected(True)
+    assert m.reviewed_approval is None and m.answer("allow") is None
+    assert len(m.approvals) == 1 and not m.answering
 
 
 @pytest.mark.parametrize("key, action", [("Escape", "defer"), ("y", "allow"), ("N", "deny"), ("Return", None)])

@@ -16,21 +16,37 @@ omitted with a visible notice. History that was never loaded here is unavailable
 in this view; it does not claim to show the complete session. The normal prompt
 still collapses to the last exchange after a turn and clears when hidden.
 
-An approval card initially focuses its selectable summary, before Yes or No.
+An arriving approval preserves prompt text and keyboard focus. Its pending preview
+has no keyboard grab; on backends without layer-shell, the pending summary appears
+inside the prompt bar instead of mapping another window. **Review request (F6)**
+opens the exact request for review. F6 is handled only while this surface owns
+the keys, and initially focuses the card's selectable summary, before Yes or No.
+A held F6 or a modifier change cannot reopen another request. Its release must
+be observed before a fresh unmodified press enters a new keyboard review.
 When the request includes a tool call, the card also shows its full literal JSON
 arguments in a selectable, read-only text area in both plain and operator modes.
 This includes long suffixes that a short summary may omit. Invisible direction
 and format controls are escaped. The credential request card retains its separate
-destination check and full outbound request preview. Y and N answer only after
-the card's arming interval and a fresh unmodified key press; Ctrl, Alt, Super and
+destination check and full outbound request preview. Y and N answer only during
+explicit review, after the card's arming interval and a fresh unmodified key press; Ctrl, Alt, Super and
 Meta combinations do not answer. Escape defers without sending a decision. A
-response closes the card and returns focus to the prompt.
+response leaves review and returns focus to the prompt. A click on Yes or No can
+answer the exact pending preview after its guard interval. Each button captures
+the identity and full content it displays; an old button cannot answer a replacement.
+The next queued request requires its own review gesture for keyboard consent.
+Reopening the prompt preserves deferrals and ends review. A reconnect, pending
+snapshot, uncertain answer, changed request or resolution also ends review;
+neither reconciliation nor replay sends an answer automatically.
 
 Pure model tests cover request text and reading limits. The private GTK display
 smoke test checks focus, text selection, modifier and held-key behavior, and
-direction changes when an Arabic or Urdu profile is applied. Phase 3 runs
+direction changes when an Arabic or Urdu profile is applied. Private Broadway
+checks widget focus and simulated text only. Phase 3 runs
 the same synthetic checks on the disposable image's actual Wayland layer
-surfaces, alongside its separate real protocol and `wtype` checks.
+surfaces, with real `wtype` delivery across request arrival, including initial Y/N
+and the late `tod|ay` boundary, alongside its separate real protocol checks.
+The timing-only unarmed assertions use a frozen clock so compositor latency cannot
+turn a pre-arm assertion into an assertion after the guard has already expired.
 
 An additional, optional AT-SPI diagnostic can inspect a synthetic surface in
 the disposable `vmtest` image. It is separate from Phase 3 and does not change

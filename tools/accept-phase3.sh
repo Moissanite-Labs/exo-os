@@ -3,7 +3,7 @@
 # offline fake model (no API key needed), types into the real prompt bar with wtype, and checks:
 #   1. an app is reached from the prompt bar by typing a few letters
 #   2. a question reaches Exo and the answer shows in the bar
-#   3. an approval card appears for a risky act, Y answers it, the answer reaches the gate, the act runs
+#   3. a pending request appears, F6 explicitly reviews it, Y answers that exact request, and the act runs
 #   4. a panel the agent opens shows in the drawer
 #   5. with exod stopped, app launch still works; the disconnected-status screenshot is saved for review
 #   6. the surface's memory (PSS), idle
@@ -13,6 +13,7 @@ set -Eeuo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$here/image/out"
 report="$out/accept-phase3.txt"
+input_log="$out/p3-input-actions.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }
 as_exo() { ssh_vm "cd /tmp && as-exo $*"; }
 pass=0 fail=0
@@ -22,14 +23,24 @@ result() {
   echo "$line" | tee -a "$report"
 }
 shot() { ssh_vm "cd /tmp && as-exo grim /tmp/$1.png && cat /tmp/$1.png" > "$out/$1.png" 2>/dev/null; }
-type_in() { as_exo "wtype '$1'"; }
-press() { as_exo "wtype -k $1"; }
+type_in() { printf '%s text=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >> "$input_log"; as_exo "wtype '$1'"; }
+press() { printf '%s key=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >> "$input_log"; as_exo "wtype -k $1"; }
 layers() { as_exo "hyprctl layers" | { grep -o 'namespace: exo-surface-[a-z]*' || true; } | sort -u | tr '\n' ' '; }
 bar() { as_exo "/opt/exo/bin/exo-surface $1"; sleep 1; }
 windows() { as_exo "hyprctl clients" | { grep -c "class: $1" || true; }; }
+approval_outcome() {
+  as_exo "/opt/exo/bin/python - '$1' <<'PY'
+import json, sqlite3, sys
+db = sqlite3.connect('/var/lib/exo/exo/sessions.sqlite')
+events = [json.loads(row[0]) for row in db.execute(
+    \"select body from events where type = 'approval.resolved' order by rowid desc limit 200\")]
+print(next((event.get('decision', '') for event in events if event.get('request_id') == sys.argv[1]), 'pending'))
+PY"
+}
 
 source "$here/tools/accept-common.sh"
 accept_start 3 1536
+: > "$input_log"
 accept_set_required_checks 7
 accept_keyring
 as_exo systemctl --user is-active --quiet exo-surface
@@ -76,12 +87,32 @@ bar show; type_in "install htop"; press Return
 for _ in $(seq 1 20); do [[ $(layers) == *card* ]] && break; sleep 1; done
 card=$(layers)
 shot p3-card
+request_id=$(as_exo "/opt/exo/bin/python - <<'PY'
+import json, sqlite3
+db = sqlite3.connect('/var/lib/exo/exo/sessions.sqlite')
+row = db.execute(\"select body from events where type = 'approval.requested' order by rowid desc limit 1\").fetchone()
+print(json.loads(row[0])['request_id'] if row else '')
+PY")
+[[ $request_id =~ ^a_[a-zA-Z0-9]+$ ]]
+press F6
+sleep 1  # secondary anti-click guard, after the explicit non-printing review gesture
+shot p3-review
 press y
+decision=pending
+for _ in $(seq 1 60); do
+  decision=$(approval_outcome "$request_id")
+  [[ $decision != pending ]] && break
+  sleep 1
+done
+if [[ $decision != allow ]]; then
+  result "approval-card" 0 "request $request_id was not explicitly allowed after F6 and Y ($decision); stop before any later typing"
+  exit 1  # pending consent must not consume characters from the next question
+fi
 for _ in $(seq 1 60); do ssh_vm 'test -e /usr/bin/htop' && break; sleep 2; done
 htop=$(ssh_vm 'test -e /usr/bin/htop && echo installed || echo missing')
 gate=$(as_exo "/opt/exo/bin/exo log tail -n 12" | grep -c 'exo-gate')
-result "approval-card" "$([[ $card == *card* && $htop == installed && $gate -ge 1 ]] && echo 1 || echo 0)" \
-  "layers while asking: $card; after Y: htop $htop; gate ledger rows in last 12: $gate"
+result "approval-card" "$([[ $card == *card* && $decision == allow && $htop == installed && $gate -ge 1 ]] && echo 1 || echo 0)" \
+  "layers while pending: $card; request $request_id explicitly reviewed by F6, resolved $decision after Y; htop $htop; gate rows $gate"
 
 # 4. a panel in the drawer
 bar show; type_in "who are my calls today"; press Return
