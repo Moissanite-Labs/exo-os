@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import py_compile
 from pathlib import Path
 import shutil
 import subprocess
@@ -481,3 +482,78 @@ def test_core_dependency_symlink_refused_without_touching_external_source(tmp_pa
     assert uv_log.read_bytes() == uv_before
     assert (root / 'image/out/exo-os.raw').read_bytes() == raw_before
     assert not (root / 'image/out/exo-os-build-success.json').exists()
+
+
+@pytest.mark.parametrize('args', [['--tools-tree=/tmp/custom'], ['--tools-tree', '/tmp/custom'],
+                                  ['--tools-tree=no']])
+def test_unrecorded_tools_tree_is_refused(args):
+    with pytest.raises(ValueError, match='only --tools-tree=yes'):
+        module('build-profile').selected_profile(args)
+
+
+def test_generated_debian_tools_tree_is_supported():
+    assert module('build-profile').selected_profile([
+        '--profile=vmtest', '--tools-tree=yes', '--tools-tree-distribution=debian',
+        '--tools-tree-release=sid']) == 'vmtest'
+
+
+@pytest.mark.parametrize('payload', ['image/mkosi.extra/opt/exo/plugins/exo-os/__pycache__/hidden.pyc',
+                                     'image/mkosi.extra/opt/exo/plugins/exo-os/hidden.pyc',
+                                     '.deps/exo/plugins/exo-gate/__pycache__/hidden.pyc'])
+def test_ignored_payload_bytecode_refused_without_success_receipt(tmp_path, payload):
+    root, env = mock_build_fixture(tmp_path)
+    commit_source(root)
+    assert build(root, env, vmtest=True).returncode == 0
+    out = root / 'image/out'
+    before = {name: (out / name).read_bytes() for name in ('exo-os.raw', 'extra/opt/exo/EXO_OS_BUILD.json')}
+    target = root / payload
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b'synthetic ignored bytecode')
+    with (root / '.git/info/exclude').open('a') as stream:
+        stream.write('\n*.pyc\n')
+    assert not subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain'], text=True).strip()
+    refused = build(root, env, vmtest=True)
+    assert refused.returncode != 0 and 'bytecode is unsupported' in refused.stderr
+    assert not (out / 'exo-os-build-success.json').exists()
+    assert {name: (out / name).read_bytes() for name in before} == before
+    assert list(out.glob('.build-attempt.*/prior-success.json'))
+    assert not list(out.glob('.build-attempt.*/exo-os.raw'))
+
+
+@pytest.mark.parametrize('payload', ['src/fixture.py', 'tools/env.sh', 'image/mkosi.conf',
+                                     '.deps/exo/src/runtime.py', '.deps/exo/plugins/exo-gate/plugin.py'])
+def test_post_mkosi_input_drift_prevents_publication(tmp_path, payload):
+    root, env = mock_build_fixture(tmp_path)
+    target = root / payload
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        target.write_text('# runtime fixture\n')
+    assert build(root, env, vmtest=True).returncode == 0
+    out = root / 'image/out'
+    before = {name: (out / name).read_bytes() for name in ('exo-os.raw', 'extra/opt/exo/EXO_OS_BUILD.json')}
+    mkosi = Path(env['EXO_OS_MKOSI'])
+    mkosi.write_text(mkosi.read_text().replace('exit "${MOCK_MKOSI_STATUS:-0}"',
+                                               'printf "\\n# changed during mkosi\\n" >> "$MOCK_DRIFT_TARGET"\nexit 0'))
+    refused = build(root, {**env, 'MOCK_DRIFT_TARGET': str(target)}, vmtest=True)
+    assert refused.returncode != 0 and 'build inputs changed' in refused.stderr
+    assert not (out / 'exo-os-build-success.json').exists()
+    assert {name: (out / name).read_bytes() for name in before} == before
+    assert list(out.glob('.build-attempt.*/prior-success.json'))
+    assert list(out.glob('.build-attempt.*/exo-os.raw'))
+    assert accept_without_qemu(root, env).returncode != 0
+    assert not (root / 'QEMU_WAS_STARTED').exists()
+
+
+def test_ignored_unchecked_helper_bytecode_cannot_replace_source_identity(tmp_path):
+    root = source_fixture(tmp_path)
+    replacement = tmp_path / 'replacement.py'
+    replacement.write_text('def source_identity(*args, **kwargs): return "c" * 40\n')
+    cache = Path(importlib.util.cache_from_source(str(root / 'tools/source_identity.py')))
+    cache.parent.mkdir()
+    py_compile.compile(str(replacement), cfile=str(cache),
+                       invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+    run = subprocess.run([sys.executable, str(root / 'tools/build-provenance.py'),
+                          '--source-root', str(root), '--pin', 'b' * 40,
+                          '--output', str(root / 'manifest.json')], capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    assert json.loads((root / 'manifest.json').read_text())['exo_os_commit'] == 'a' * 40

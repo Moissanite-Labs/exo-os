@@ -142,6 +142,8 @@ EXO_OS_MKOSI=/path/to/mkosi tools/build-image.sh \
 `--profile=vmtest` or `--profile vmtest`. The only other wrapper options are
 `--tools-tree`, `--tools-tree-distribution`, `--tools-tree-release`, and
 `--tools-tree-profile`. Each accepts `--option=value` or `--option value`.
+`--tools-tree` accepts only `yes`, which asks mkosi to generate its tools tree.
+Custom paths are refused because their contents have no manifest or receipt digest.
 Unknown options, abbreviations, grouped short flags, duplicate profiles and
 configuration/include overrides are rejected.
 
@@ -156,6 +158,9 @@ success receipt, and stages raw output and the extra tree under a fresh
 `image/out/.build-attempt.*` directory. A failed build keeps that attempt and the
 previous raw image and extra tree. After mkosi exits zero, publication moves the
 previous pair into `image/out/build-history/` and publishes the new pair.
+The wrapper snapshots the OS runtime, builder and core packaging inputs before
+packaging, then re-hashes them after mkosi exits. Changed inputs refuse publication,
+retain the attempt and previous pair, and leave no eligible success receipt.
 The schema 1 `exo-os-build-success.json` receipt is published last.
 Its file is flushed before the atomic rename, then the output directory is
 flushed. A flush failure removes acceptance eligibility. These flushes do not
@@ -181,8 +186,11 @@ successful build.
 - `tools/env.sh`, `tools/source_identity.py`, `tools/build-receipt.py`
 
 Generated `image/out/`, `image/mkosi.tools/`, `image/mkosi.tools.manifest`,
-`image/mkosi.cache/`, `image/mkosi.builddir/`, Python bytecode and `__pycache__`
-are excluded. Other acceptance and diagnostic tools are outside this digest,
+`image/mkosi.cache/`, `image/mkosi.builddir/`, and runtime Python caches are excluded.
+Bytecode and `__pycache__` in checked image inputs or copied core plugins are refused,
+including files ignored by Git. The provenance helper executes the identity helper's
+source directly, so an ignored import cache cannot replace it. Other acceptance and
+diagnostic tools are outside this digest,
 so their committed revision can be recorded separately from the image revision.
 Changing builder bytes requires a fresh image build. Earlier images, including
 `7170b3d`, cannot acquire this new digest or receipt retroactively.

@@ -116,6 +116,8 @@ if [[ $core_git == 1 ]]; then
     exit 2
   }
 fi
+python3 "$here/tools/build-provenance.py" --source-root "$here" --core-root "$dep" \
+  --snapshot-inputs "$stage/source-inputs.json"
 extra="$stage/extra"
 mkdir -p "$extra/opt/exo/wheels" "$extra/opt/exo/plugins"
 # The guest runs whatever `python` Arch rolling ships, but the offline wheelhouse is resolved for one
@@ -151,4 +153,13 @@ nice -n 10 "${mkosi_env[@]}" "${mkosi_cmd[@]}" -C "$here/image" \
   --force "$@" build
 
 # set -e guarantees publication is reached only after mkosi exits successfully.
+if [[ $core_git == 1 ]]; then
+  require_core_checkout
+  [[ $(git -C "$dep" rev-parse HEAD) == "$pin" ]] || {
+    echo 'core checkout changed during build' >&2
+    exit 2
+  }
+fi
+python3 "$here/tools/build-provenance.py" --source-root "$here" --core-root "$dep" \
+  --verify-inputs "$stage/source-inputs.json"
 python3 "$here/tools/build-receipt.py" publish --stage "$stage" --out "$out"
