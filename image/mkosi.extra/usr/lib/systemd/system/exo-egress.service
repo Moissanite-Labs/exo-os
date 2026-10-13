@@ -1,0 +1,33 @@
+[Unit]
+Description=Exo approved HTTPS credential broker
+Requires=exo-egress.socket
+RequiresMountsFor=/var/lib/exo-egress
+AssertPathIsMountPoint=/var/lib/exo-egress
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=exo-egress
+Group=exo-egress
+ExecStart=/opt/exo/bin/exo-egress
+StateDirectory=exo-egress
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+TasksMax=16
+MemoryMax=128M
+LimitNOFILE=64
+# Administrator adds ONLY named LoadCredentialEncrypted= entries in a root-owned drop-in.
+# Empty shipped policy and absent credentials grant no upstream access.

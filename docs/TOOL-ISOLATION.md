@@ -34,15 +34,16 @@ tool handler does not run. Limits bound execution time, result size, address
 space, files, open descriptors and child processes. Timeout or cancellation
 destroys the process namespace, including detached descendants.
 
-This policy intentionally gives tools **no network access**. It does not yet
-provide a domain allowlist or authenticated credential-injecting outbound
-broker. A network request is refused, not silently moved outside isolation.
+This policy intentionally gives tools **no network access**. Approved credentialed
+actions use the separate, administrator-configured `credential_request` control
+tool after exact one-shot approval, never a tool-child network grant. Empty
+shipped policy refuses all routes. See [CREDENTIAL-EGRESS.md](CREDENTIAL-EGRESS.md).
 
 ## Trusted host operations
 
 The fixed image contains trusted Exo/gate/OS Python code. Its narrow control
 operations still run in the daemon after the gate: UI panels, checked machine
-settings and undo, existing app launch, system receipt operations and timeline
+settings and undo, existing app launch, system receipt operations, credentialed actions and timeline
 queries. These receive structured arguments; they are not general executable
 or file-path adapters.
 
@@ -75,7 +76,8 @@ checks. It requires an explicitly enabled disposable Linux runner with user
 namespaces, Landlock and libseccomp. A container host that prohibits nested
 user namespaces will correctly refuse tools; it does not establish a pass.
 
-P4 still requires credential-injecting egress, a separate core ledger signer,
+Credentialed action egress has local TLS fixture evidence; P4 still requires
+booted-image egress acceptance, a separate core ledger signer,
 an off-machine audit anchor, and an adversarial booted-image check. A named
 root receipt proves execution; compulsory tool isolation prevents a tool from
 reaching that socket, but the principal's other same-user applications remain
