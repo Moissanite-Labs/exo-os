@@ -134,6 +134,24 @@ def compare(policy, exported, current, receipt):
     return "fresh_match_at_snapshot" if receipt["seq"] == exported.target["seq"] else "fresh_witness_behind"
 
 
+def observation(policy, raw_reply, nonce, *, publish=False):
+    """Verify every network envelope in the trusted parent, including query-only replies."""
+    from exo.ledger_authority.witness_transport import verify_head
+    try:
+        reply = decode(raw_reply)
+    except WitnessError as exc:
+        raise WitnessError("invalid witness helper response", "unavailable") from exc
+    if not isinstance(reply, dict) or set(reply) != {"receipt", "head"}:
+        raise WitnessError("invalid witness helper response", "unavailable")
+    if not publish and reply["receipt"] is not None:
+        raise WitnessError("fresh status returned an unexpected publication receipt", "unavailable")
+    try:
+        receipt = verify_head(policy["identity"], policy["genesis"], reply["head"], policy["witness_pub"], nonce)
+    except ValueError as exc:
+        raise WitnessError("untrusted or replayed witness head", "unavailable") from exc
+    return reply, receipt
+
+
 def operate(*, publish=False, fresh=False, base=BASE, workers=None):
     if os.geteuid() != 0:
         raise WitnessError("witness administration requires root")
@@ -154,20 +172,23 @@ def operate(*, publish=False, fresh=False, base=BASE, workers=None):
                 raise WitnessError("authority is behind saved witness evidence; publication refused", "conflict")
             if exported.checkpoint(current["receipt"]["seq"]) != current["checkpoint"]:
                 raise WitnessError("authority conflicts with saved witnessed prefix", "conflict")
+        # A separate query-only worker returns to the root parent before any
+        # checkpoint bytes are given to a publication worker. A regressed or
+        # conflicting witness must not repair itself before root observes it.
+        if publish:
+            pre_nonce = secrets.token_hex(32)
+            _, pre_receipt = observation(policy, workers.network(
+                policy, credentials, b"", publish=False, nonce=pre_nonce), pre_nonce)
+            pre_state = compare(policy, exported, current, pre_receipt)
+            if pre_state == "fresh_witness_ahead":
+                raise WitnessError("witness is ahead of captured export; publication refused", "conflict")
         nonce = secrets.token_hex(32)  # parent challenge, never selected by a network child
-        raw_reply = workers.network(policy, credentials, exported.data, publish=publish, nonce=nonce)
-        try:
-            reply = decode(raw_reply)
-        except WitnessError as exc:
-            raise WitnessError("invalid witness helper response", "unavailable") from exc
-        if not isinstance(reply, dict) or set(reply) != {"receipt", "head"}:
-            raise WitnessError("invalid witness helper response", "unavailable")
+        if publish and nonce == pre_nonce:
+            raise WitnessError("witness challenges must be distinct", "unavailable")
+        reply, receipt = observation(policy, workers.network(
+            policy, credentials, exported.data if publish else b"", publish=publish, nonce=nonce), nonce,
+            publish=publish)
         from exo.ledger_authority.witness import verify_receipt
-        from exo.ledger_authority.witness_transport import verify_head
-        try:
-            receipt = verify_head(policy["identity"], policy["genesis"], reply["head"], policy["witness_pub"], nonce)
-        except ValueError as exc:
-            raise WitnessError("untrusted or replayed witness head", "unavailable") from exc
         state = compare(policy, exported, current, receipt)
         observed_at = now()
         result = {"state": state, "fresh": True, "captured_at": captured_at, "observed_at": observed_at,
@@ -184,8 +205,6 @@ def operate(*, publish=False, fresh=False, base=BASE, workers=None):
             monotonic(current, updated)
             persist(fd, policy, current, updated)
             result["state"] = "published"
-        elif reply["receipt"] is not None:
-            raise WitnessError("fresh status returned an unexpected publication receipt", "unavailable")
         return result
 
 
