@@ -94,16 +94,21 @@ def keyboard_layouts(config_home: Path, profile: Any = None) -> tuple[bool, str]
     if profile is None:
         return True, "no profile to check"
     layouts, switch = profile.get("keyboard.layouts"), profile.get("keyboard.switch")
-    if (XKB / "symbols").is_dir():
+    has_symbols = (XKB / "symbols").is_dir()
+    if has_symbols:
         missing = [l for l in layouts if not (XKB / "symbols" / l).exists()]
         if missing:
             return False, f"unknown keyboard layout: {', '.join(missing)}"
-    if shutil.which("xkbcli"):
-        r = subprocess.run(["xkbcli", "compile-keymap", "--layout", ",".join(layouts), "--options", switch],
-                           capture_output=True, text=True, timeout=30)
+    xkbcli = shutil.which("xkbcli")
+    if xkbcli:
+        r = subprocess.run([xkbcli, "compile-keymap", "--layout", ",".join(layouts), "--options", switch],
+                           check=False, capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
             return False, "keyboard layouts do not compile: " + r.stderr.strip()[-300:]
-    return True, "keyboard layouts ok"
+        return True, "keyboard layouts compile"
+    if has_symbols:
+        return True, "keyboard layouts found in XKB symbols; compiler unavailable"
+    return True, "XKB layout database unavailable; keyboard layouts not checked"
 
 
 DEFAULT_CHECKS: list[Check] = [keyboard_layouts, hyprland_config, hyprland_live, hypridle_restart]

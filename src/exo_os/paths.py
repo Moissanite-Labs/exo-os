@@ -41,17 +41,24 @@ def config_home() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 
 
+DESKTOP_OWNER = Path("hypr") / "exo" / "desktop-owner"
 DESKTOP_MARK = "exo/profile.lua"
+DESKTOP_OWNER_CONTENT = "exo-os-v1\n"
+DESKTOP_INCLUDE = "dofile(generated)"
 
 
 def owns_desktop(config: Path) -> bool:
-    """True when the Hyprland config here loads the file Exo OS renders, as the Exo OS base config does.
+    """True only for a marked Exo OS desktop that actively loads its generated profile.
 
     On any other desktop (Omarchy, a developer's own) Exo OS must not write config or reload Hyprland.
     """
     try:
-        return DESKTOP_MARK in (Path(config) / "hypr" / "hyprland.lua").read_text()
-    except OSError:
+        marker = (Path(config) / DESKTOP_OWNER).read_bytes()
+        if marker != DESKTOP_OWNER_CONTENT.encode("utf-8"):
+            return False
+        source = (Path(config) / "hypr" / "hyprland.lua").read_text(encoding="utf-8")
+        return any(line.strip() == DESKTOP_INCLUDE for line in source.splitlines())
+    except (OSError, UnicodeError):
         return False
 
 
