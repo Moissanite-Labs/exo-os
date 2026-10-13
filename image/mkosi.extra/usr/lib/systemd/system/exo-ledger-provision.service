@@ -1,0 +1,24 @@
+[Unit]
+Description=Validate or provision Exo protected ledger before login
+DefaultDependencies=no
+RequiresMountsFor=/var/lib/exo /var/lib/exo-ledger
+After=local-fs.target
+Before=exo-ledger.socket exo-os-firstboot.service greetd.service systemd-user-sessions.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/exo/bin/exo-ledger-admin ensure-boot --principal exo
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

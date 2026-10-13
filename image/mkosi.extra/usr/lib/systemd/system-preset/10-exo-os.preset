@@ -9,4 +9,6 @@ enable greetd.service
 enable exo-sysd.socket
 enable exo-egress.socket
 enable exo-os-firstboot.service
+enable exo-ledger-provision.service
+enable exo-ledger.socket
 enable exo-os-pacman-init.service

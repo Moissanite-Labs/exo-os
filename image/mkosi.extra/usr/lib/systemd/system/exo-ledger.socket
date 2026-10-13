@@ -1,0 +1,14 @@
+[Unit]
+Description=Exo protected ledger authority socket
+Requires=exo-ledger-provision.service
+After=exo-ledger-provision.service
+
+[Socket]
+ListenStream=/run/exo-ledger.sock
+SocketUser=root
+SocketGroup=exo-sys
+SocketMode=0660
+Backlog=8
+
+[Install]
+WantedBy=sockets.target

@@ -165,6 +165,19 @@ tests include network/socket denial, hidden credentials and detached-child
 cleanup. The remaining trust in installed code and desktop applications is
 explicit in `docs/TOOL-ISOLATION.md`.
 
+## OS-17. Ledger authority is protected state, provisioned explicitly
+
+The desktop uses a pinned append authority over an authenticated local socket.
+Each stream binds exact writer keys/attributions and a projection path in a
+root-owned manifest. Keys and FULL-synchronous journal belong to static
+`exo-ledger` on persistent `@signer`, outside system rollback; public identity
+stays root-owned. Missing established state refuses rather than reseeding.
+Fresh root provisioning precedes initializer/runtime writes, and refuses local
+history or partial state. The built image selects required authority mode; booted
+image acceptance remains a separate gate. Checkpoint export includes genesis and is ready for
+an independently pinned witness; no remote endpoint or automatic delivery is
+configured. See `docs/LEDGER-AUTHORITY.md`.
+
 ## OS-16. Credentialed actions preserve both consent and uncertainty
 
 **Decision.** A separate unprivileged `exo-egress` service injects named systemd

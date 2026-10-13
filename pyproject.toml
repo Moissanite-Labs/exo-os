@@ -14,6 +14,8 @@ dev = ["pytest>=8", "cryptography>=43"]
 exo-os = "exo_os.cli:main"
 exo-sysd = "exo_os.sysd.server:main"
 exo-egress = "exo_os.egress.server:main"
+exo-ledgerd = "exo_os.ledgerd.server:main"
+exo-ledger-admin = "exo_os.ledgerd.admin:main"
 exo-os-setup = "exo_os.setup:main"
 exo-surface = "exo_os.surface.app:main"
 exo-os-recovery = "exo_os.recovery:main"
@@ -23,6 +25,9 @@ exo-os = "exo_os.plugin:register"
 
 [project.entry-points."exo.executors"]
 exo-os = "exo_os.sandbox.executor:create_executor"
+
+[project.entry-points."exo.ledger_authorities"]
+exo-os = "exo_os.ledgerd.client:create_authority"
 
 [build-system]
 requires = ["hatchling"]

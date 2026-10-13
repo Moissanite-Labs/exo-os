@@ -3,6 +3,8 @@ Description=Exo OS: give the person their home and Exo store (first boot)
 ConditionPathExists=!/var/lib/exo/.owned
 Before=greetd.service systemd-user-sessions.service
 After=local-fs.target
+Requires=exo-ledger-provision.service
+After=exo-ledger-provision.service
 
 [Service]
 Type=oneshot

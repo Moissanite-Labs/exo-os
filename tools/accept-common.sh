@@ -79,6 +79,12 @@ accept_start() {
   local vm_args=(--mem "${EXO_OS_VM_MEM:-$memory}") extra_args=()
   if [[ -n ${EXO_OS_VM_ARGS:-} ]]; then
     read -r -a extra_args <<< "$EXO_OS_VM_ARGS"
+    for arg in "${extra_args[@]}"; do
+      if [[ $arg == --keep ]]; then
+        result prerequisites 0 'Acceptance requires a disposable overlay; EXO_OS_VM_ARGS must not contain --keep.'
+        exit 1
+      fi
+    done
     vm_args+=("${extra_args[@]}")
   fi
   "$here/tools/run-vm.sh" "${vm_args[@]}" > "$out/qemu.log" 2>&1 &

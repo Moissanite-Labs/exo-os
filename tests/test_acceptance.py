@@ -71,6 +71,14 @@ def test_acceptance_refuses_missing_image(tmp_path):
     assert r.returncode != 0 and "prerequisites" in r.stdout
 
 
+@pytest.mark.parametrize("args", ["--keep", "--gui --keep", "--mem 2048 --keep --gl"])
+def test_acceptance_refuses_mutating_the_base_image(tmp_path, args):
+    r = run_harness(tmp_path, "accept_start 1 1024; echo FALSE_PASS",
+                    ssh_body="echo UNEXPECTED_SSH", extra_env={"EXO_OS_VM_ARGS": args})
+    assert r.returncode != 0 and "Acceptance requires a disposable overlay" in r.stdout
+    assert "FALSE_PASS" not in r.stdout and "UNEXPECTED_SSH" not in r.stdout
+
+
 def test_acceptance_rejects_other_machine_before_running_checks(tmp_path):
     ssh = "if [[ $* == *product_uuid* ]]; then echo other-machine; elif [[ $* == *systemctl* ]]; then echo UNEXPECTED_CHECK; fi"
     r = run_harness(tmp_path, "accept_start 1 1024", ssh_body=ssh)
@@ -211,7 +219,8 @@ def test_custom_acceptance_suites_add_the_provenance_result(tmp_path):
     root = Path(__file__).resolve().parents[1]
     for script, workload_checks, expected in (
         ("accept-isolation.sh", 10, 11),
-        ("accept-recovery.sh", 7, 8),
+        ("accept-recovery.sh", 8, 9),
+        ("accept-ledger.sh", 11, 12),
         ("accept-phase3.sh", 6, 7),
     ):
         r = run_harness(
