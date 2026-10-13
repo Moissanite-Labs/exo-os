@@ -180,13 +180,54 @@ these tests do not establish Linux kernel isolation.
 Three explicit Linux tests exercise real static UIDs/groups, no-network signer export,
 publisher denial of a synthetic signer key/socket, and full network-worker exec with
 Landlock and loopback mTLS. They require the future image,
-root and deliberate opt-in, and are skipped on the Mac host:
+root and deliberate opt-in, and are skipped on the Mac host. Use a separate test
+runner with pytest and cryptography, with read-only access to the installed core/OS
+packages; production `/opt/exo` does not need test dependencies:
 
 ```sh
-EXO_WITNESS_LINUX_ACCEPTANCE=1 /opt/exo/bin/python -m pytest \
+EXO_WITNESS_LINUX_ACCEPTANCE=1 /run/witness-test-runner/bin/python -m pytest \
   tests/test_witness_linux.py \
   tests/test_witness_publisher.py::test_real_network_worker_landlock_and_exec_roundtrip -q
 ```
+
+A fourth opt-in case exercises the complete installed admin flow against the boot
+authority's existing nonempty history. The outer boot harness must verify the raw
+image SHA256, start a disposable overlay with a new VM UUID, and supply all five
+explicit expectations below from its retained build evidence. `SOURCE_SHA256` is
+the installed manifest's source digest, not the raw disk digest. The guest verifies
+schema 2, `vmtest`, OS commit, core pin, source digest, and sysfs VM UUID before
+creating a fixture. The raw digest is retained as a **host-harness attestation**;
+the guest cannot prove that immutable disk digest after overlay boot.
+
+```sh
+EXO_WITNESS_LINUX_ACCEPTANCE=1 \
+EXO_WITNESS_EXPECTED_IMAGE_SHA256="$verified_raw_image_sha256" \
+EXO_WITNESS_EXPECTED_SOURCE_SHA256="$built_source_sha256" \
+EXO_WITNESS_EXPECTED_CORE_PIN="$built_exo_pin" \
+EXO_WITNESS_EXPECTED_OS_COMMIT="$built_exo_os_commit" \
+EXO_WITNESS_EXPECTED_VM_UUID="$EXO_OS_VM_UUID" \
+  /run/witness-test-runner/bin/python -m pytest -q -s \
+  tests/test_witness_installed.py::test_installed_admin_exports_provisioned_authority_and_persists_fresh_witness
+```
+
+The runner generates synthetic mTLS material in its own private root-owned `/run`
+directory. Its probe uses `/opt/exo/bin/python -I -B` and checks that runtime imports
+resolve inside `/opt/exo`; it imports no editable runtime source or test dependencies.
+A public-only client drops to the static `exo` identity to query signed genesis and
+head over the authenticated authority socket. The installed admin then initializes
+offline, executes the real no-network signer export and separate Landlock publisher,
+and verifies persisted previous/current evidence and two fresh status challenges.
+The synthetic server records the native signed challenge envelopes; the test verifies
+their signatures and four distinct nonces (publication preflight/final plus two status
+queries). Each command and server shutdown has a finite deadline. Live authority
+growth may honestly produce `fresh_witness_behind` after publication.
+
+An existing enrollment directory or marker, including partial state or a dangling
+symlink, refuses this test. Only its exact private `/run` fixture is cleaned up;
+the newly created persistent enrollment is deliberately left for the harness to
+discard with the overlay. Run it last on a fresh disposable VM. Its single JSON
+evidence record is printed with `-s`; retain it with the outer raw-image hash and
+boot UUID proof. This synthetic loopback test establishes no independent endpoint.
 
 Real image build/boot, full worker Landlock execution, power-loss/old-image persistence
 and independent remote deployment remain separate acceptance work. No current-image
