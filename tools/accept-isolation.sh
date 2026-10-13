@@ -17,8 +17,8 @@ result() {
 
 source "$here/tools/accept-common.sh"
 accept_start 4 1536
-# Exactly two daemon checks and eight kernel-probe checks must produce a result.
-accept_set_required_checks 10
+# Two daemon checks, the installed spend-state prerequisite, and nine kernel probes.
+accept_set_required_checks 12
 
 daemon_state=$(as_exo 'systemctl --user is-active exod' 2>&1 || true)
 result "exod-active" "$([[ $daemon_state == active ]] && echo 1 || echo 0)" "systemctl --user is-active exod: ${daemon_state:-empty}"
@@ -26,6 +26,32 @@ daemon_env=$(as_exo 'systemctl --user show exod -p Environment --value' 2>&1 || 
 required_env=0
 if [[ " $daemon_env " == *' EXO_TOOL_EXECUTOR=exo-os '* && " $daemon_env " == *' EXO_TOOL_EXECUTOR_REQUIRED=1 '* ]]; then required_env=1; fi
 result "executor-required" "$required_env" "service Environment contains EXO_TOOL_EXECUTOR=exo-os and EXO_TOOL_EXECUTOR_REQUIRED=1"
+
+# A sandbox refusal proves nothing if the target files were missing to begin with.
+spend_state=missing
+if spend_state=$(ssh_vm 'python3 -' <<'PY_SPEND_STATE'
+import pwd
+import stat
+from pathlib import Path
+
+uid = pwd.getpwnam('exo').pw_uid
+gid = pwd.getpwnam('exo').pw_gid
+paths = (
+    ('/var/lib/exo', stat.S_IFDIR, 0, 0, 0o755),
+    ('/var/lib/exo/model-spend', stat.S_IFDIR, 0, 0, 0o755),
+    ('/var/lib/exo/model-spend/policy.json', stat.S_IFREG, 0, 0, 0o644),
+    ('/var/lib/exo/model-spend/exo', stat.S_IFDIR, uid, gid, 0o700),
+    ('/var/lib/exo/model-spend/exo/journal.sqlite', stat.S_IFREG, uid, gid, 0o600),
+)
+for name, kind, owner, group, mode in paths:
+    info = Path(name).lstat()
+    assert stat.S_IFMT(info.st_mode) == kind, name
+    assert (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (owner, group, mode), name
+print('present')
+PY_SPEND_STATE
+); then :; fi
+result "model-spend-state-present" "$([[ $spend_state == present ]] && echo 1 || echo 0)" "installed policy and journal exist as regular files with expected owners and modes"
+[[ $spend_state == present ]] || exit 1
 
 # Transfer a standalone probe into the VM. It refuses to run without both explicit opt-ins and the exo UID.
 ssh_vm 'cat > /tmp/probe-isolation.py && chmod 0644 /tmp/probe-isolation.py' < "$here/tools/probe-isolation.py"
@@ -35,7 +61,7 @@ if probe_output=$(as_exo 'EXO_OS_VM_ACCEPTANCE=1 /opt/exo/bin/python /tmp/probe-
   probe_rc=0
 fi
 printf '%s\n' "$probe_output" > "$out/isolation-probe.json"
-expected=(workspace_read_write outside_secret_and_symlink network_socket_denied unix_socket_denied runtime_write_denied timeout_kills_grandchild cancel_kills_grandchild missing_bwrap_fails_closed)
+expected=(workspace_read_write outside_secret_and_symlink network_socket_denied unix_socket_denied runtime_write_denied model_spend_state_denied timeout_kills_grandchild cancel_kills_grandchild missing_bwrap_fails_closed)
 parsed=''
 if [[ $probe_rc == 0 || $probe_rc == 1 ]] && parsed=$(printf '%s\n' "$probe_output" | "$here/.venv/bin/python" -c '
 import json,sys
@@ -55,7 +81,7 @@ for x in checks:
     result "$name" "$([[ $status == PASS ]] && echo 1 || echo 0)" "$detail"
   done <<< "$parsed"
 else
-  for name in "${expected[@]}"; do result "$name" 0 "probe did not return the exact eight-check JSON contract (exit $probe_rc)"; done
+  for name in "${expected[@]}"; do result "$name" 0 "probe did not return the exact nine-check JSON contract (exit $probe_rc)"; done
 fi
 
 # Keep this evidence narrow: no outbound credential broker or signer is exercised by this probe.

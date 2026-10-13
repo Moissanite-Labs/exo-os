@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 CHECKS = (
     "workspace_read_write", "outside_secret_and_symlink", "network_socket_denied",
-    "unix_socket_denied", "runtime_write_denied", "timeout_kills_grandchild",
+    "unix_socket_denied", "runtime_write_denied", "model_spend_state_denied", "timeout_kills_grandchild",
     "cancel_kills_grandchild", "missing_bwrap_fails_closed",
 )
 
@@ -41,10 +41,10 @@ def rows(failed=()):
             for name in CHECKS]
 
 
-def test_partial_failure_preserves_seven_passes_and_suite_failure(tmp_path):
+def test_partial_failure_preserves_eight_passes_and_suite_failure(tmp_path):
     result = parse_probe_report(tmp_path, rows(("timeout_kills_grandchild",)), 1)
     assert result.returncode != 0
-    assert len([line for line in result.stdout.splitlines() if line.startswith("PASS ")]) == 7
+    assert len([line for line in result.stdout.splitlines() if line.startswith("PASS ")]) == 8
     assert "FAIL timeout_kills_grandchild" in result.stdout
 
 
@@ -61,4 +61,4 @@ def test_exit_status_or_shape_mismatch_cannot_pass(tmp_path, checks, rc):
 def test_valid_success_can_pass(tmp_path):
     result = parse_probe_report(tmp_path, rows(), 0)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.count("PASS ") == 8
+    assert result.stdout.count("PASS ") == 9

@@ -21,6 +21,7 @@ CHECKS = (
     "network_socket_denied",
     "unix_socket_denied",
     "runtime_write_denied",
+    "model_spend_state_denied",
     "timeout_kills_grandchild",
     "cancel_kills_grandchild",
     "missing_bwrap_fails_closed",
@@ -140,6 +141,15 @@ def main() -> int:
             ), "runtime write was not refused"
             return "root-owned runtime rejected a synthetic write"
 
+        def model_spend_hidden() -> str:
+            for path in ("/var/lib/exo/model-spend/policy.json",
+                         "/var/lib/exo/model-spend/exo/journal.sqlite"):
+                result = shell("cat " + shlex.quote(path))
+                assert result["is_error"], f"tool read model-spend state: {path}"
+                result = shell("printf x >> " + shlex.quote(path))
+                assert result["is_error"], f"tool wrote model-spend state: {path}"
+            return "isolated model tools could neither read nor write policy or journal"
+
         def timeout_kills() -> str:
             started = workspace_probe / "timeout-started"
             survived = workspace_probe / "timeout-survived"
@@ -220,6 +230,7 @@ def main() -> int:
             ("network_socket_denied", lambda: denied_socket("")),
             ("unix_socket_denied", lambda: denied_socket("socket.AF_UNIX")),
             ("runtime_write_denied", runtime_readonly),
+            ("model_spend_state_denied", model_spend_hidden),
             ("timeout_kills_grandchild", timeout_kills),
             ("cancel_kills_grandchild", cancel_kills),
             ("missing_bwrap_fails_closed", missing_bwrap),

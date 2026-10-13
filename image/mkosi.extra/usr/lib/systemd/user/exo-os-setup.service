@@ -9,6 +9,8 @@ RemainAfterExit=yes
 ExecStart=/opt/exo/bin/exo-os-setup
 Environment=EXO_LEDGER_AUTHORITY=exo-os
 Environment=EXO_LEDGER_AUTHORITY_REQUIRED=1
+Environment=EXO_MODEL_SPEND_REQUIRED=1
+Environment=EXO_MODEL_SPEND_POLICY=/var/lib/exo/model-spend/policy.json
 
 [Install]
 WantedBy=default.target

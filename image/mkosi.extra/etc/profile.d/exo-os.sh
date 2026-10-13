@@ -5,3 +5,5 @@ export EXO_TOOL_EXECUTOR=exo-os
 export EXO_TOOL_EXECUTOR_REQUIRED=1
 export EXO_LEDGER_AUTHORITY=exo-os
 export EXO_LEDGER_AUTHORITY_REQUIRED=1
+export EXO_MODEL_SPEND_REQUIRED=1
+export EXO_MODEL_SPEND_POLICY=/var/lib/exo/model-spend/policy.json

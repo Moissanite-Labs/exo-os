@@ -33,6 +33,8 @@ reviewed response adapters. The shared-core ledger authority now runs under a se
 with a persistent journal, root-pinned public identity and explicit fresh-image provisioning before login.
 Both normal verification commands detect modified or missing copies without repairing them first.
 The portable witness state machine is implemented; independent deployment and delivery remain open.
+P4 now has a zero-paid model-spend implementation and disposable-VM acceptance script. The root
+policy starts with no paid routes; actual paid caps and billing accuracy have not been exercised.
 P4 still needs current-image adversarial VM acceptance and its spend-cap criterion. Recovery also
 needs its actual reboot acceptance. P5–P8 remain unstarted.
 `docs/CORE-CONTRACT.md` assigns the shared-core and OS work without introducing a core fork.
@@ -121,7 +123,9 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
   3. A tool process cannot reach a domain outside its list.
   4. Editing or deleting a ledger row is detected by `exo log verify`.
   5. If the sandbox cannot start, the tool does not run.
-  6. A cost cap breach stops work and asks.
+  6. The zero-cap policy refuses every paid route before HTTP, while the exact offline fake still works.
+     A stopped journal keeps budget status and transcripts readable; a nonzero cap breach still needs
+     a deliberate paid test with prices and limits chosen by A.
 - **Needs from A:** decision D6 (secrets). A daily and monthly spend cap per principal.
 
 ## Phase 5. Voice and phone as clients

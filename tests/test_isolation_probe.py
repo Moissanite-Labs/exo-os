@@ -63,7 +63,8 @@ def test_probe_has_fixed_unique_kernel_acceptance_checks():
         )
     )
     checks = ast.literal_eval(assignment.value)
-    assert len(checks) == 8
-    assert len(set(checks)) == 8
+    assert len(checks) == 9
+    assert len(set(checks)) == 9
+    assert "model_spend_state_denied" in checks
     assert checks[0] == "workspace_read_write"
     assert checks[-1] == "missing_bwrap_fails_closed"

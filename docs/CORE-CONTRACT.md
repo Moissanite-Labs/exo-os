@@ -69,6 +69,16 @@ compare the local projection to a captured signed authority head without repairi
 explicit writer synchronization can restore missing committed rows. Unknown append outcomes retain
 their operation ID and require lookup. See [LEDGER-AUTHORITY.md](LEDGER-AUTHORITY.md).
 
+The model-spend contract belongs in the shared core: protected policy selection,
+exact route pricing, durable reservations, global stop behavior, and the
+`models.list` status. The OS fixes a root-owned policy path, provisions the
+exo-owned journal on persistent `@store` after the signer and before login,
+and denies tools access to both files. The installed policy starts at zero
+daily/monthly paid spend with no routes. The deterministic offline model remains
+usable. This is local routed-call accounting under trusted installed code; it
+does not control every same-UID process or the provider's account-wide bill.
+See [MODEL-SPEND.md](MODEL-SPEND.md).
+
 The core witness state machine accepts only signed checkpoints and commits a signed acknowledgment
 before returning it. Deploying that witness under independent control, delivering checkpoints and
 checking receipt freshness remain separate work. A copied checkpoint proves its signed prefix;

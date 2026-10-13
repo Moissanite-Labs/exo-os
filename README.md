@@ -41,6 +41,9 @@ not evidence for this revision. Built:
 - **Protected history.** A separate service owns ledger keys and committed history. Fresh provisioning
   precedes login; missing established state refuses startup. Normal verification detects an altered or
   shortened desktop copy without repairing it. Explicit synchronization recovers committed rows.
+- **Model spend.** A root policy and persistent exo-owned journal start with zero daily/monthly paid
+  ceilings and no priced routes. The offline fake model remains usable. Missing or altered spend state
+  blocks login; status stays readable after an accounting stop. See [model spend](docs/MODEL-SPEND.md).
 
 Still required: current-image boot/recovery acceptance, general API response adapters, independent
 witness deployment, voice and phone clients, and the hardware trials in `ROADMAP.md`.
@@ -61,6 +64,7 @@ See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL
     tools/accept-phase1.sh                 # the phase 1 acceptance checks
     tools/accept-isolation.sh              # kernel isolation in a disposable booted image
     tools/accept-ledger.sh                 # protected signer, tamper detection and signer outage
+    tools/accept-model-spend.sh            # zero-paid offline model and persistent journal checks
     tools/accept-recovery.sh               # checkpoint, reboot into recovery and verify persistence
 
 On a machine running Exo OS. On any other desktop, `exo-os` changes nothing there and says so; the Exo store
@@ -89,6 +93,7 @@ mentioning Exo is not an ownership marker.
 | `docs/BOOT-RECOVERY.md` | Administrator checkpoints and matching-kernel recovery |
 | `docs/CREDENTIAL-EGRESS.md` | Approved HTTPS actions, key isolation and uncertain outcomes |
 | `docs/LEDGER-AUTHORITY.md` | Protected append history, first boot and independent witness handoff |
+| `docs/MODEL-SPEND.md` | Zero-paid boot policy, journal persistence and trust limits |
 | `src/exo_os/profile.py` | The machine profile: fields, checks, apps |
 | `src/exo_os/render/` | Profile to Hyprland Lua and hypridle config |
 | `src/exo_os/changes.py` | The change engine: apply, check, commit or put back, undo |

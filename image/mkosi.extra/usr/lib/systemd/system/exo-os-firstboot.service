@@ -5,6 +5,8 @@ Before=greetd.service systemd-user-sessions.service
 After=local-fs.target
 Requires=exo-ledger-provision.service
 After=exo-ledger-provision.service
+Requires=exo-model-spend-provision.service
+After=exo-model-spend-provision.service
 
 [Service]
 Type=oneshot

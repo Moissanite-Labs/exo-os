@@ -55,6 +55,24 @@ else:
     assert authority.head()['seq'] >= saved['record']['checkpoint']['seq']
 PY_AUTHORITY
 }
+spend_journal_probe() {
+  ssh_vm "as-exo /opt/exo/bin/python - $1 $2" <<'PY_SPEND_JOURNAL'
+import json
+from pathlib import Path
+import sys
+from exo.core.models.spend import SpendJournal
+
+policy = json.loads(Path('/var/lib/exo/model-spend/policy.json').read_text())
+marker = 'recovery-acceptance-' + sys.argv[2]
+if sys.argv[1] == 'freeze':
+    SpendJournal(policy).freeze(marker)
+else:
+    assert sys.argv[1] == 'check'
+status = SpendJournal.inspect(policy)
+assert status['state'] == 'stopped' and status['stop_reason'] == marker, status
+assert status['pending_count'] == 0, status
+PY_SPEND_JOURNAL
+}
 result() {
   local line
   if [[ $2 == 1 ]]; then pass=$((pass + 1)); line="PASS  $1  $3"; else fail=$((fail + 1)); line="FAIL  $1  $3"; fi
@@ -62,7 +80,7 @@ result() {
 }
 source "$here/tools/accept-common.sh"
 accept_start recovery 2048
-accept_set_required_checks 8
+accept_set_required_checks 9
 boot_timeout=${EXO_OS_VM_BOOT_TIMEOUT:-180}
 accept_keyring
 # Keep daemon/runtime SQLite/WAL writes out of durable-data hash comparisons.
@@ -82,8 +100,14 @@ id=$(echo "$checkpoint" | "$here/.venv/bin/python" -c 'import json,sys; print(js
 egress_journal_probe reserve
 # A record committed after the older system snapshot must stay in the protected history.
 authority_probe append
+# A zero-cost journal stop AFTER the checkpoint must remain after older-root boot.
+# The VM has no paid route, key, or HTTP call in this recovery proof.
+spend_journal_probe freeze "$id"
 signer_identity_before=$(ssh_vm 'sha256sum /var/lib/exo-ledger/manifest.json | cut -d " " -f 1')
 signer_keys_before=$(ssh_vm 'find /var/lib/exo-ledger/private -type f -name "*.key" -exec sha256sum {} + | LC_ALL=C sort | sha256sum')
+spend_before=$(ssh_vm 'exo-model-spend-admin status')
+spend_policy_before=$(ssh_vm 'cat /var/lib/exo/model-spend/policy.json')
+spend_hash_before=$(ssh_vm 'sha256sum /var/lib/exo/model-spend/policy.json /var/lib/exo/model-spend/exo/journal.sqlite')
 # Newer data must survive selection of an older system snapshot.
 ssh_vm 'printf newer-home > /home/exo/exo-recovery-proof; printf newer-store > /var/lib/exo/exo-recovery-proof; printf broken-system > /etc/exo-recovery-proof'
 # A real helper receipt made AFTER the checkpoint must survive the older boot.
@@ -132,6 +156,12 @@ ssh_vm 'systemctl restart exo-ledger.service; systemctl is-active --quiet exo-le
 authority_probe check
 signer_mode=$(ssh_vm 'stat -c "%a %U %G" /var/lib/exo-ledger /var/lib/exo-ledger/private')
 result persistent-signer "$([[ $signer_mount == /@signer && $signer_identity_before == "$signer_identity_after" && $signer_keys_before == "$signer_keys_after" && $signer_mode == $'755 root root\n700 exo-ledger exo-ledger' ]] && echo 1 || echo 0)" "mounted @signer; independent public identity, private keys and post-checkpoint committed record survive older boot and signer restart"
+spend_after=$(ssh_vm 'exo-model-spend-admin status')
+spend_journal_probe check "$id"
+spend_policy_after=$(ssh_vm 'cat /var/lib/exo/model-spend/policy.json')
+spend_hash_after=$(ssh_vm 'sha256sum /var/lib/exo/model-spend/policy.json /var/lib/exo/model-spend/exo/journal.sqlite')
+spend_mode=$(ssh_vm 'stat -c "%a %U %G" /var/lib/exo/model-spend /var/lib/exo/model-spend/policy.json /var/lib/exo/model-spend/exo /var/lib/exo/model-spend/exo/journal.sqlite')
+result persistent-model-spend "$([[ $spend_before == "$spend_after" && $spend_policy_before == "$spend_policy_after" && $spend_hash_before == "$spend_hash_after" && $spend_mode == $'755 root root\n644 root root\n700 exo exo\n600 exo exo' ]] && echo 1 || echo 0)" "post-checkpoint journal stop, public zero-spend policy, UUID, journal hash and strict ownership survive older root boot"
 helper_mount=$(ssh_vm 'findmnt -n -o FSROOT /var/lib/exo-sysd')
 helper_key_after=$(ssh_vm 'sha256sum /var/lib/exo-sysd/sysd.key | cut -d " " -f 1')
 helper_audit_after=$(ssh_vm 'sha256sum /var/lib/exo-sysd/audit.log | cut -d " " -f 1')

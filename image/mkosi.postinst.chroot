@@ -10,7 +10,7 @@ python -m venv --system-site-packages --without-pip /opt/exo
 python -m pip --python /opt/exo/bin/python install --quiet --no-index --no-cache-dir \
     --find-links /opt/exo/wheels exo exo-os
 rm -rf /opt/exo/wheels
-for b in exo exo-os exo-surface exo-os-setup exo-os-recovery exo-ledger-admin; do ln -sf "/opt/exo/bin/$b" "/usr/local/bin/$b"; done
+for b in exo exo-os exo-surface exo-os-setup exo-os-recovery exo-ledger-admin exo-model-spend-admin; do ln -sf "/opt/exo/bin/$b" "/usr/local/bin/$b"; done
 
 # The person. Phase 1 has one account with automatic login; onboarding will create it in later phases.
 getent group exo-sys >/dev/null || groupadd --system exo-sys

@@ -1,0 +1,25 @@
+[Unit]
+Description=Validate or provision the protected model-spend journal before login
+DefaultDependencies=no
+RequiresMountsFor=/var/lib/exo /var/lib/exo-ledger
+Requires=exo-ledger-provision.service
+After=local-fs.target exo-ledger-provision.service
+Before=exo-os-firstboot.service greetd.service systemd-user-sessions.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/exo/bin/exo-model-spend-admin ensure-boot
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

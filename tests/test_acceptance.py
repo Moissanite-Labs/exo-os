@@ -228,14 +228,15 @@ def test_stalled_ssh_probe_cannot_extend_boot_deadline(tmp_path):
 
 def test_custom_acceptance_suites_add_the_provenance_result(tmp_path):
     root = Path(__file__).resolve().parents[1]
-    for script, workload_checks, expected in (
-        ("accept-isolation.sh", 10, 11),
-        ("accept-recovery.sh", 8, 9),
+    for index, (script, workload_checks, expected) in enumerate((
+        ("accept-isolation.sh", 12, 13),
+        ("accept-recovery.sh", 9, 10),
+        ("accept-model-spend.sh", 9, 10),
         ("accept-ledger.sh", 11, 12),
         ("accept-phase3.sh", 6, 7),
-    ):
+    )):
         r = run_harness(
-            tmp_path / str(workload_checks),
+            tmp_path / str(index),
             f"accept_set_required_checks {workload_checks}; [[ $required_checks == {expected} ]]",
         )
         assert r.returncode == 0, r.stdout + r.stderr
