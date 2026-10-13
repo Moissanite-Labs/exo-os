@@ -35,14 +35,21 @@ surfaces, alongside its separate real protocol and `wtype` checks.
 An additional, optional AT-SPI diagnostic can inspect a synthetic surface in
 the disposable `vmtest` image. It is separate from Phase 3 and does not change
 that suite's seven workload checks plus provenance (eight reported results).
-After the image built from
-`e9cec25f63154fb15af72de43c6a9d14c74324bc` is available in this
-worktree's ignored `image/out/` and `tools/dev-env.sh` has provided its local
-`.venv`, run `EXO_OS_VM_ACCEPTANCE=1 tools/diagnose-atspi.sh --vm-acceptance`.
+After the intended `vmtest` image is available in this worktree's ignored
+`image/out/` and `tools/dev-env.sh` has provided its local `.venv`, set
+`IMAGE_SOURCE` to the full 40-character source commit recorded for that image.
+Then run:
+
+```sh
+EXO_OS_VM_ACCEPTANCE=1 tools/diagnose-atspi.sh \
+  --vm-acceptance --image-source "$IMAGE_SOURCE"
+```
 The diagnostic source must be a clean Git checkout, or a git-free archive with
 its exact committed hash in `.EXO_OS_SOURCE_ID`; the latter is the standard
-isolated build-host form. The harness requires the image manifest to name the
-published `e9cec25` revision while separately recording the diagnostic hash.
+isolated build-host form. The harness requires the local `vmtest` build manifest
+to name the supplied image source before QEMU; after boot, `accept_start`
+compares the installed manifest and runtime/image source digest. It records
+the diagnostic source separately.
 The root harness binds SSH to its newly generated VM UUID and verifies the
 installed pin and source digest before copying five diagnostic-only Python
 files to root-owned `/run` state. It stops the actual surface temporarily,

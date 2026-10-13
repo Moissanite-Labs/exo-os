@@ -20,7 +20,7 @@ import atspi_fixture_process as process  # noqa: E402
 import atspi_inspect as inspect  # noqa: E402
 import atspi_vm_guard as guard  # noqa: E402
 
-IMAGE = "e9cec25f63154fb15af72de43c6a9d14c74324bc"
+IMAGE = "b" * 40  # deliberately unrelated to any checked-in image revision
 DIAGNOSTIC = "a" * 40
 
 
@@ -77,7 +77,7 @@ def test_accepts_only_complete_bounded_evidence():
         lambda x: x["checks"][0]["observed"].update(nodes=161),
         lambda x: x.update(fixture_pid=True),
         lambda x: x.update(backend="broadway-private"),
-        lambda x: x.update(image_source="b" * 40),
+        lambda x: x.update(image_source="c" * 40),
     ):
         changed = copy.deepcopy(base)
         edit(changed)
@@ -201,12 +201,23 @@ def test_tree_bounds_refuse_oversized_children_and_text():
         inspect.snapshot(Atspi, Node(chars=8193))
 
 
-def test_host_harness_refuses_without_opt_in_before_creating_output():
+@pytest.mark.parametrize("args", [[], ["--vm-acceptance"],
+                                  ["--vm-acceptance", "--image-source", IMAGE]])
+def test_host_harness_requires_double_opt_in_and_full_image_hash_before_output(args):
     env = {**os.environ}
     env.pop("EXO_OS_VM_ACCEPTANCE", None)
-    out = subprocess.run(["bash", str(TOOLS / "diagnose-atspi.sh")], env=env,
+    out = subprocess.run(["bash", str(TOOLS / "diagnose-atspi.sh"), *args], env=env,
                          capture_output=True, text=True, timeout=5)
-    assert out.returncode == 2 and "requires --vm-acceptance" in out.stderr
+    assert out.returncode == 2 and "--image-source FULL_40_HEX_HASH" in out.stderr
+
+
+@pytest.mark.parametrize("hash_value", ["short", IMAGE.upper(), "g" * 40])
+def test_host_harness_refuses_malformed_image_hash_even_with_vm_opt_in(hash_value):
+    out = subprocess.run(["bash", str(TOOLS / "diagnose-atspi.sh"),
+                          "--vm-acceptance", "--image-source", hash_value],
+                         env={**os.environ, "EXO_OS_VM_ACCEPTANCE": "1"},
+                         capture_output=True, text=True, timeout=5)
+    assert out.returncode == 2 and "FULL_40_HEX_HASH" in out.stderr
 
 
 def test_git_free_diagnostic_archive_uses_source_marker(tmp_path):
@@ -216,9 +227,56 @@ def test_git_free_diagnostic_archive_uses_source_marker(tmp_path):
     (tmp_path / ".EXO_OS_SOURCE_ID").write_text(DIAGNOSTIC + "\n")
     env = {**os.environ, "EXO_OS_VM_ACCEPTANCE": "1"}
     out = subprocess.run(["bash", str(tmp_path / "tools" / "diagnose-atspi.sh"),
-                          "--vm-acceptance"], env=env, capture_output=True, text=True,
+                          "--vm-acceptance", "--image-source", IMAGE],
+                         env=env, capture_output=True, text=True,
                          timeout=5)
-    assert out.returncode == 2 and "published e9 image build manifest is missing" in out.stderr
+    assert out.returncode == 2 and "selected image build manifest is missing" in out.stderr
+
+
+@pytest.mark.parametrize("built", [
+    {"schema": 2, "build_profile": "vmtest", "exo_os_commit": "2" * 40},
+    {"schema": 2, "build_profile": "production", "exo_os_commit": IMAGE},
+    {"schema": 1, "build_profile": "vmtest", "exo_os_commit": IMAGE},
+    {"schema": 2, "build_profile": "vmtest"},
+])
+def test_diagnostic_rejects_wrong_local_image_identity_before_qemu(tmp_path, built):
+    (tmp_path / "tools").mkdir()
+    shutil.copy2(TOOLS / "diagnose-atspi.sh", tmp_path / "tools" / "diagnose-atspi.sh")
+    shutil.copy2(TOOLS / "accept-common.sh", tmp_path / "tools" / "accept-common.sh")
+    (tmp_path / ".EXO_OS_SOURCE_ID").write_text(DIAGNOSTIC + "\n")
+    python = tmp_path / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    manifest = tmp_path / "image" / "out" / "extra" / "opt" / "exo" / "EXO_OS_BUILD.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(json.dumps(built))
+    env = {**os.environ, "EXO_OS_VM_ACCEPTANCE": "1"}
+    out = subprocess.run(["bash", str(tmp_path / "tools" / "diagnose-atspi.sh"),
+                          "--vm-acceptance", "--image-source", IMAGE],
+                         env=env, capture_output=True, text=True, timeout=5)
+    assert out.returncode == 2 and "requires a vmtest image manifest built from" in out.stderr
+    assert not (tmp_path / "image" / "out" / "qemu.log").exists()
+    assert not (tmp_path / "image" / "out" / "diagnose-atspi.txt").exists()
+
+
+def test_matching_image_identity_reaches_common_acceptance_preflight(tmp_path):
+    (tmp_path / "tools").mkdir()
+    shutil.copy2(TOOLS / "diagnose-atspi.sh", tmp_path / "tools" / "diagnose-atspi.sh")
+    shutil.copy2(TOOLS / "accept-common.sh", tmp_path / "tools" / "accept-common.sh")
+    (tmp_path / ".EXO_OS_SOURCE_ID").write_text(DIAGNOSTIC + "\n")
+    python = tmp_path / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    manifest = tmp_path / "image" / "out" / "extra" / "opt" / "exo" / "EXO_OS_BUILD.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(json.dumps({"schema": 2, "build_profile": "vmtest",
+                                    "exo_os_commit": IMAGE}))
+    out = subprocess.run(["bash", str(tmp_path / "tools" / "diagnose-atspi.sh"),
+                          "--vm-acceptance", "--image-source", IMAGE],
+                         env={**os.environ, "EXO_OS_VM_ACCEPTANCE": "1"},
+                         capture_output=True, text=True, timeout=5)
+    assert out.returncode != 0 and "Build the vmtest image" in out.stdout
+    assert not (tmp_path / "image" / "out" / "qemu.log").exists()
 
 
 def test_validator_rejects_malformed_and_nonzero_process():

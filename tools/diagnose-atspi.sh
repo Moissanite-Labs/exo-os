@@ -3,10 +3,12 @@
 set -Eeuo pipefail
 
 # Refuse before touching the image, creating output, or starting QEMU.
-[[ ${1:-} == --vm-acceptance && $# == 1 && ${EXO_OS_VM_ACCEPTANCE:-} == 1 ]] || {
-  echo 'requires --vm-acceptance and EXO_OS_VM_ACCEPTANCE=1' >&2
+[[ $# == 3 && ${1:-} == --vm-acceptance && ${2:-} == --image-source \
+   && ${3:-} =~ ^[0-9a-f]{40}$ && ${EXO_OS_VM_ACCEPTANCE:-} == 1 ]] || {
+  echo 'requires --vm-acceptance --image-source FULL_40_HEX_HASH and EXO_OS_VM_ACCEPTANCE=1' >&2
   exit 2
 }
+image_source=$3
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$here/image/out"
@@ -29,10 +31,9 @@ diagnostic_cleanup() {
 }
 trap diagnostic_cleanup EXIT
 
-# This image was built from the published accessibility revision. Tools-only
-# diagnostic changes have their own revision, while the source digest must
-# still match the installed image through accept_provenance.
-image_source=e9cec25f63154fb15af72de43c6a9d14c74324bc
+# An operator supplies the exact image revision. Tools-only diagnostic changes
+# have their own revision; accept_start verifies the installed manifest and
+# runtime/image digest against this local build manifest before probe execution.
 if [[ $(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true) == "$here" ]]; then
   diagnostic_source=$(git -C "$here" rev-parse HEAD)
   [[ -z $(git -C "$here" status --porcelain) ]] || {
@@ -51,14 +52,26 @@ fi
 }
 manifest="$out/extra/opt/exo/EXO_OS_BUILD.json"
 [[ -s $manifest ]] || {
-  echo 'the published e9 image build manifest is missing' >&2
+  echo 'the selected image build manifest is missing' >&2
   exit 2
 }
-built_commit=$("$here/.venv/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["exo_os_commit"])' "$manifest")
-[[ $built_commit == "$image_source" ]] || {
-  echo "diagnostic requires image built from $image_source; found $built_commit" >&2
+if ! "$here/.venv/bin/python" - "$manifest" "$image_source" <<'PY_IMAGE_SOURCE'
+import json
+import sys
+
+try:
+    with open(sys.argv[1]) as stream:
+        built = json.load(stream)
+    valid = (built.get("schema") == 2 and built.get("build_profile") == "vmtest"
+             and built.get("exo_os_commit") == sys.argv[2])
+except (OSError, ValueError, AttributeError):
+    valid = False
+raise SystemExit(0 if valid else 1)
+PY_IMAGE_SOURCE
+then
+  echo "diagnostic requires a vmtest image manifest built from $image_source" >&2
   exit 2
-}
+fi
 
 accept_start 3 1536  # authenticates throwaway UUID and installed runtime/image provenance
 accept_set_required_checks 1  # this separate diagnostic adds one check to provenance
