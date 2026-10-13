@@ -18,7 +18,7 @@ result() {
 source "$here/tools/accept-common.sh"
 accept_start 4 1536
 # Exactly two daemon checks and eight kernel-probe checks must produce a result.
-required_checks=10
+accept_set_required_checks 10
 
 daemon_state=$(as_exo 'systemctl --user is-active exod' 2>&1 || true)
 result "exod-active" "$([[ $daemon_state == active ]] && echo 1 || echo 0)" "systemctl --user is-active exod: ${daemon_state:-empty}"

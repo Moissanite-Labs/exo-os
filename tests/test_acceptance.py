@@ -5,10 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 import shutil
+import time
 
 import pytest
 
 HARNESS = Path(__file__).resolve().parents[1] / "tools" / "accept-common.sh"
+MODE_HARDENER = Path(__file__).resolve().parents[1] / "image/mkosi.extra/usr/lib/exo-os/harden-image-modes.sh"
 
 
 def run_harness(tmp_path, body, *, ssh_body=None, image=True, extra_env=None):
@@ -22,6 +24,7 @@ def run_harness(tmp_path, body, *, ssh_body=None, image=True, extra_env=None):
     (here / ".venv" / "bin" / "python").symlink_to(sys.executable)
     (here / "tools").mkdir()
     shutil.copyfile(HARNESS.parent / "build-provenance.py", here / "tools" / "build-provenance.py")
+    shutil.copyfile(HARNESS.parent / "accept-wait-ssh.py", here / "tools" / "accept-wait-ssh.py")
     (here / "src" / "fixture").mkdir(parents=True)
     (here / "src" / "fixture" / "__init__.py").write_text("VALUE = 1\n")
     (here / "pyproject.toml").write_text("[project]\nname = 'fixture'\n")
@@ -41,6 +44,7 @@ def run_harness(tmp_path, body, *, ssh_body=None, image=True, extra_env=None):
         ssh_body = '''if [[ $* == *product_uuid* ]]; then echo "$EXO_OS_VM_UUID";
         elif [[ $* == *EXO_PIN* ]]; then cat "$here/exo.pin";
         elif [[ $* == *EXO_OS_BUILD.json* ]]; then cat "$here/image/out/extra/opt/exo/EXO_OS_BUILD.json";
+        elif [[ $* == *base64* ]]; then echo ok;
         else return 0; fi'''
     script = f"""
 here={shlex.quote(str(here))}
@@ -86,15 +90,87 @@ def test_acceptance_rejects_source_changed_after_image_build(tmp_path):
     assert r.returncode != 0 and "source or image configuration changed" in r.stdout
 
 
+def test_acceptance_ignores_generated_cache_and_docs_only_commit(tmp_path):
+    body = '''mkdir -p "$here/src/fixture/__pycache__" "$here/docs"
+    printf generated > "$here/src/fixture/__pycache__/fixture.pyc"
+    printf docs-only > "$here/docs/VALIDATION.md"
+    git -C "$here" add docs/VALIDATION.md
+    git -C "$here" -c user.name=Test -c user.email=test@example.invalid commit -qm docs-only
+    accept_start 1 1024'''
+    r = run_harness(tmp_path, body)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "provenance: image Exo pin and source digest match build commit" in r.stdout
+
+
 def test_acceptance_rejects_invalid_boot_timeout_before_starting_vm(tmp_path):
     r = run_harness(tmp_path, "accept_start 1 1024", extra_env={"EXO_OS_VM_BOOT_TIMEOUT": "0"})
     assert r.returncode != 0 and "must be a positive integer" in r.stdout
+
+
+def test_stalled_ssh_probe_cannot_extend_boot_deadline(tmp_path):
+    start = time.monotonic()
+    r = run_harness(tmp_path, "accept_start 1 1024", ssh_body="sleep 10",
+                    extra_env={"EXO_OS_VM_BOOT_TIMEOUT": "2"})
+    elapsed = time.monotonic() - start
+    assert r.returncode != 0 and "SSH did not become ready within the boot deadline" in r.stdout
+    assert elapsed < 5, f"stalled SSH probe exceeded deadline: {elapsed:.2f}s"
+
+
+def test_custom_acceptance_suites_add_the_provenance_result(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    for script, workload_checks, expected in (
+        ("accept-isolation.sh", 10, 11),
+        ("accept-recovery.sh", 7, 8),
+    ):
+        r = run_harness(
+            tmp_path / str(workload_checks),
+            f"accept_set_required_checks {workload_checks}; [[ $required_checks == {expected} ]]",
+        )
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert f"accept_set_required_checks {workload_checks}" in (root / "tools" / script).read_text()
+
+
+def test_packaging_hardens_modes_from_host_archives(tmp_path):
+    root = tmp_path / "image-root"
+    paths = {
+        "etc": 0o775,
+        "etc/exo-os": 0o775,
+        "etc/exo-os/tools.toml": 0o664,
+        "etc/exo-os/egress.toml": 0o664,
+        "opt": 0o775,
+        "opt/exo": 0o775,
+        "opt/exo/plugins": 0o775,
+        "opt/exo/plugins/exo-os": 0o775,
+        "opt/exo/plugins/exo-os/plugin.py": 0o664,
+        "usr": 0o775,
+        "usr/lib": 0o775,
+        "usr/lib/systemd": 0o775,
+        "usr/lib/systemd/system": 0o775,
+        "usr/lib/systemd/system/exo-os.service": 0o664,
+        "usr/lib/environment.d": 0o775,
+    }
+    for rel, mode in paths.items():
+        target = root / rel
+        if target.suffix:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("fixture\n")
+        else:
+            target.mkdir(parents=True, exist_ok=True)
+        target.chmod(mode)
+    result = subprocess.run(["sh", str(MODE_HARDENER)], env={**os.environ, "EXO_OS_IMAGE_ROOT": str(root)},
+                            text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert all((root / rel).stat().st_mode & 0o022 == 0 for rel in paths)
+    postinst = (MODE_HARDENER.parents[4] / "mkosi.postinst.chroot").read_text()
+    assert "umask 022" in postinst
+    assert "/usr/lib/exo-os/harden-image-modes.sh" in postinst
 
 
 def test_acceptance_boot_or_ssh_failure_cannot_pass(tmp_path):
     ssh = '''if [[ $* == *product_uuid* ]]; then echo "$EXO_OS_VM_UUID";
     elif [[ $* == *EXO_PIN* ]]; then cat "$here/exo.pin";
     elif [[ $* == *EXO_OS_BUILD.json* ]]; then cat "$here/image/out/extra/opt/exo/EXO_OS_BUILD.json";
+    elif [[ $* == *base64* ]]; then echo ok;
     elif [[ $* == *systemctl* ]]; then return 255; fi'''
     r = run_harness(tmp_path, "accept_start 1 1024; echo FALSE_PASS", ssh_body=ssh)
     assert r.returncode != 0 and "required command failed" in r.stdout

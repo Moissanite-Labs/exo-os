@@ -22,6 +22,8 @@ def source_digest(root: Path) -> str:
         relative = path.relative_to(root)
         if relative.parts[:2] == ("image", "out") or relative.parts[:2] == ("image", "mkosi.tools"):
             continue
+        if "__pycache__" in relative.parts or path.suffix == ".pyc":
+            continue
         if path.is_file() or path.is_symlink():
             selected.append(path)
 

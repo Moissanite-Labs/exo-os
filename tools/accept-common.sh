@@ -19,8 +19,19 @@ accept_cleanup() {
 }
 trap accept_cleanup EXIT
 
+accept_set_required_checks() {
+  # Custom suites count their own result rows; add the provenance result from accept_start.
+  required_checks=$(($1 + 1))
+}
+
+accept_wait_ssh() {
+  local timeout=$1 expected=$2
+  shift 2
+  "$here/.venv/bin/python" "$here/tools/accept-wait-ssh.py" "$timeout" "$expected" "$@"
+}
+
 accept_start() {
-  local phase=$1 memory=$2 attempt connected=0 boot_timeout=${EXO_OS_VM_BOOT_TIMEOUT:-180}
+  local phase=$1 memory=$2 connected=0 boot_timeout=${EXO_OS_VM_BOOT_TIMEOUT:-180}
   required_checks=6
   [[ $phase != 2 ]] || required_checks=7
   mkdir -p "$out"
@@ -33,6 +44,8 @@ accept_start() {
     result prerequisites 0 'EXO_OS_VM_BOOT_TIMEOUT must be a positive integer no greater than 900 seconds.'
     exit 1
   fi
+  export here out
+  export -f ssh_vm
   echo "Exo OS phase $phase acceptance, $(date -u +%Y-%m-%dT%H:%M:%SZ), exo $(cut -c1-7 "$here/exo.pin"), exo-os $(git -C "$here" rev-parse --short HEAD)" | tee -a "$report"
   EXO_OS_VM_UUID=$("$here/.venv/bin/python" -c 'import uuid; print(uuid.uuid4())')
   export EXO_OS_VM_UUID
@@ -43,14 +56,11 @@ accept_start() {
   fi
   "$here/tools/run-vm.sh" "${vm_args[@]}" > "$out/qemu.log" 2>&1 &
   qemu=$!
-  for attempt in $(seq 1 "$boot_timeout"); do
-    kill -0 "$qemu" 2>/dev/null || {
-      result boot 0 'QEMU exited; see image/out/qemu.log.'
-      exit 1
-    }
-    if ssh_vm true 2>/dev/null; then connected=1; break; fi
-    sleep 1
-  done
+  kill -0 "$qemu" 2>/dev/null || {
+    result boot 0 'QEMU exited; see image/out/qemu.log.'
+    exit 1
+  }
+  if accept_wait_ssh "$boot_timeout" - true; then connected=1; fi
   if [[ $connected != 1 ]]; then
     result boot 0 'SSH did not become ready within the boot deadline.'
     exit 1
@@ -67,7 +77,7 @@ accept_start() {
 }
 
 accept_provenance() {
-  local pin image_pin expected="$out/extra/opt/exo/EXO_OS_BUILD.json" current actual
+  local pin image_pin expected="$out/extra/opt/exo/EXO_OS_BUILD.json" current actual built_commit
   pin=$(tr -d '\n' < "$here/exo.pin")
   image_pin=$(ssh_vm 'cat /opt/exo/EXO_PIN') || {
     result provenance 0 'The booted image has no installed Exo pin.'
@@ -84,11 +94,23 @@ accept_provenance() {
   current=$(mktemp "$out/.provenance.XXXXXX")
   "$here/.venv/bin/python" "$here/tools/build-provenance.py" \
     --source-root "$here" --pin "$pin" --output "$current"
-  if ! cmp -s "$expected" "$current"; then
+  if ! "$here/.venv/bin/python" - "$expected" "$current" <<'PY_PROVENANCE_COMPARE'
+import json
+import sys
+
+with open(sys.argv[1]) as stream:
+    built = json.load(stream)
+with open(sys.argv[2]) as stream:
+    current = json.load(stream)
+fields = ("schema", "exo_pin", "source_sha256")
+raise SystemExit(0 if all(built.get(key) == current.get(key) for key in fields) else 1)
+PY_PROVENANCE_COMPARE
+  then
     rm -f "$current"
     result provenance 0 'The source or image configuration changed after this image was built.'
     exit 1
   fi
+  built_commit=$("$here/.venv/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["exo_os_commit"])' "$expected")
   actual=$(ssh_vm 'cat /opt/exo/EXO_OS_BUILD.json') || {
     rm -f "$current"
     result provenance 0 'The booted image has no build provenance manifest.'
@@ -99,8 +121,37 @@ accept_provenance() {
     result provenance 0 'The booted image build manifest differs from the local build manifest.'
     exit 1
   fi
+  local mode_script mode_encoded mode_result
+  mode_script='import os,stat,sys
+paths=("/","/etc","/etc/exo-os","/etc/exo-os/tools.toml","/etc/exo-os/egress.toml","/etc/greetd","/etc/pacman.d","/etc/profile.d","/etc/skel","/opt","/opt/exo","/opt/exo/plugins","/usr","/usr/lib","/usr/local","/usr/local/bin","/usr/lib/exo-os","/usr/lib/systemd","/usr/lib/systemd/system","/usr/lib/environment.d")
+for path in paths:
+    if os.path.lexists(path):
+        info=os.lstat(path)
+        if info.st_uid != 0 or info.st_gid != 0 or info.st_mode & 0o022:
+            raise SystemExit("unsafe mode or owner: %s uid=%d gid=%d mode=%o" % (path, info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)))
+for top in ("/etc/exo-os","/etc/greetd","/etc/pacman.d","/etc/profile.d","/etc/skel","/opt/exo","/usr/lib/systemd/system","/usr/lib/systemd/system-preset","/usr/lib/systemd/user","/usr/lib/systemd/user-preset","/usr/lib/environment.d"):
+    if os.path.isdir(top):
+        for base, dirs, files in os.walk(top, followlinks=False):
+            for name in dirs + files:
+                path=os.path.join(base,name)
+                if os.path.islink(path): continue
+                info=os.lstat(path)
+                if info.st_uid != 0 or info.st_gid != 0 or info.st_mode & 0o022:
+                    raise SystemExit("unsafe imported path: %s" % path)
+print("ok")'
+  mode_encoded=$(printf '%s' "$mode_script" | base64 | tr -d '\n')
+  mode_result=$(ssh_vm "python3 -c \"\$(printf '%s' '$mode_encoded' | base64 -d)\"") || {
+    rm -f "$current"
+    result provenance 0 'The image contains group-writable or non-root-owned administrator/runtime paths.'
+    exit 1
+  }
+  if [[ $mode_result != ok ]]; then
+    rm -f "$current"
+    result provenance 0 'The image mode audit did not return its success marker.'
+    exit 1
+  fi
   rm -f "$current"
-  result provenance 1 "image Exo pin and source digest match $(git -C "$here" rev-parse --short HEAD)."
+  result provenance 1 "image Exo pin and source digest match build commit ${built_commit:0:7}."
 }
 
 accept_keyring() {
