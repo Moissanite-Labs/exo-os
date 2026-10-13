@@ -138,14 +138,76 @@ EXO_OS_MKOSI=/path/to/mkosi tools/build-image.sh \
   --tools-tree-distribution=debian --tools-tree-release=sid
 ```
 
-`tools/build-image.sh` defaults to the production profile when no profile is
-given. For acceptance, select `vmtest` explicitly with `--profile=vmtest` or
-`--profile vmtest`. The installed build manifest records that choice; every
-acceptance suite rejects missing or non-`vmtest` profile evidence before QEMU
-starts. The wrapper rejects duplicate, abbreviated, or unsupported profile
-selections. It also rejects `-C`/`--directory` and `-I`/`--include` overrides,
-which could select configuration outside the tracked image tree or add profiles;
-the documented tools-tree options still pass through.
+`tools/build-image.sh` defaults to production. Acceptance requires an explicit
+`--profile=vmtest` or `--profile vmtest`. The only other wrapper options are
+`--tools-tree`, `--tools-tree-distribution`, `--tools-tree-release`, and
+`--tools-tree-profile`. Each accepts `--option=value` or `--option value`.
+Unknown options, abbreviations, grouped short flags, duplicate profiles and
+configuration/include overrides are rejected.
+
+The wrapper refuses `image/mkosi.local.conf` and `image/mkosi.local`, including
+dangling symlinks. Those automatic mkosi overrides could change the profile or
+include files outside the checked source tree.
+
+### Successful image publication
+
+Each admitted attempt acquires `image/out/.build-lock`, invalidates the current
+success receipt, and stages raw output and the extra tree under a fresh
+`image/out/.build-attempt.*` directory. A failed build keeps that attempt and the
+previous raw image and extra tree. After mkosi exits zero, publication moves the
+previous pair into `image/out/build-history/` and publishes the new pair.
+The schema 1 `exo-os-build-success.json` receipt is published last.
+Its file is flushed before the atomic rename, then the output directory is
+flushed. A flush failure removes acceptance eligibility. These flushes do not
+establish that the whole build survives a host power loss.
+
+The receipt records SHA-256 hashes of the raw image and staging manifest, plus
+the manifest's OS commit, source digest, profile and core pin. Acceptance holds
+the same lock and checks this pair against the receipt and current source inputs
+before QEMU starts. Missing, changed or partly published artifacts fail this
+check. The VM UUID and installed-manifest checks still run after boot.
+
+Failed attempts and history need manual retention management. After an interrupted
+process leaves a lock directory, check that no build or acceptance process is
+running before removing that empty lock. A lock alone never establishes a
+successful build.
+
+### Schema 2 source inputs and archive limits
+
+`EXO_OS_BUILD.json` remains schema 2. Its `source_sha256` hashes `pyproject.toml`,
+`src/`, the checked image tree, and these builder files:
+
+- `tools/build-image.sh`, `tools/build-provenance.py`, `tools/build-profile.py`
+- `tools/env.sh`, `tools/source_identity.py`, `tools/build-receipt.py`
+
+Generated `image/out/`, `image/mkosi.tools/`, `image/mkosi.tools.manifest`,
+`image/mkosi.cache/`, `image/mkosi.builddir/`, Python bytecode and `__pycache__`
+are excluded. Other acceptance and diagnostic tools are outside this digest,
+so their committed revision can be recorded separately from the image revision.
+Changing builder bytes requires a fresh image build. Earlier images, including
+`7170b3d`, cannot acquire this new digest or receipt retroactively.
+
+OS source identity uses Git only when its physical repository root equals the
+source root. It then falls back to `.EXO_OS_SOURCE_ID`, followed by
+`EXO_OS_SOURCE_COMMIT`. Every supplied identity must be a lowercase 40-hex value,
+and supplied identities must agree. An archive nested inside another Git
+checkout keeps its own identity. Symlink paths resolve to the same physical root.
+Git builds require a clean committed checkout before an attempt can invalidate
+the success receipt. Acceptance also requires a clean committed harness checkout.
+Archive marker files must be regular files of at most 64 bytes, with 40 lowercase
+hex characters and an optional newline. Symlinks, dangling links and other file
+types are rejected.
+
+Git-free OS identity markers and core `.EXO_PIN` files are trusted operator
+assertions. Matching `.EXO_PIN` to `exo.pin` does not prove that an Exo archive's
+contents came from that commit. Supply the core archive through a trusted process
+or use the Git fetch/checkout path. That path requires `.deps/exo` to be its own
+clean checkout and confirms that its HEAD equals the pin before wheel building.
+Modified tracked files and untracked files cause refusal. Git worktrees with a
+`.git` file are supported. Dependency paths outside this source tree are refused.
+The receipt binds the resulting raw image and
+manifest bytes. It does not authenticate archive assertions, resolved wheels or
+the host toolchain. Dependency resolution still includes `textual>=1`.
 
 ## Still required
 

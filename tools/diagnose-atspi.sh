@@ -10,7 +10,7 @@ set -Eeuo pipefail
 }
 image_source=$3
 
-here="$(cd "$(dirname "$0")/.." && pwd)"
+here="$(cd "$(dirname "$0")/.." && pwd -P)"
 out="$here/image/out"
 report="$out/diagnose-atspi.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }
@@ -34,22 +34,8 @@ trap diagnostic_cleanup EXIT
 # An operator supplies the exact image revision. Tools-only diagnostic changes
 # have their own revision; accept_start verifies the installed manifest and
 # runtime/image digest against this local build manifest before probe execution.
-if [[ $(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true) == "$here" ]]; then
-  diagnostic_source=$(git -C "$here" rev-parse HEAD)
-  [[ -z $(git -C "$here" status --porcelain) ]] || {
-    echo 'diagnostic source must be a clean committed checkout' >&2
-    exit 2
-  }
-elif [[ -s $here/.EXO_OS_SOURCE_ID ]]; then
-  diagnostic_source=$(tr -d '\n' < "$here/.EXO_OS_SOURCE_ID")
-else
-  echo 'diagnostic source must be a Git checkout or archive with .EXO_OS_SOURCE_ID' >&2
-  exit 2
-fi
-[[ $diagnostic_source =~ ^[0-9a-f]{40}$ ]] || {
-  echo 'diagnostic source identifier is malformed' >&2
-  exit 2
-}
+diagnostic_source=$(python3 "$here/tools/source_identity.py" \
+  --source-root "$here" --require-clean --label "diagnostic source") || exit 2
 manifest="$out/extra/opt/exo/EXO_OS_BUILD.json"
 [[ -s $manifest ]] || {
   echo 'the selected image build manifest is missing' >&2

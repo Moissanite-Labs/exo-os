@@ -232,6 +232,7 @@ def test_git_free_diagnostic_archive_uses_source_marker(tmp_path):
     (tmp_path / "tools").mkdir()
     shutil.copy2(TOOLS / "diagnose-atspi.sh", tmp_path / "tools" / "diagnose-atspi.sh")
     shutil.copy2(TOOLS / "accept-common.sh", tmp_path / "tools" / "accept-common.sh")
+    shutil.copy2(TOOLS / "source_identity.py", tmp_path / "tools/source_identity.py")
     (tmp_path / ".EXO_OS_SOURCE_ID").write_text(DIAGNOSTIC + "\n")
     env = {**os.environ, "EXO_OS_VM_ACCEPTANCE": "1"}
     out = subprocess.run(["bash", str(tmp_path / "tools" / "diagnose-atspi.sh"),
@@ -251,6 +252,7 @@ def test_diagnostic_rejects_wrong_local_image_identity_before_qemu(tmp_path, bui
     (tmp_path / "tools").mkdir()
     shutil.copy2(TOOLS / "diagnose-atspi.sh", tmp_path / "tools" / "diagnose-atspi.sh")
     shutil.copy2(TOOLS / "accept-common.sh", tmp_path / "tools" / "accept-common.sh")
+    shutil.copy2(TOOLS / "source_identity.py", tmp_path / "tools/source_identity.py")
     (tmp_path / ".EXO_OS_SOURCE_ID").write_text(DIAGNOSTIC + "\n")
     python = tmp_path / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
@@ -267,10 +269,12 @@ def test_diagnostic_rejects_wrong_local_image_identity_before_qemu(tmp_path, bui
     assert not (tmp_path / "image" / "out" / "diagnose-atspi.txt").exists()
 
 
-def test_matching_image_identity_reaches_common_acceptance_preflight(tmp_path):
+@pytest.mark.parametrize("source_kind", ["archive", "git", "git_symlink"])
+def test_matching_image_identity_reaches_common_acceptance_preflight(tmp_path, source_kind):
     (tmp_path / "tools").mkdir()
     shutil.copy2(TOOLS / "diagnose-atspi.sh", tmp_path / "tools" / "diagnose-atspi.sh")
     shutil.copy2(TOOLS / "accept-common.sh", tmp_path / "tools" / "accept-common.sh")
+    shutil.copy2(TOOLS / "source_identity.py", tmp_path / "tools/source_identity.py")
     (tmp_path / ".EXO_OS_SOURCE_ID").write_text(DIAGNOSTIC + "\n")
     python = tmp_path / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
@@ -279,7 +283,19 @@ def test_matching_image_identity_reaches_common_acceptance_preflight(tmp_path):
     manifest.parent.mkdir(parents=True)
     manifest.write_text(json.dumps({"schema": 2, "build_profile": "vmtest",
                                     "exo_os_commit": IMAGE}))
-    out = subprocess.run(["bash", str(tmp_path / "tools" / "diagnose-atspi.sh"),
+    invocation = tmp_path / "tools/diagnose-atspi.sh"
+    if source_kind != "archive":
+        (tmp_path / ".EXO_OS_SOURCE_ID").unlink()
+        (tmp_path / ".gitignore").write_text("image/out/\n")
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=Test",
+                        "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"], check=True)
+        if source_kind == "git_symlink":
+            link = tmp_path.parent / (tmp_path.name + "-link")
+            link.symlink_to(tmp_path, target_is_directory=True)
+            invocation = link / "tools/diagnose-atspi.sh"
+    out = subprocess.run(["bash", str(invocation),
                           "--vm-acceptance", "--image-source", IMAGE],
                          env={**os.environ, "EXO_OS_VM_ACCEPTANCE": "1"},
                          capture_output=True, text=True, timeout=5)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Actual protected signer and tamper detection, only in a disposable vmtest image.
 set -Eeuo pipefail
-here="$(cd "$(dirname "$0")/.." && pwd)"
+here="$(cd "$(dirname "$0")/.." && pwd -P)"
 out="$here/image/out"
 report="$out/accept-ledger.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }

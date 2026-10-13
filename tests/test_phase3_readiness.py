@@ -140,13 +140,14 @@ def test_phase3_requires_explicit_image_before_creating_output(args, opt_in):
     assert run.returncode == 2 and "--image-source FULL_40_HEX_HASH" in run.stderr
 
 
-@pytest.mark.parametrize("scenario", ["wrong_image", "dirty_harness", "matching_archive"])
+@pytest.mark.parametrize("scenario", ["wrong_image", "dirty_harness", "matching_archive", "matching_git", "matching_git_symlink"])
 def test_phase3_preflight_keeps_image_and_harness_identities_separate(tmp_path, scenario):
     source = TOOLS / "accept-phase3.sh"
     tools = tmp_path / "tools"
     tools.mkdir()
     shutil.copyfile(source, tools / source.name)
     shutil.copyfile(TOOLS / "accept-common.sh", tools / "accept-common.sh")
+    shutil.copy2(TOOLS / "source_identity.py", tools / "source_identity.py")
     python = tmp_path / ".venv/bin/python"
     python.parent.mkdir(parents=True)
     python.symlink_to(sys.executable)
@@ -155,18 +156,25 @@ def test_phase3_preflight_keeps_image_and_harness_identities_separate(tmp_path, 
     manifest.parent.mkdir(parents=True)
     manifest.write_text(json.dumps({"schema": 2, "build_profile": "vmtest",
                                     "exo_os_commit": "c" * 40 if scenario == "wrong_image" else selected}))
-    if scenario == "dirty_harness":
+    if scenario in ("dirty_harness", "matching_git", "matching_git_symlink"):
         (tmp_path / ".gitignore").write_text("image/out/\n")
         subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
         subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
         subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
                         "commit", "-qm", "fixture"], check=True)
-        (tools / source.name).write_text(source.read_text() + "\n# dirty\n")
+        if scenario == "dirty_harness":
+            (tools / source.name).write_text(source.read_text() + "\n# dirty\n")
     else:
         (tmp_path / ".EXO_OS_SOURCE_ID").write_text("a" * 40)
-    run = subprocess.run(["bash", str(tools / source.name), "--vm-acceptance", "--image-source", selected],
+    invocation = tools / source.name
+    if scenario == "matching_git_symlink":
+        link = tmp_path.parent / (tmp_path.name + "-link")
+        link.symlink_to(tmp_path, target_is_directory=True)
+        invocation = link / "tools" / source.name
+    run = subprocess.run(["bash", str(invocation), "--vm-acceptance", "--image-source", selected],
                          env={**os.environ, "EXO_OS_VM_ACCEPTANCE": "1"}, capture_output=True, text=True, timeout=5)
     expected = {"wrong_image": "manifest built from", "dirty_harness": "clean committed checkout",
-                "matching_archive": "Build the vmtest image"}[scenario]
+                "matching_archive": "Build the vmtest image",
+                "matching_git": "Build the vmtest image", "matching_git_symlink": "Build the vmtest image"}[scenario]
     assert run.returncode != 0 and expected in run.stdout + run.stderr
     assert not (tmp_path / "image/out/qemu.log").exists()

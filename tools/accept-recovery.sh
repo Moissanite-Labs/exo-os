@@ -2,7 +2,7 @@
 # Actual reboot acceptance, only in the harness-identified disposable vmtest VM.
 # This script never mounts/modifies the host image, home, store or bootloader.
 set -Eeuo pipefail
-here="$(cd "$(dirname "$0")/.." && pwd)"
+here="$(cd "$(dirname "$0")/.." && pwd -P)"
 out="$here/image/out"
 report="$out/accept-recovery.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }

@@ -85,6 +85,7 @@ def _preflight_fixture(tmp_path, *, image_source="b" * 40, archive=True, dirty=F
     (tmp_path / "tools").mkdir()
     shutil.copy2(ACCEPT, tmp_path / "tools" / ACCEPT.name)
     shutil.copy2(ACCEPT.with_name("accept-common.sh"), tmp_path / "tools/accept-common.sh")
+    shutil.copy2(ACCEPT.with_name("source_identity.py"), tmp_path / "tools/source_identity.py")
     (tmp_path / ".venv/bin").mkdir(parents=True)
     (tmp_path / ".venv/bin/python").symlink_to(sys.executable)
     if archive:
@@ -124,16 +125,22 @@ def test_spend_harness_refuses_wrong_image_or_dirty_source_before_qemu(tmp_path)
         ("wrong", {"image_source": "c" * 40}, "manifest built from"),
         ("dirty", {"archive": False, "dirty": True}, "clean committed checkout"),
         ("matching", {}, "Build the vmtest image"),
+        ("matching_git", {"archive": False}, "Build the vmtest image"),
+        ("matching_git_symlink", {"archive": False}, "Build the vmtest image"),
     ):
         directory = tmp_path / label
         directory.mkdir()
         script = _preflight_fixture(directory, **kwargs)
+        if label == "matching_git_symlink":
+            link = tmp_path / "matching-link"
+            link.symlink_to(directory, target_is_directory=True)
+            script = link / "tools/accept-model-spend.sh"
         run = subprocess.run(["bash", str(script), "--vm-acceptance", "--image-source", selected],
                              env={**os.environ, "EXO_OS_VM_ACCEPTANCE": "1"},
                              capture_output=True, text=True, timeout=5)
         assert run.returncode != 0 and expected in run.stdout + run.stderr, label
         assert not (directory / "image/out/qemu.log").exists()
-        assert not (directory / "image/out/accept-model-spend.txt").exists() or label == "matching"
+        assert not (directory / "image/out/accept-model-spend.txt").exists() or label.startswith("matching")
 
 
 def test_persistence_revalidates_without_restarting_boot_order_unit(tmp_path):
