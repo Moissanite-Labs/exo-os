@@ -27,7 +27,7 @@ from typing import Callable, Iterator
 from .checks import DEFAULT_CHECKS, Check
 from .ledger import NullSink, Sink
 from .paths import DESKTOP_MARK, owns_desktop
-from .profile import Profile
+from .profile import Profile, ProfileError
 from .render.hyprland import render as render_hyprland
 
 INIT_SUMMARY = "Set up the machine profile"
@@ -98,6 +98,10 @@ class ChangeEngine:
     def apply(self, new: Profile, summary: str, *, by: str = "exo", undoes: str = "",
               force: bool = False) -> Result:
         new.validate()
+        try:
+            new.check_roundtrip()  # never write a machine.toml that cannot be read back
+        except ProfileError as exc:
+            return Result(False, f"Not changed: {exc}")
         from .sandbox.desktop import check_profile, required
         from .sandbox.policy import SandboxError
 
