@@ -1,6 +1,6 @@
 # Protected ledger authority
 
-The built image activates the protected append authority before the first login.
+The image configuration activates the protected append authority before the first login.
 The root boot service validates persistent mount identities on every boot. It
 provisions a new stream only when both the signer mount and root-owned store
 skeleton are empty. Existing identity and journal must validate under the signer
@@ -49,9 +49,9 @@ Each writer uses its own event key: `exo-gate`, `exo-memory`, `exo-learn`, `exo-
 `exo-onboard`, `exo-consolidate`, `ingest`, `agent`, `principal`, and the configured
 principal name. Memory defaults to agent attribution `exo-memory`; memory and
 learning permit the configured principal and literal `principal` attribution.
-Ingest permits its seat and these principal attributions. Custom memory agents,
-chat import adapters (`chatgpt`, `claude.ai`, `claude-code`, `grok`), Hermes
-profiles, seats and extra authors are intentionally unprovisioned until an
+Ingest permits its own attribution, these principal attributions and the fixed
+import labels `chatgpt`, `claude.ai`, `claude-code` and `grok`. Custom memory agents,
+Hermes profiles, seats and extra authors are intentionally unprovisioned until an
 administrator reviews a migration. There are no wildcard authors or paths.
 
 The image ships the required core/user-unit environment:
@@ -90,6 +90,20 @@ append replies retain that operation ID: look it up, never repeat the external
 action or substitute a new ID. A verified committed append whose desktop copy
 fails is projection recovery, not permission to append again. The desktop ledger
 is a verifiable local projection, not the authority or signing-key owner.
+
+`exo log verify` and `exo memory verify` use the configured authority in read-only
+mode. A missing tail, altered row, extra local row or unavailable authority cannot
+be reported as a verified copy. Verification preserves the rows and triggers it
+inspects. A changing authority head is retried briefly; a persistently busy stream
+reports unverifiable. A missing tail can also mean an interrupted projection write,
+so that result alone does not establish malicious deletion. Open a normal writer
+to synchronize committed rows explicitly; a divergent local prefix refuses repair.
+
+`tools/accept-ledger.sh` exercises the actual installed service, both verification
+commands, deliberate edits/truncation, private-key access denial and signer outage
+in a fresh disposable VM. `tools/accept-phase1.sh` exports a coherent SQLite backup
+and checks it in plain core on the host, using public identity obtained separately
+from the protected root manifest. Neither check constitutes a deployed witness.
 
 ## Independent witness handoff
 

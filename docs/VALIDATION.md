@@ -1,16 +1,18 @@
 # Runtime and isolation validation
 
-Current checks on 2026-10-13. Exo dependency:
-`d011efae2176121613b500dabfa1382d40d89736`, as recorded in `exo.pin`.
-These results cover runtime trust, isolated execution and recovery logic. They
-do not establish a newly booted image or a successful recovery reboot.
+Checks on 2026-10-13. The current Exo dependency is
+`b3149a91d2981d1a6f71fdb2400b99b1f8e21499`, as recorded in `exo.pin`.
+Integrated OS `bfaa8f2` has the same source tree as published `2e13245`.
+Results below name the revision they exercised. Source and container checks do
+not establish a booted current image or a successful recovery reboot.
 
 | Check | Result | Boundary of evidence |
 |---|---|---|
-| macOS arm64, Python 3.13, `.venv/bin/pytest -q` | 321 passed, 13 skipped | Includes persistent egress recovery checks at OS `b155182`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
-| Linux arm64, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 321 passed, 10 skipped | OS `8aca057`, before nine additional recovery tests; includes GTK full-payload rendering and actual inherited-listener service identity; skips Hyprland and the separately enabled namespace suite |
-| Linux arm64, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Actual bubblewrap, Landlock and seccomp; disposable privileged container, no host mounts |
-| Shared core protocol and strict shutdown checks | 49 passed; 13 passed with warnings treated as errors | Includes delayed handler registration and unread transport shutdown regressions |
+| macOS arm64, Python 3.13, `.venv/bin/pytest -q` | 389 passed, 16 skipped | Integrated OS `bfaa8f2`, core `b3149a9`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
+| Linux arm64, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 373 passed, 10 skipped | Authority branch before its final systemd ordering/environment assertions and the additional integrated VM harness tests; includes actual inherited-listener and signer service identity checks |
+| Linux arm64, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Earlier OS `5773dc4` and core `a915e62`; actual bubblewrap, Landlock and seccomp in a disposable privileged container with no host mounts |
+| Shared core authority, witness and read-only verification | 82 passed | Core `b3149a9`; durable commits, replay, independent receipt validation, canonical CLI corruption checks and concurrent verification |
+| systemd unit dependency graph | passed | Provision/socket/service/firstboot graph checked in Linux with unavailable image executable paths replaced only in temporary validation copies; actual first boot remains necessary |
 | Ruff `--select F`, `src tests` | passed | Python static checks |
 | `bash -n tools/*.sh` | passed | Shell syntax, not a VM acceptance run |
 | `git diff --check` | passed | Whitespace/conflict-marker check |
@@ -82,7 +84,7 @@ EXO_OS_MKOSI=/path/to/mkosi tools/build-image.sh \
 
 Build a new x86-64 `vmtest` image and run `tools/accept-phase1.sh`,
 `tools/accept-phase2.sh`, `tools/accept-phase3.sh`, `tools/accept-isolation.sh`
-and `tools/accept-recovery.sh`. Those scripts were
+and `tools/accept-ledger.sh` plus `tools/accept-recovery.sh`. Those scripts were
 strengthened here; their historical results do not transfer to this revision.
 Image boot, systemd socket activation, pacman/snapper on btrfs, current Hyprland,
 Orca, real-model chat, and hardware/soak behavior were not exercised in this run.
@@ -90,9 +92,29 @@ Orca, real-model chat, and hardware/soak behavior were not exercised in this run
 Kernel tests establish the stated tool-process boundary on the tested Linux
 runner, not consent enforcement inside sysd or separation of all desktop
 processes. The credentialed-action service passes synthetic local TLS tests;
-no live API or credential provisioning was exercised. General response adapters,
-the separate core signer and off-machine audit anchor remain integration work.
+no live API or credential provisioning was exercised. General response adapters
+and independent witness delivery/deployment remain integration work. The protected
+OS signer is implemented and source-tested; its fresh image has not yet completed
+the runtime acceptance suite.
 See [CORE-CONTRACT.md](CORE-CONTRACT.md).
 No working machine was migrated. Shared core changes are developed separately
 in [Exo PR 70](https://github.com/aska-digital/exo/pull/70); another development
 checkout is not modified by these checks.
+
+## Diagnostic image evidence
+
+A separate image at OS `0b189c1`, core `6dbb4d0`, booted under QEMU x86-64 TCG
+on the ARM Linux build host. Its provenance and root-owned runtime mode audit
+passed. Updated host-side isolation probes reported **11 passed, 0 failed**:
+daemon startup, required executor, and eight kernel checks including actual
+started-process timeout/cancellation cleanup. Reports are retained under
+`image/out/acceptance-0b189c1-6db/isolation/`. That image predates the protected
+ledger and subsequent core approval fixes; it is diagnostic evidence only.
+
+Ubuntu's plain `OVMF_CODE_4M.fd` did not expose a SecureBoot variable, so recovery
+correctly refused an unknown state. With `OVMF_CODE_4M.secboot.fd` and fresh
+unenrolled `OVMF_VARS_4M.fd`, the guest reported SecureBoot=0, SetupMode=1.
+No guest firmware variable was fabricated or bypassed. Recovery still refuses
+enabled or unavailable Secure Boot state. A first-boot keyring lock-file race in
+the mode audit was resolved by waiting for systemd readiness before auditing;
+the audit does not ignore disappearing or unsafe paths.
