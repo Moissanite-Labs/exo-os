@@ -139,7 +139,9 @@ class Connection:
         if loop is None or self._client is None:
             if isinstance(body, s.ApprovalRespond):
                 self.post(self.listener.on_approval_result, body.request_id)
-            if not quiet:
+            if quiet:
+                self._log_dropped(body, "not_connected")
+            else:
                 self.post(self.listener.on_failed, "not_connected", "exod is not reachable")
             return
         client = self._client
@@ -163,6 +165,13 @@ class Connection:
         self.send(s.UiRespond(panel_id=panel_id, action=action, value=value or {}),  # type: ignore[arg-type]
                   quiet=True)
 
+    @staticmethod
+    def _log_dropped(body: Any, why: str) -> None:
+        """A quiet command the person never asked for is not shown, but a lost panel response (the
+        dismissed/ignored learning signal) must leave a trace. Ids and kinds only, no panel content."""
+        LOG.warning("dropped %s (panel %s, action %s): %s", type(body).__name__,
+                    getattr(body, "panel_id", "?"), getattr(body, "action", "?"), why)
+
     async def _send(self, body: Any, quiet: bool = False, *, client: Any = None) -> None:
         approval = isinstance(body, s.ApprovalRespond)
         try:
@@ -178,7 +187,9 @@ class Connection:
         except Exception as exc:
             if approval:
                 self.post(self.listener.on_approval_result, body.request_id)
-            if not quiet:
+            if quiet:
+                self._log_dropped(body, type(exc).__name__)
+            else:
                 self.post(self.listener.on_failed, "not_connected", f"{type(exc).__name__}: {exc}")
             # The reply may be lost after exod acted. Rejoin and query pending state; never resend.
             if client is self._client:
@@ -186,7 +197,9 @@ class Connection:
             return
         if approval:
             self.post(self.listener.on_approval_result, body.request_id)
-        if not resp.ok and not quiet:
+        if not resp.ok and quiet:
+            self._log_dropped(body, resp.error.code if resp.error else "unknown")
+        elif not resp.ok:
             err = resp.error
             self.post(self.listener.on_failed, err.code if err else "unknown", err.message if err else "")
         if resp.ok and isinstance(body, s.ModelsList):

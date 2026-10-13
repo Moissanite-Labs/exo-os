@@ -692,8 +692,6 @@ def test_panel_signal_on_a_dead_link_is_quiet_but_other_commands_are_not(paths):
         c.stop()
 
 
-@pytest.mark.xfail(strict=True, reason="a panel signal dropped on a dead link leaves no trace at all, so the "
-                   "dismissed/ignored learning signal (DESIGN.md 7.3) can vanish unnoticed (issue 20)")
 def test_dropped_panel_signal_leaves_a_trace(paths, caplog):
     sock, state = paths
     rec = Recorder()
@@ -703,8 +701,11 @@ def test_dropped_panel_signal_leaves_a_trace(paths, caplog):
         rec.wait(lambda: rec.last("connected") is False)
         caplog.clear()
         caplog.set_level(logging.DEBUG, logger=conn_mod.LOG.name)
-        c.respond_panel("p1", "ignored")
-        assert [r for r in caplog.records if r.name == conn_mod.LOG.name and "p1" in r.getMessage()]
+        c.respond_panel("p1", "ignored", {"choice": "secret text"})
+        [record] = [r for r in caplog.records if r.name == conn_mod.LOG.name]
+        assert record.levelno == logging.WARNING
+        assert "p1" in record.getMessage() and "ignored" in record.getMessage()
+        assert "secret text" not in record.getMessage()
     finally:
         c.stop()
 
