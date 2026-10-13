@@ -10,6 +10,12 @@
 #   7. synthetic GTK focus/readability checks on the real Wayland layer surfaces
 # Screenshots: image/out/p3-*.png. Results: image/out/accept-phase3.txt
 set -Eeuo pipefail
+[[ $# == 3 && ${1:-} == --vm-acceptance && ${2:-} == --image-source \
+   && ${3:-} =~ ^[0-9a-f]{40}$ && ${EXO_OS_VM_ACCEPTANCE:-} == 1 ]] || {
+  echo 'requires --vm-acceptance --image-source FULL_40_HEX_HASH and EXO_OS_VM_ACCEPTANCE=1' >&2
+  exit 2
+}
+image_source=$3
 here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$here/image/out"
 report="$out/accept-phase3.txt"
@@ -27,7 +33,12 @@ type_in() { printf '%s text=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >> "$inp
 press() { printf '%s key=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >> "$input_log"; as_exo "wtype -k $1"; }
 layers() { as_exo "hyprctl layers" | { grep -o 'namespace: exo-surface-[a-z]*' || true; } | sort -u | tr '\n' ' '; }
 bar() { as_exo "/opt/exo/bin/exo-surface $1"; sleep 1; }
-windows() { as_exo "hyprctl clients" | { grep -c "class: $1" || true; }; }
+windows() {
+  local mode=$1 record=$2
+  shift 2
+  "$here/.venv/bin/python" "$here/tools/phase3-window-readiness.py" \
+    --ssh "$here/tools/vm-ssh.sh" --record "$out/$record" --timeout 60 "$mode" "$@"
+}
 approval_outcome() {
   as_exo "/opt/exo/bin/python - '$1' <<'PY'
 import json, sqlite3, sys
@@ -39,7 +50,42 @@ PY"
 }
 
 source "$here/tools/accept-common.sh"
+if [[ $(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true) == "$here" ]]; then
+  harness_source=$(git -C "$here" rev-parse HEAD)
+  [[ -z $(git -C "$here" status --porcelain) ]] || {
+    echo 'phase3 harness source must be a clean committed checkout' >&2
+    exit 2
+  }
+elif [[ -s $here/.EXO_OS_SOURCE_ID ]]; then
+  harness_source=$(tr -d '\n' < "$here/.EXO_OS_SOURCE_ID")
+else
+  echo 'phase3 harness source must be a Git checkout or archive with .EXO_OS_SOURCE_ID' >&2
+  exit 2
+fi
+[[ $harness_source =~ ^[0-9a-f]{40}$ ]] || {
+  echo 'phase3 harness source identifier is malformed' >&2
+  exit 2
+}
+manifest="$out/extra/opt/exo/EXO_OS_BUILD.json"
+[[ -s $manifest ]] || { echo 'the selected image build manifest is missing' >&2; exit 2; }
+if ! "$here/.venv/bin/python" - "$manifest" "$image_source" <<'PY_IMAGE_SOURCE'
+import json
+import sys
+try:
+    with open(sys.argv[1]) as source:
+        built = json.load(source)
+    valid = (built.get("schema") == 2 and built.get("build_profile") == "vmtest"
+             and built.get("exo_os_commit") == sys.argv[2])
+except (OSError, ValueError, AttributeError):
+    valid = False
+raise SystemExit(0 if valid else 1)
+PY_IMAGE_SOURCE
+then
+  echo "phase3 acceptance requires a vmtest image manifest built from $image_source" >&2
+  exit 2
+fi
 accept_start 3 1536
+echo "      image source: $image_source; phase3 harness source: $harness_source" | tee -a "$report"
 : > "$input_log"
 accept_set_required_checks 7
 accept_keyring
@@ -73,10 +119,14 @@ renderer=$(printf '%s\n' "$renderer_record" | "$here/.venv/bin/python" "$here/to
 echo "      vmtest surface renderer: $renderer; declared/effective service values in p3-surface-renderer.json" | tee -a "$report"
 
 # 1. app by a few letters
-before=$(windows foot)
-bar show; type_in "Termi"; sleep 1; shot p3-palette; press Return; sleep 3
-after=$(windows foot)
-result "palette-opens-app" "$([[ $after -gt $before ]] && echo 1 || echo 0)" "foot windows $before -> $after (typed 'Termi', Enter)"
+if ! before=$(windows --baseline p3-palette-baseline.json); then
+  result "palette-opens-app" 0 "no valid baseline; stopped before typing; see p3-palette-baseline.json"
+  exit 1
+fi
+bar show; type_in "Termi"; sleep 1; shot p3-palette; press Return
+opened=0
+if after=$(windows --after p3-palette-readiness.json "$before"); then opened=1; fi
+result "palette-opens-app" "$opened" "valid foot windows $before -> ${after:-unobserved}; bounded observations in p3-palette-readiness.json (typed 'Termi', Enter)"
 
 # 2. a question
 bar show; type_in "hello"; press Return; sleep 6; shot p3-answer
@@ -129,12 +179,16 @@ press Escape
 
 # 5. exod stopped
 as_exo "systemctl --user stop exod"; as_exo "pkill -x foot || test \$? = 1"; sleep 3
-before=$(windows foot)
+if ! before=$(windows --baseline p3-offline-baseline.json); then
+  result "works-without-exod" 0 "no valid baseline; stopped before typing; see p3-offline-baseline.json"
+  exit 1
+fi
 bar show; sleep 2; shot p3-no-exod
-type_in "Termi"; press Return; sleep 3
-after=$(windows foot)
+type_in "Termi"; press Return
+opened=0
+if after=$(windows --after p3-offline-readiness.json "$before"); then opened=1; fi
 as_exo "/opt/exo/bin/exo-os app open Terminal" >/dev/null
-result "works-without-exod" "$([[ $after -gt $before ]] && echo 1 || echo 0)" "foot windows $before -> $after with exod stopped; screenshot p3-no-exod.png"
+result "works-without-exod" "$opened" "valid foot windows $before -> ${after:-unobserved} with exod stopped; observations p3-offline-readiness.json; screenshot p3-no-exod.png"
 as_exo "systemctl --user start exod"
 
 # 6. memory
@@ -145,7 +199,9 @@ echo "      surface PSS: ${pss:-?} MB; background: $(as_exo hyprctl getoption mi
 # creates its own widgets on the same compositor without calling a model or
 # replacing installed runtime files. Stop the actual instance first to avoid
 # its layer windows competing for focus, then restore it even if the probe fails.
-ssh_vm 'cat > /tmp/probe-surface-gtk.py && chmod 0644 /tmp/probe-surface-gtk.py' < "$here/tools/probe-surface-gtk.py"
+for file in probe-surface-gtk.py phase3_input_evidence.py; do
+  ssh_vm "cat > /tmp/$file && chmod 0644 /tmp/$file" < "$here/tools/$file"
+done
 as_exo 'systemctl --user stop exo-surface.service'
 probe_rc=0
 probe_output=$(as_exo "timeout 90 env EXO_OS_VM_ACCEPTANCE=1 GDK_BACKEND=wayland GSK_RENDERER=$renderer LD_PRELOAD=libgtk4-layer-shell.so.0 /opt/exo/bin/python /tmp/probe-surface-gtk.py --vm-acceptance") || probe_rc=$?

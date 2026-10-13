@@ -150,7 +150,7 @@ the documented tools-tree options still pass through.
 ## Still required
 
 Build a new x86-64 `vmtest` image and run `tools/accept-phase1.sh`,
-`tools/accept-phase2.sh`, `tools/accept-phase3.sh`, `tools/accept-isolation.sh`,
+`tools/accept-phase2.sh`, the named Phase 3 invocation below, `tools/accept-isolation.sh`,
 `tools/accept-ledger.sh`, `tools/accept-recovery.sh`, and
 `EXO_OS_VM_ACCEPTANCE=1 tools/accept-model-spend.sh --vm-acceptance --image-source <full-built-OS-commit>`.
 All seven suites are required. The spend harness records the committed tool
@@ -261,3 +261,36 @@ These source checks do not establish new-image acceptance. Fresh acceptance and
 visual review of the prompt, approval details/buttons, drawer and RTL remain
 required. A pass under Cairo establishes software-renderer VM behavior only;
 production GPU, hardware and low-power claims remain open.
+
+### Phase 3 image and harness evidence
+
+Set `IMAGE_SOURCE` to the full commit recorded in the selected image's build
+manifest, then run from the clean committed harness checkout:
+
+```sh
+EXO_OS_VM_ACCEPTANCE=1 tools/accept-phase3.sh \
+  --vm-acceptance --image-source "$IMAGE_SOURCE"
+```
+
+Phase 3 records the image source and separate harness source. The disposable VM
+UUID, installed manifest, pinned core and runtime/image digest checks still run.
+A tools-only harness revision can inspect that named image when its installed
+source digest matches; it does not change or relabel the image.
+
+App checks acquire a valid baseline before typing and wait up to 60 monotonic
+seconds for a valid exact `foot` client-count increase. Each local IPC command is
+bounded by the remaining deadline and a five-second command limit. Output has a
+streaming byte cap; timeout or excess output stops and reaps the local process
+group. Invalid JSON or failed IPC remains invalid evidence, never a zero count.
+Baseline and readiness JSON preserve status, output and observation times for
+both normal and offline launches. These times describe IPC observations;
+application startup time remains unmeasured.
+
+The native held-F6 check records calls to the existing key handler without
+changing its decision. A pass requires a delivered repeat while B is pending and
+unreviewed, on the initial nonzero physical key code, already held before the
+call, without blocking modifiers, and rejected by the original method. A's sole
+allow response, no B response, the full `yesterday` text and observed F6 release
+are also required. Missing repeat delivery fails coverage. Private Broadway
+reports its separate synthetic check. Fresh-image native acceptance remains
+required; the earlier failed runs remain failed.

@@ -5,6 +5,8 @@ import json
 import re
 import sys
 
+from phase3_input_evidence import native_repeat_delivered
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -20,7 +22,19 @@ def main() -> int:
     expected = {"probe": "exo-surface-gtk-v1", "backend": args.backend,
                 "layered": args.backend == "wayland-layer", "status": "PASS",
                 "gsk_renderer": "cairo" if args.backend == "wayland-layer" else "default"}
-    if not isinstance(actual, dict) or set(actual) != {*expected, "renderers"}:
+    if not isinstance(actual, dict) or set(actual) != {*expected, "renderers", "held_f6"}:
+        return 1
+    held = actual.pop("held_f6")
+    if args.backend == "wayland-layer":
+        if (not isinstance(held, dict) or set(held) != {"mode", "events", "released", "a_allowed",
+                                                     "b_responses", "reviewed", "prompt_text"}
+                or held["mode"] != "native"
+                or type(held["a_allowed"]) is not int or held["a_allowed"] != 1
+                or type(held["b_responses"]) is not int or held["b_responses"] != 0
+                or held["reviewed"] is not False or held["prompt_text"] != "yesterday"
+                or not native_repeat_delivered(held["events"], released=held["released"])):
+            return 1
+    elif held != {"mode": "synthetic"}:
         return 1
     renderers = actual.pop("renderers")
     if not isinstance(renderers, dict) or set(renderers) != {"bar", "drawer", "card"}:

@@ -13,6 +13,8 @@ import sys
 import time
 from pathlib import Path
 
+from phase3_input_evidence import native_repeat_delivered
+
 
 def probe_backend() -> str:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -367,18 +369,48 @@ ui.show()
 ui.on_event(ev(s.ApprovalRequested(request_id="held_f6_a", summary="First held-F6 request", binding="fa")))
 ui.on_event(ev(s.ApprovalRequested(request_id="held_f6_b", summary="Second held-F6 request", binding="fb")))
 n = len(sent)
+held_f6_evidence = {"mode": "synthetic"}
 if backend == "wayland-layer":
     # One virtual keyboard retains F6 while Y is pressed/released and a repeat is delivered.
     # Exiting wtype itself releases held keys, so this must remain one invocation.
-    proc = start_keys("-P", "F6", "-s", "1200", "-k", "y", "-s", "800",
-                      "-P", "F6", "-s", "800", "-d", "150", "yesterday", "-p", "F6")
+    native_events, overflow = [], []
+    original_review_key = ui.card.fresh_review_key
+
+    def observe_review_key(keyval, code, state):
+        pending, reviewed = model.approval, model.reviewed_approval
+        blocked = (A.Gdk.ModifierType.SHIFT_MASK | A.Gdk.ModifierType.CONTROL_MASK |
+                   A.Gdk.ModifierType.ALT_MASK | A.Gdk.ModifierType.SUPER_MASK | A.Gdk.ModifierType.META_MASK)
+        row = {"pending_id": pending.request_id if pending else None,
+               "reviewed_id": reviewed.request_id if reviewed else None, "code": code,
+               "held_before": code in ui.card.review_keys, "blocked": bool(state and state & blocked)}
+        row["accepted"] = None
+        if len(native_events) < 128:
+            native_events.append(row)
+        else:
+            overflow[:] = [True]
+        accepted = original_review_key(keyval, code, state)  # call the original after recording input
+        row["accepted"] = accepted
+        return accepted
+
+    ui.card.fresh_review_key = observe_review_key
+    proc = None
     try:
+        proc = start_keys("-P", "F6", "-s", "1200", "-k", "y", "-s", "800",
+                          "-P", "F6", "-s", "800", "-d", "150", "yesterday", "-p", "F6")
         wait_until("held F6 enters only first review", lambda: model.reviewed_approval is not None
                    and model.reviewed_approval.request_id == "held_f6_a" and ui.card.is_active())
         ui.card.shown_at -= (A.ARM_MS + 50) * 1000
         finish_keys(proc)
+        initial = next((row for row in native_events if row["pending_id"] == "held_f6_a"
+                        and row["accepted"] and row["code"] > 0), None)
+        assert initial is not None, native_events
+        wait_until("observed F6 release", lambda: initial["code"] not in ui.card.review_keys)
+        held_f6_evidence = {"mode": "native", "events": native_events,
+                            "released": initial["code"] not in ui.card.review_keys}
+        assert not overflow and native_repeat_delivered(native_events, released=held_f6_evidence["released"]), native_events
     finally:
-        if proc.poll() is None:
+        ui.card.fresh_review_key = original_review_key
+        if proc is not None and proc.poll() is None:
             proc.kill()
             proc.wait(timeout=2)
 else:
@@ -398,6 +430,13 @@ assert len(sent) == n + 1 and sent[-1] == s.ApprovalRespond(
     request_id="held_f6_a", decision="allow", client="exo-surface", binding="fa")
 assert model.reviewed_approval is None and model.approval.request_id == "held_f6_b"
 assert ui.bar.entry.get_text() == "yesterday" and model.text == "yesterday"
+if backend == "wayland-layer":
+    held_f6_evidence.update({
+        "a_allowed": sum(isinstance(body, s.ApprovalRespond) and body.request_id == "held_f6_a"
+                         and body.decision == "allow" for body in sent[n:]),
+        "b_responses": sum(isinstance(body, s.ApprovalRespond) and body.request_id == "held_f6_b"
+                           for body in sent[n:]),
+        "reviewed": model.reviewed_approval is not None, "prompt_text": ui.bar.entry.get_text()})
 ui.bar.entry.set_text("")
 review_with_f6()  # only the observed release permits a new gesture for B
 ui.card.shown_at -= (A.ARM_MS + 50) * 1000
@@ -550,4 +589,5 @@ assert not ui.bar.get_visible() and not ui.drawer.get_visible()
 print(json.dumps({"probe": "exo-surface-gtk-v1", "backend": backend,
                   "layered": all(w.layered for w in (ui.bar, ui.drawer, ui.card)),
                   "gsk_renderer": os.environ.get("GSK_RENDERER", "default"), "renderers": renderer_types,
+                  "held_f6": held_f6_evidence,
                   "status": "PASS"}, sort_keys=True))

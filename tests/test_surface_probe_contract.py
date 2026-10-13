@@ -9,7 +9,13 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 VALIDATOR = TOOLS / "validate-surface-probe.py"
 PROBE = TOOLS / "probe-surface-gtk.py"
 PASS = {"probe": "exo-surface-gtk-v1", "backend": "wayland-layer", "layered": True, "status": "PASS",
-        "gsk_renderer": "cairo", "renderers": {name: "GskCairoRenderer" for name in ("bar", "drawer", "card")}}
+        "gsk_renderer": "cairo", "renderers": {name: "GskCairoRenderer" for name in ("bar", "drawer", "card")},
+        "held_f6": {"mode": "native", "released": True, "a_allowed": 1, "b_responses": 0,
+                    "reviewed": False, "prompt_text": "yesterday", "events": [
+                        {"pending_id": "held_f6_a", "reviewed_id": None, "code": 77,
+                         "held_before": False, "blocked": False, "accepted": True},
+                        {"pending_id": "held_f6_b", "reviewed_id": None, "code": 77,
+                         "held_before": True, "blocked": False, "accepted": False}]}}
 
 
 def validate(payload, exit_code=0):
@@ -28,6 +34,10 @@ def test_phase3_accepts_only_complete_layered_probe_evidence():
                 {**PASS, "renderers": {**PASS["renderers"], "card": "GskGLRenderer"}},
                 {**PASS, "renderers": {"bar": "GskCairoRenderer"}},
                 {**PASS, "renderers": {**PASS["renderers"], "drawer": None}},
+                {**PASS, "held_f6": {"mode": "synthetic"}},
+                {**PASS, "held_f6": {**PASS["held_f6"], "events": PASS["held_f6"]["events"][:1]}},
+                {**PASS, "held_f6": {**PASS["held_f6"], "b_responses": 1}},
+                {**PASS, "held_f6": {**PASS["held_f6"], "released": False}},
                 {**PASS, "unchecked": True}):
         assert validate(bad) != 0, bad
     assert validate(PASS, exit_code=1) != 0  # a printed success cannot mask a failed process

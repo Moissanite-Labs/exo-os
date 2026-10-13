@@ -45,6 +45,9 @@ checks widget focus and simulated text only. Phase 3 runs
 the same synthetic checks on the disposable image's actual Wayland layer
 surfaces, with real `wtype` delivery across request arrival, including initial Y/N
 and the late `tod|ay` boundary, alongside its separate real protocol checks.
+Its held-F6 evidence must show actual repeated delivery to the original handler
+while the next request is pending. A duplicate discarded before delivery cannot
+pass that coverage check. The temporary observer is removed afterward.
 The timing-only unarmed assertions use a frozen clock so compositor latency cannot
 turn a pre-arm assertion into an assertion after the guard has already expired.
 
