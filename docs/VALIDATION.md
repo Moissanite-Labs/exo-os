@@ -128,3 +128,46 @@ No guest firmware variable was fabricated or bypassed. Recovery still refuses
 enabled or unavailable Secure Boot state. A first-boot keyring lock-file race in
 the mode audit was resolved by waiting for systemd readiness before auditing;
 the audit does not ignore disappearing or unsafe paths.
+
+### TCG device discovery timing
+
+Failed and successful boot journals from the same rebuilt `vmtest` image at OS
+`98163c0ab8393fd6af8192b3c93b654a304f65ed`, core `b3149a9`, show different delays
+after switch-root. The raw image SHA256 is
+`63b94275f5272ef182f75aa906bd60974a83583f6077963848f675a31f259018`.
+Times below are monotonic seconds since kernel startup; entries marked "not
+compared" were not included in this timing comparison.
+
+Evidence is retained in the build container under
+`image/out/acceptance-98163c-b314/`. Successful timing comes from
+`01-ledger-attempt2/offline-journal-full.txt`; failed timing comes from
+`02-ledger-attempt3/offline-journal-full.txt`, `offline-journal-device.txt` and
+`offline-diagnosis.txt`, with `ledger-retry-screen.ppm` in the same failed-attempt
+directory. These are container-local diagnostics, not committed artifacts.
+
+| Journal event | Failed boot (s) | Successful boot (s) |
+|---|---|---|
+| Kernel exposes `ttyS0` | 2.598 | not compared |
+| Kernel exposes virtio `vda` | 2.841 | not compared |
+| Initrd discovers `gpt-auto` | 51.548 | not compared |
+| Device waits after switch-root | 102.434 | 73.474 |
+| `systemd-tmpfiles-setup-dev-early` starts | 105.432 | not compared |
+| `systemd-tmpfiles-setup-dev-early` finishes | 204.271 | 128.020 |
+| Device jobs time out | 192.610 to 192.735 | not observed |
+| Main-system `udevd` starts / becomes ready | 209.196 / 213.294 | 131.573 |
+| Main-system `gpt-auto` discovery | not observed after timeout | 135.262 |
+
+The failed boot exposed kernel devices early, but its root-filesystem device
+jobs expired before `udevd` started. The successful boot discovered the root
+device after shorter userspace delays. These journals support a TCG device-wait
+timing failure; they do not establish that a longer wait fixes every boot.
+
+The `vmtest` profile now appends
+`systemd.default_device_timeout_sec=300s systemd.show_status=yes loglevel=6`
+to give emulated device discovery a bounded wait and retain useful boot status.
+The device-timeout option has been available since systemd v254 and overrides
+the default device timeout at boot, as documented in the
+[primary systemd kernel-command-line reference](https://github.com/systemd/systemd/blob/main/man/kernel-command-line.xml).
+Production retains `quiet loglevel=3` with no device-timeout override. This
+profile change has source checks only until a newly built image is booted; the
+host acceptance deadline remains separately bounded at 900 seconds.
