@@ -8,19 +8,28 @@ import hashlib
 import json
 import os
 import stat
-import subprocess
 from pathlib import Path
+
+from source_identity import source_identity
 
 
 def source_digest(root: Path) -> str:
     digest = hashlib.sha256()
     paths = [root / "pyproject.toml"]
+    # Only the builder and helpers it consumes belong here. Acceptance/diagnostic
+    # tool revisions remain separate from the runtime/build input identity.
+    paths.extend(root / "tools" / name for name in (
+        "build-image.sh", "build-provenance.py", "build-profile.py", "env.sh",
+        "source_identity.py", "build-receipt.py"))
     paths.extend((root / "src").rglob("*"))
     paths.extend((root / "image").rglob("*"))
     selected = []
     for path in paths:
         relative = path.relative_to(root)
-        if relative.parts[:2] == ("image", "out") or relative.parts[:2] == ("image", "mkosi.tools"):
+        if relative.parts[:2] in {
+            ("image", "out"), ("image", "mkosi.tools"),
+            ("image", "mkosi.cache"), ("image", "mkosi.builddir"),
+        }:
             continue
         # mkosi writes this host tools-tree metadata beside the excluded tools tree
         # after the installed payload's manifest has already been prepared.
@@ -59,16 +68,9 @@ def main() -> None:
     args = parser.parse_args()
     root = args.source_root.resolve()
     try:
-        commit = subprocess.check_output(
-            ["git", "-C", str(root), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
-        ).strip()
-    except subprocess.CalledProcessError:
-        commit = os.environ.get("EXO_OS_SOURCE_COMMIT", "")
-        source_id = root / ".EXO_OS_SOURCE_ID"
-        if not commit and source_id.is_file():
-            commit = source_id.read_text().strip()
-        if not commit:
-            raise SystemExit("source tree has no Git metadata; set EXO_OS_SOURCE_COMMIT or .EXO_OS_SOURCE_ID")
+        commit = source_identity(root, require_clean=True)
+    except (ValueError, OSError) as exc:
+        raise SystemExit(str(exc)) from exc
     metadata = {
         "schema": 2,
         "exo_os_commit": commit,

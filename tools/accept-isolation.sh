@@ -9,7 +9,7 @@ set -Eeuo pipefail
   exit 2
 }
 image_source=$3
-here="$(cd "$(dirname "$0")/.." && pwd)"
+here="$(cd "$(dirname "$0")/.." && pwd -P)"
 out="$here/image/out"
 report="$out/accept-isolation.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }
@@ -22,22 +22,8 @@ result() {
 }
 
 source "$here/tools/accept-common.sh"
-if [[ $(git -C "$here" rev-parse --show-toplevel 2>/dev/null || true) == "$here" ]]; then
-  harness_source=$(git -C "$here" rev-parse HEAD)
-  [[ -z $(git -C "$here" status --porcelain) ]] || {
-    echo 'isolation harness source must be a clean committed checkout' >&2
-    exit 2
-  }
-elif [[ -s $here/.EXO_OS_SOURCE_ID ]]; then
-  harness_source=$(tr -d '\n' < "$here/.EXO_OS_SOURCE_ID")
-else
-  echo 'isolation harness source must be a Git checkout or archive with .EXO_OS_SOURCE_ID' >&2
-  exit 2
-fi
-[[ $harness_source =~ ^[0-9a-f]{40}$ ]] || {
-  echo 'isolation harness source identifier is malformed' >&2
-  exit 2
-}
+harness_source=$(python3 "$here/tools/source_identity.py" \
+  --source-root "$here" --require-clean --label "isolation harness source") || exit 2
 manifest="$out/extra/opt/exo/EXO_OS_BUILD.json"
 [[ -s $manifest ]] || { echo 'the selected image build manifest is missing' >&2; exit 2; }
 if ! "$here/.venv/bin/python" - "$manifest" "$image_source" <<'PY_IMAGE_SOURCE'

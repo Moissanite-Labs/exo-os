@@ -9,7 +9,7 @@
 #   5. the OS plugin exports no bootloader or reboot tools (not a whole-core sandbox test)
 # Results: image/out/accept-phase2.txt
 set -Eeuo pipefail
-here="$(cd "$(dirname "$0")/.." && pwd)"
+here="$(cd "$(dirname "$0")/.." && pwd -P)"
 out="$here/image/out"
 report="$out/accept-phase2.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }

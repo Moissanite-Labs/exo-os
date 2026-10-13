@@ -22,14 +22,23 @@ def selected_profile(args: list[str]) -> str:
             value = args[index]
         elif arg.startswith("--profile="):
             value = arg.removeprefix("--profile=")
-        elif (arg in ("-C", "-I", "--directory", "--include")
-              or arg.startswith(("-C", "-I", "--directory=", "--include="))):
-            raise ValueError("config-root and include overrides are unsupported; use the tracked image tree")
-        elif arg == "--" or arg.startswith("--prof"):
-            raise ValueError(f"ambiguous or unsupported profile selection: {arg}")
-        else:
+        elif arg.split("=", 1)[0] in (
+                "--tools-tree", "--tools-tree-distribution", "--tools-tree-release",
+                "--tools-tree-profile"):
+            if "=" in arg:
+                option_value = arg.split("=", 1)[1]
+            else:
+                index += 1
+                if index >= len(args):
+                    raise ValueError(f"{arg} requires a value")
+                option_value = args[index]
+            if not option_value or option_value.startswith("-"):
+                raise ValueError(f"{arg.split('=', 1)[0]} requires a value")
             index += 1
             continue
+        else:
+            raise ValueError(
+                f"unsupported build option: {arg}; config-root and include overrides are unsupported")
         if selected is not None:
             raise ValueError("build accepts one --profile selection only")
         if value != "vmtest":

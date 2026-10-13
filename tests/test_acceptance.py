@@ -1,5 +1,7 @@
 """Acceptance must never target a different machine or turn missing evidence into success."""
 import os
+import json
+import runpy
 import shlex
 import subprocess
 import sys
@@ -26,6 +28,8 @@ def run_harness(tmp_path, body, *, ssh_body=None, image=True, extra_env=None):
     (here / ".venv" / "bin" / "python").symlink_to(sys.executable)
     (here / "tools").mkdir()
     shutil.copyfile(HARNESS.parent / "build-provenance.py", here / "tools" / "build-provenance.py")
+    for name in ("source_identity.py", "build-receipt.py"):
+        shutil.copyfile(HARNESS.parent / name, here / "tools" / name)
     shutil.copyfile(HARNESS.parent / "accept-wait-ssh.py", here / "tools" / "accept-wait-ssh.py")
     (here / "src" / "fixture").mkdir(parents=True)
     (here / "src" / "fixture" / "__init__.py").write_text("VALUE = 1\n")
@@ -35,7 +39,11 @@ def run_harness(tmp_path, body, *, ssh_body=None, image=True, extra_env=None):
     runner.write_text("#!/usr/bin/env bash\nexec sleep 30\n")
     runner.chmod(0o755)
     # git metadata belongs to this disposable fixture, never the developer's repository.
+    (here / '.gitignore').write_text(
+        'image/out/\nimage/mkosi.tools/\nimage/mkosi.tools.manifest\n'
+        'image/mkosi.cache/\nimage/mkosi.builddir/\n.venv/\n__pycache__/\n')
     subprocess.run(["git", "init", "-q", str(here)], check=True)
+    subprocess.run(["git", "-C", str(here), "add", "."], check=True)
     subprocess.run(["git", "-C", str(here), "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
                     "commit", "-qm", "fixture", "--allow-empty"], check=True)
     manifest = out / "extra" / "opt" / "exo" / "EXO_OS_BUILD.json"
@@ -43,6 +51,11 @@ def run_harness(tmp_path, body, *, ssh_body=None, image=True, extra_env=None):
                     "--source-root", str(here), "--pin", "a" * 40,
                     "--profile", "vmtest",
                     "--output", str(manifest)], check=True)
+    if image:
+        # This fixture mocks a completed build; no mkosi or QEMU is invoked.
+        receipt = runpy.run_path(str(HARNESS.parent / "build-receipt.py"))["receipt_for"](
+            out / "exo-os.raw", manifest)
+        (out / "exo-os-build-success.json").write_text(json.dumps(receipt))
     if ssh_body is None:
         ssh_body = '''if [[ $* == *product_uuid* ]]; then echo "$EXO_OS_VM_UUID";
         elif [[ $* == *EXO_PIN* ]]; then cat "$here/exo.pin";
@@ -404,3 +417,13 @@ def test_complete_acceptance_passes_and_cleans_up(tmp_path):
     ssh = None
     r = run_harness(tmp_path, "accept_start 1 1024; pass=6; accept_finish", ssh_body=ssh)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_common_acceptance_refuses_dirty_tools_only_harness_before_qemu(tmp_path):
+    body = '''printf changed > "$here/tools/accept-tools-only.py"
+    accept_start 1 1024; echo FALSE_PASS'''
+    r = run_harness(tmp_path, body, ssh_body='echo UNEXPECTED_SSH')
+    assert r.returncode != 0 and 'clean committed checkout' in r.stderr
+    assert 'FALSE_PASS' not in r.stdout and 'UNEXPECTED_SSH' not in r.stdout
+    assert not (tmp_path / 'project/image/out/qemu.log').exists()
+    assert (tmp_path / 'project/image/out/exo-os-build-success.json').exists()
