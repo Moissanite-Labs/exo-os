@@ -11,6 +11,7 @@ import pytest
 
 HARNESS = Path(__file__).resolve().parents[1] / "tools" / "accept-common.sh"
 MODE_HARDENER = Path(__file__).resolve().parents[1] / "image/mkosi.extra/usr/lib/exo-os/harden-image-modes.sh"
+FAKE_ROLE_VALIDATOR = Path(__file__).resolve().parents[1] / "tools/validate-fake-roles.py"
 
 
 def run_harness(tmp_path, body, *, ssh_body=None, image=True, extra_env=None):
@@ -116,6 +117,20 @@ def test_acceptance_still_checks_executable_and_read_modes(tmp_path, mode):
     assert r.returncode != 0 and "source or image configuration changed" in r.stdout
 
 
+@pytest.mark.parametrize(
+    "models, expected",
+    [
+        ("main fake:scripted\naux fake:scripted\ndecision fake:scripted\neval fake:scripted\nfast fake:scripted\nstandard fake:scripted\ndeep fake:scripted", True),
+        ("main fake:scripted\naux fake:scripted\ndecision fake:scripted\neval fake:scripted\nfast fake:scripted\nstandard fake:scripted", False),
+        ("main fake:scripted\naux fake:scripted\ndecision fake:scripted\neval fake:scripted\nfast fake:scripted\nstandard fake:scripted\ndeep provider:live", False),
+        ("main fake:scripted\naux fake:scripted\ndecision fake:scripted\neval fake:scripted\nfast fake:scripted\nstandard fake:scripted\ndeep fake:scripted\nextra fake:scripted", False),
+    ],
+)
+def test_offline_surface_acceptance_rejects_missing_or_live_roles(models, expected):
+    result = subprocess.run([sys.executable, str(FAKE_ROLE_VALIDATOR)], input=models, text=True)
+    assert (result.returncode == 0) is expected
+
+
 def test_acceptance_rejects_invalid_boot_timeout_before_starting_vm(tmp_path):
     r = run_harness(tmp_path, "accept_start 1 1024", extra_env={"EXO_OS_VM_BOOT_TIMEOUT": "0"})
     assert r.returncode != 0 and "must be a positive integer" in r.stdout
@@ -135,6 +150,7 @@ def test_custom_acceptance_suites_add_the_provenance_result(tmp_path):
     for script, workload_checks, expected in (
         ("accept-isolation.sh", 10, 11),
         ("accept-recovery.sh", 7, 8),
+        ("accept-phase3.sh", 6, 7),
     ):
         r = run_harness(
             tmp_path / str(workload_checks),

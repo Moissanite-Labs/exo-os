@@ -29,6 +29,7 @@ windows() { as_exo "hyprctl clients" | { grep -c "class: $1" || true; }; }
 
 source "$here/tools/accept-common.sh"
 accept_start 3 1536
+accept_set_required_checks 6
 accept_keyring
 as_exo systemctl --user is-active --quiet exo-surface
 
@@ -41,8 +42,17 @@ c['models'] = {'fake': {'reply': 'I can help with that.', 'rules': [
   {'match': 'calls today', 'steps': [{'tool': 'ui', 'args': {'action': 'open', 'kind': 'table', 'title': 'Calls today', 'text': 'Three calls: Lead A, Lead B, Lead C.', 'data': {'columns': ['Who', 'Why'], 'rows': [['Lead A', 'bid due Thursday'], ['Lead B', 'asked for a quote'], ['Lead C', 'follow up']]}}}, 'Three calls today. Lead A first.']},
   {'match': 'hello', 'steps': ['Hello. How can I help?']}]}}
 c.setdefault('plugin_config', {}).setdefault('exo-gate', {})['decision_model'] = False
+c['models']['roles'] = {role: ['fake:scripted'] for role in
+                        ('main', 'aux', 'decision', 'eval', 'fast', 'standard', 'deep')}
 p.write_text(json.dumps(c, indent=2))
 PY"
+resolved_models=$(as_exo /opt/exo/bin/exo config roles 2>&1)
+fake_only=0
+if printf '%s\n' "$resolved_models" | "$here/.venv/bin/python" "$here/tools/validate-fake-roles.py"; then
+  fake_only=1
+fi
+result "fake-only" "$fake_only" "all seven roles resolve to fake:scripted before model requests"
+[[ $fake_only == 1 ]] || exit 1
 as_exo "systemctl --user restart exod" && sleep 4 && as_exo "systemctl --user restart exo-surface" && sleep 4
 
 # 1. app by a few letters
