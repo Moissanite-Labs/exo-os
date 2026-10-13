@@ -1,7 +1,13 @@
 # Root (@) is found by systemd-gpt-auto-generator; rootflags=subvol=@ is on the kernel command line.
+# /home and /var/lib/exo are required: the account and the Exo store live there, and boot-time
+# services write to them without checking for the mount, so a missing one must stop boot.
 /dev/gpt-auto-root  /home        btrfs  subvol=@home,compress=zstd       0 0
-/dev/gpt-auto-root  /.snapshots  btrfs  subvol=@snapshots,compress=zstd  0 0
 /dev/gpt-auto-root  /var/lib/exo btrfs  subvol=@store,compress=zstd      0 0
-/dev/gpt-auto-root  /var/lib/exo-sysd btrfs subvol=@sysd,compress=zstd 0 0
-/dev/gpt-auto-root  /var/lib/exo-egress btrfs subvol=@egress,compress=zstd 0 0
-/dev/gpt-auto-root  /var/lib/exo-ledger btrfs subvol=@signer,compress=zstd 0 0
+# Snapshots are not needed to run the system. If @snapshots is missing, boot goes on without it.
+/dev/gpt-auto-root  /.snapshots  btrfs  subvol=@snapshots,compress=zstd,nofail,x-systemd.device-timeout=15s  0 0
+# The helper mounts are nofail so a layout mismatch does not drop boot to the emergency shell. Each
+# is still required by its own service (RequiresMountsFor and AssertPathIsMountPoint), so that
+# service fails closed and nothing writes to the root filesystem in its place.
+/dev/gpt-auto-root  /var/lib/exo-sysd btrfs subvol=@sysd,compress=zstd,nofail,x-systemd.device-timeout=15s 0 0
+/dev/gpt-auto-root  /var/lib/exo-egress btrfs subvol=@egress,compress=zstd,nofail,x-systemd.device-timeout=15s 0 0
+/dev/gpt-auto-root  /var/lib/exo-ledger btrfs subvol=@signer,compress=zstd,nofail,x-systemd.device-timeout=15s 0 0

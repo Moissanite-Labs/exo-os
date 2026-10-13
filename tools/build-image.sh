@@ -43,10 +43,20 @@ fi
 extra="$here/image/out/extra"
 rm -rf "$extra"
 mkdir -p "$extra/opt/exo/wheels" "$extra/opt/exo/plugins"
+# The guest runs whatever `python` Arch rolling ships, but the offline wheelhouse is resolved for one
+# interpreter version. Record it in the image; mkosi.postinst.chroot refuses to build if the guest
+# differs, rather than failing later in pip. When Arch moves on, set EXO_OS_GUEST_PYTHON (or change
+# this default) and rebuild.
+guest_python="${EXO_OS_GUEST_PYTHON:-3.14}"
+[[ $guest_python =~ ^3\.[0-9]+$ ]] || {
+  echo "EXO_OS_GUEST_PYTHON must look like 3.14, got '$guest_python'" >&2
+  exit 2
+}
+echo "$guest_python" > "$extra/opt/exo/GUEST_PYTHON"
 uv build -q --wheel -o "$extra/opt/exo/wheels" "$dep"
 uv build -q --wheel -o "$extra/opt/exo/wheels" "$here"
 uvx -q pip download -q --only-binary=:all: --dest "$extra/opt/exo/wheels" \
-  --python-version 3.14 --platform manylinux2014_x86_64 --platform manylinux_2_28_x86_64 \
+  --python-version "$guest_python" --platform manylinux2014_x86_64 --platform manylinux_2_28_x86_64 \
   "$extra"/opt/exo/wheels/exo-*.whl "textual>=1"
 # Runtime plugin folders: required executor mode does not load ambient entry points.
 for p in exo-gate exo-memory exo-context; do cp -r "$dep/plugins/$p" "$extra/opt/exo/plugins/"; done
