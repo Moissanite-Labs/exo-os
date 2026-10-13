@@ -72,12 +72,14 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
 ## Phase 1. A bootable VM image
 
 - **Work:** a script that builds a disk image from nothing: Arch base, btrfs with snapper and snap-pac,
-  Limine boot entries for snapshots (Omarchy's pieces used as a reference, not forked; note 01 §9), Hyprland,
+  systemd-boot with a unified kernel image (recovery boot entries are a manual administrator operation, OS-14;
+  Omarchy's pieces are a reference, not forked; note 01 §9), Hyprland,
   Chromium, and Exo installed at a pinned release with `exod` as a systemd user service. The first client is
   Exo's terminal client in a drop-down window (note 02 §10, phase 0 there).
 - **Acceptance:**
   1. A clean build from the script boots in QEMU and reaches a desktop with no manual steps.
-  2. `exod` starts at login, survives being killed (systemd restarts it), and a chat works against one API key.
+  2. `exod` starts at login, survives being killed (systemd restarts it), and a chat completes on Exo's offline model. A chat
+     against a real model needs a test key from A and is still pending (see the table above).
   3. A store created in the VM opens in plain Exo on another machine, and `exo log verify` passes on both.
   4. Memory with Chromium and three web apps open is written down (PSS per process), as the first real
      number to replace the guesses in note 04.
@@ -89,18 +91,21 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
 
 ## Phase 2. Every system change gated, logged, reversible
 
-- **Work:** exo-sysd, the root helper with named actions only (snapshot, apply, check, rollback); the
-  system categories in the gate (DESIGN.md §5.2); the machine profile in the store, rendered to config files
-  and tracked in git; health checks; automatic revert on a failed check.
+- **Work:** exo-sysd, the root helper with named actions only (`status`, `snapshot.create`, `snapshot.list`,
+  `package.install`, `snapshot.undo`; OS-4); the gate placing exo-os tools by its own rules, with the
+  `sys_*` categories of DESIGN.md §5.2 left as a proposal to Exo (OS-7); the machine profile in the store,
+  rendered to config files and tracked in git, changed as the person with git as the undo (OS-5, OS-6);
+  health checks; automatic revert on a failed check.
 - **Acceptance:**
   1. A scripted set of at least 20 changes (text size, keyboard languages, idle times, app keys, a package
-     install, a deliberately broken Hyprland file) runs. Each one leaves a pre snapshot, a signed ledger entry
-     and a diff.
-  2. The broken change reverts by itself, and the person sees one plain line saying so.
+     install) runs. Each profile change leaves a commit with a diff in
+     the machine repo, the package install leaves a pre and a post snapshot, and each leaves signed ledger
+     rows.
+  2. A deliberately broken change (an unknown keyboard layout) reverts by itself, and the person sees one plain line saying so.
   3. Every change can be undone with one command, and the undo is itself logged.
   4. The agent cannot run any root command outside the named list (tested by trying).
-  5. `sys_boot` actions are refused, `sys_reboot` always asks.
-- **Needs from A:** decision D4 (privilege model). Agreement on the list of files exo-sysd may change.
+  5. The plugin offers no bootloader or reboot tool, and exo-sysd refuses any action off its list (OS-4).
+- **Needs from A:** decision D4 (privilege model). Agreement on the list of files the machine repo renders.
 
 ## Phase 3. The one surface as the desktop
 
