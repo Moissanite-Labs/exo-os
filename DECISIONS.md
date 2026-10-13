@@ -130,3 +130,20 @@ mounts. An earlier image's acceptance report never counts as a pass for a new im
 **Why.** The principal's trust is a runtime property. Passing output from the wrong machine, a silent
 skip, or an older build does not establish it. The core remains a tested commit dependency while its
 development proceeds independently (`docs/CORE-CONTRACT.md`).
+
+## OS-14. Boot recovery is a manual administrator operation
+
+**Decision.** The unsigned systemd-boot image offers explicit root-admin checkpoints
+and recovery staging through `exo-os-recovery`. A checkpoint preserves a read-only
+system snapshot together with its matching UKI. Staging creates a separate writable
+clone and a boot-menu entry. The existing `@home` and `@store` remain mounted;
+original `@` is not promoted or replaced. No named root action or agent capability
+is added, and the command does not select a default or reboot. Details and pending
+actual reboot acceptance: `docs/BOOT-RECOVERY.md`.
+
+**Why.** OS-4 excludes bootloader and reboot operations from the model's root door.
+The EFI partition lies outside the system snapshot, so booting an arbitrary snapper
+snapshot with the current kernel can mismatch its modules. Explicit checkpoints
+retain the boot artifacts at the same time. EFI invocation options select the clone
+only when Secure Boot is disabled for this image's unsigned UKIs; enabled or unknown
+state is rejected. A signed recovery design remains separate work.
