@@ -17,6 +17,7 @@ FSTAB = """/dev/gpt-auto-root /home btrfs subvol=@home,compress=zstd 0 0
 /dev/gpt-auto-root /.snapshots btrfs subvol=@snapshots,compress=zstd 0 0
 /dev/gpt-auto-root /var/lib/exo btrfs subvol=@store,compress=zstd 0 0
 /dev/gpt-auto-root /var/lib/exo-sysd btrfs subvol=@sysd,compress=zstd 0 0
+/dev/gpt-auto-root /var/lib/exo-egress btrfs subvol=@egress,compress=zstd 0 0
 """
 
 
@@ -41,7 +42,7 @@ def uki(cmdline="rw quiet rootflags=subvol=@", kernel=KERNEL):
 def image(tmp_path, monkeypatch):
     root, snapshots, esp = (tmp_path / name for name in ("root", "snapshots", "esp"))
     for path in (root / "etc", root / "usr/lib/modules" / KERNEL, root / "home",
-                 root / "var/lib/exo", root / "var/lib/exo-sysd", snapshots, esp / "EFI/Linux"):
+                 root / "var/lib/exo", root / "var/lib/exo-sysd", root / "var/lib/exo-egress", snapshots, esp / "EFI/Linux"):
         path.mkdir(parents=True, exist_ok=True)
     (root / "etc/fstab").write_text(FSTAB)
     (root / "etc/revision").write_text("old system")
@@ -57,7 +58,7 @@ def image(tmp_path, monkeypatch):
         calls.append(args)
         if args[0] == "findmnt":
             path = Path(args[args.index("--mountpoint") + 1])
-            roots = {root: "/@", root / "home": "/@home", root / "var/lib/exo": "/@store", root / "var/lib/exo-sysd": "/@sysd", snapshots: "/@snapshots"}
+            roots = {root: "/@", root / "home": "/@home", root / "var/lib/exo": "/@store", root / "var/lib/exo-sysd": "/@sysd", root / "var/lib/exo-egress": "/@egress", snapshots: "/@snapshots"}
             row = {"target": str(path), "fstype": "vfat" if path == esp else "btrfs",
                    "fsroot": roots.get(path), "uuid": FS_UUID}
             return json.dumps({"filesystems": [row]})
@@ -69,7 +70,7 @@ def image(tmp_path, monkeypatch):
                 if directory == source:
                     return ["home"] if "home" in names else []
                 if directory == source / "var/lib":
-                    return [name for name in ("exo", "exo-sysd") if name in names]
+                    return [name for name in ("exo", "exo-sysd", "exo-egress") if name in names]
                 return []
             shutil.copytree(source, target, ignore=separate_mounts, symlinks=True)
             if "-r" in args:
@@ -358,3 +359,78 @@ def test_helper_state_is_persistently_mounted_and_unit_fails_without_mount():
     assert "RequiresMountsFor=/var/lib/exo-sysd" in unit
     assert "AssertPathIsMountPoint=/var/lib/exo-sysd" in unit
     assert "StateDirectoryMode=0700" in unit
+
+
+@pytest.mark.parametrize("replacement", [None, "@", "@store"])
+def test_egress_fstab_omission_or_wrong_subvolume_refused(image, replacement):
+    helper, root, *_, calls, _ = image
+    lines = []
+    for line in FSTAB.splitlines():
+        if "exo-egress" in line:
+            if replacement is None:
+                continue
+            line = line.replace("subvol=@egress", "subvol=" + replacement)
+        lines.append(line)
+    (root / "etc/fstab").write_text("\n".join(lines))
+    with pytest.raises(r.RecoveryError):
+        helper.checkpoint()
+    assert not any(args[:3] == ("btrfs", "subvolume", "snapshot") for args in calls)
+
+
+@pytest.mark.parametrize("field,value", [("fsroot", "/@"), ("uuid", SNAP_UUID), ("fstype", "ext4")])
+def test_egress_mount_identity_mismatch_refused(image, field, value):
+    helper, root, *_, calls, _ = image
+    run = helper.run
+    def wrong_mount(*args):
+        response = run(*args)
+        if args[0] == "findmnt" and str(root / "var/lib/exo-egress") in args:
+            data = json.loads(response)
+            data["filesystems"][0][field] = value
+            return json.dumps(data)
+        return response
+    helper.run = wrong_mount
+    with pytest.raises(r.RecoveryError):
+        helper.checkpoint()
+    assert not any(args[:3] == ("btrfs", "subvolume", "snapshot") for args in calls)
+
+
+def test_post_checkpoint_reserved_egress_operation_survives_staging_without_retry(image):
+    from exo_os.egress.broker import Broker, Journal
+    from exo_os.sysd.protocol import encode
+    helper, root, snapshots, *_ = image
+    state = root / "var/lib/exo-egress"
+    journal = Journal(state / "requests.sqlite")
+    checkpoint = helper.checkpoint()
+    request = {"version": 1, "nonce": "recovery-test", "request_id": "reserved-after-checkpoint",
+               "profile": "recovery-fixture", "method": "POST", "expected_origin": "https://fixture.invalid",
+               "path": "/recovery-probe", "body": ""}
+    fingerprint = hashlib.sha256(encode({key: value for key, value in request.items()
+                                       if key not in {"nonce", "version"}})).hexdigest()
+    assert journal.reserve(request["request_id"], fingerprint) is None
+    helper.stage(checkpoint["id"])
+    restarted = Journal(state / "requests.sqlite")
+    with restarted.connect() as db:
+        assert db.execute("SELECT id,fingerprint,outcome FROM requests").fetchall() == [
+            (request["request_id"], fingerprint, None)]
+    broker = Broker({}, restarted, state)
+    reply = broker.handle(request)
+    assert reply["state"] == "unknown" and reply["retryable"] is False
+    with restarted.connect() as db:
+        assert db.execute("SELECT id,fingerprint,outcome FROM requests").fetchall() == [
+            (request["request_id"], fingerprint, None)]
+    for directory in ("checkpoints", "roots"):
+        location = snapshots / "exo-recovery" / directory / checkpoint["id"]
+        if directory == "checkpoints":
+            location /= "root"
+        assert not (location / "var/lib/exo-egress/requests.sqlite").exists()
+
+
+def test_stage_refuses_checkpoint_missing_egress_mount_contract(image):
+    helper, _, snapshots, *_, calls, _ = image
+    checkpoint = helper.checkpoint()
+    fstab = snapshots / "exo-recovery/checkpoints" / checkpoint["id"] / "root/etc/fstab"
+    fstab.write_text("\n".join(line for line in FSTAB.splitlines() if "exo-egress" not in line))
+    calls.clear()
+    with pytest.raises(r.RecoveryError, match="egress"):
+        helper.stage(checkpoint["id"])
+    assert not any(args[:3] == ("btrfs", "subvolume", "snapshot") for args in calls)

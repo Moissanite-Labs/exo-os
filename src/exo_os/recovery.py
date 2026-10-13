@@ -98,7 +98,8 @@ def recovery_options(cmdline: str, subvolume: str) -> str:
 
 def check_fstab(path: Path) -> None:
     plain_path(path)
-    expected = {"/home": "@home", "/.snapshots": "@snapshots", "/var/lib/exo": "@store", "/var/lib/exo-sysd": "@sysd"}
+    expected = {"/home": "@home", "/.snapshots": "@snapshots", "/var/lib/exo": "@store", "/var/lib/exo-sysd": "@sysd",
+                "/var/lib/exo-egress": "@egress"}
     found = {}
     for line in path.read_text().splitlines():
         fields = line.split()
@@ -115,7 +116,7 @@ def check_fstab(path: Path) -> None:
                 raise RecoveryError("Snapshot does not preserve the image's data mounts")
             found[fields[1]] = True
     if set(found) != set(expected):
-        raise RecoveryError("Snapshot is missing separate home/store/helper/snapshot mounts")
+        raise RecoveryError("Snapshot is missing separate home/store/helper/egress/snapshot mounts")
 
 
 class Recovery:
@@ -142,7 +143,7 @@ class Recovery:
         rows = []
         for path, fsroot in ((self.root, "/@"), (self.root / "home", "/@home"),
                              (self.root / "var/lib/exo", "/@store"), (self.root / "var/lib/exo-sysd", "/@sysd"),
-                             (self.snapshots, "/@snapshots")):
+                             (self.root / "var/lib/exo-egress", "/@egress"), (self.snapshots, "/@snapshots")):
             row = json.loads(self.run("findmnt", "--json", "--mountpoint", str(path),
                                       "--output", "TARGET,FSTYPE,FSROOT,UUID"))["filesystems"][0]
             if row["target"] != str(path) or row["fstype"] != "btrfs" or row["fsroot"] != fsroot:

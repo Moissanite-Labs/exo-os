@@ -36,7 +36,7 @@ Staging creates a writable clone under
 `@snapshots/exo-recovery/roots/ID`, copies the archived UKI onto the mounted ESP at
 `EFI/exo-recovery/ID.efi`, and publishes a Boot Loader Specification Type #1 entry
 last. That entry changes only `rootflags=subvol=...`; the UKI's root-device and
-console options remain intact. `@home`, `@store`, `@sysd` and `@snapshots` are separately
+console options remain intact. `@home`, `@store`, `@sysd`, `@egress` and `@snapshots` are separately
 mounted from the existing filesystem according to the checked snapshot fstab.
 User data and the principal's signed ledger therefore stay current while system
 files return to the checkpoint. The original `@` remains available as the regular
@@ -54,6 +54,14 @@ so a missing mount cannot silently create a replacement identity on the system
 root. The helper state directory is root-owned mode 0700. Recovery checks the
 same btrfs filesystem UUID and exact `@sysd` mount/fstab entry before checkpoint
 or staging. The snapshot excludes this mounted helper state.
+
+The egress broker's journal mounts from persistent `@egress` at
+`/var/lib/exo-egress` under its separate service UID. Recovery requires that exact
+mount on the same btrfs filesystem, both live and in the checkpoint's fstab.
+Reservations and completed/uncertain outcomes therefore stay current across a
+system rollback: an older root cannot forget an operation and send it again.
+The egress service likewise requires its mount before it starts. The system
+snapshot excludes this state along with home, store and helper state.
 
 This is a **fresh-image layout**. Existing installations with helper state on
 `@`, or a root audit log at the old `/var/log/exo-sysd.log` location, need a separate
@@ -104,6 +112,12 @@ ledger, absence of a stale pacman lock on the recovery root, and preservation of
 original `@`. It also verifies the actual persistent helper mount, unchanged
 signing-key/public-key hashes (never key material), and preservation of a real
 root audit receipt made after the checkpoint; the recovered helper must start.
+A synthetic egress operation is reserved in the real service-owned journal
+**after** the checkpoint. Following the older-root reboot, the script checks the
+exact journal row, restarts the broker, and calls it over its authenticated socket:
+the operation must remain reserved, return `unknown` with `retryable=false`, and
+leave the row unchanged. No API access, provider policy or live credentials are
+provisioned for this check.
 Any missing prerequisite, malformed output, wrong VM or missed reboot fails.
 A successful host fixture test is not evidence of an actual boot. The report is
 `image/out/accept-recovery.txt` when this script is run; this implementation has
