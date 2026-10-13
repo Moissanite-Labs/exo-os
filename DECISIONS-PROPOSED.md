@@ -2,9 +2,9 @@
 
 **Ruled on 2026-10-12: see `DECISIONS.md` (OS-1 to OS-9). This file is kept as the record of the options.**
 
-Date: 2026-10-12. Status: proposed. None of these is decided. Each has options, the trade, and a
-recommendation. Numbering here (D1 to D8) is local to Exo OS; accepted ones would be recorded in Exo's
-`DECISIONS.md` after D-021, since Exo OS is a branch of Exo (D-020).
+Date: 2026-10-12. Status: ruled on 2026-10-12 (see `DECISIONS.md`). The text below is the proposal as it
+was put, with options, the trade and a recommendation. Numbering here (D1 to D8) is local to Exo OS. The
+rulings are recorded in this repository's `DECISIONS.md`, not in Exo's, since Exo OS is its own repository.
 
 Needed before phase 1: D1, D3, D8. The rest can wait for the phase that needs them (ROADMAP.md).
 

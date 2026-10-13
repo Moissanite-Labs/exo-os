@@ -115,12 +115,12 @@ changed and how to put it back.
  +------------------+   +------------------------+   +-------------------------+
  | tool broker      |   | exo-sysd (root helper) |   | ledger (signed, chained) |
  | sandbox per call |   | named actions only:    |   | inside the person's      |
- | holds no secret  |   | snapshot, apply,       |   | store                    |
- | in the model's   |   | check, rollback        |   +-------------------------+
+ | holds no secret  |   | status, snapshots,     |   | store                    |
+ | in the model's   |   | package install, undo  |   +-------------------------+
  | reach; egress    |   +-----------+------------+
  | proxy, injects   |               |
  | credentials      |               v
- +--------+---------+   Linux base: Arch, btrfs, snapper, Limine boot entries,
+ +--------+---------+   Linux base: Arch, btrfs, snapper, systemd-boot,
           |             Hyprland, Chromium web apps, systemd
           v
    APIs (Gmail, Drive), MCP servers, local CRM (read only), files
@@ -153,18 +153,18 @@ There are two kinds of systemd service. A *system* service runs for the whole ma
   If the model is fooled, the damage it can do is bounded by what that person's account can do, and further
   bounded by the sandbox (§6).
 - **exo-sysd** is the only **system service**. It runs as root but exposes only named actions over a local
-  socket: take a snapshot, apply one approved change to a listed file, run a health check, roll back. It
+  socket: report status, take or list snapshots, install a package, undo one recorded snapshot pair (OS-4). It
   never runs a command string it was handed. This closes a gap seen on the test machine today: an agent
   cannot take a snapshot without a sudo password (note 01 §8, point 4).
 
 ```
   login --> systemd --user starts exod (as the person)
                 |
-                |  "snapshot, then apply change #4127"   (local socket, peer checked)
+                |  "install htop"   (local socket, peer checked)
                 v
-           exo-sysd (root)  --> snapper, file write, health check, rollback
+           exo-sysd (root)  --> snapper pre snapshot, pacman, post snapshot
                 |
-                +--> writes a signed "system.changed" entry back to the person's ledger
+                +--> returns a signed receipt; exod writes it to the person's ledger
 ```
 
 Memory budget: Exo's own target for the idle core is under 80 MB (Exo `docs/STANDALONE.md` §5.4). Note 04
@@ -308,30 +308,38 @@ class: undoable, but not without disturbing the person.
 
 ### 5.3 The life of one change
 
+Most changes are to the machine profile. They need no root (OS-5): the change engine runs as the person,
+and git is the undo.
+
 ```
-  1 propose     agent writes a change as a diff to policies/machine.toml
-  2 classify    gate: sys_profile, reversible, private  -> run and log
-  3 snapshot    exo-sysd: snapper "pre" snapshot; ledger: change.proposed (signed)
-  4 apply       exo-sysd renders the files, checks the config (e.g. Hyprland --verify-config)
-  5 check       health check: compositor alive, the app keys still work, CRM still answers
-  6a pass       ledger: change.applied, with the diff and the snapshot ids
+  1 propose     agent proposes a change to the profile (machine.toml in <store>/machine)
+  2 classify    gate: machine_set, local_write, reversible, private  -> run and log (OS-7)
+                ledger: change.proposed (signed), with the diff
+  3 apply       the change engine renders the files and checks the config (e.g. Hyprland --verify-config)
+  4 check       health check: compositor alive, the app keys still work, CRM still answers
+  5a pass       git commit in the machine repo; ledger: change.applied, with the diff
                 person sees one line: "Text is larger now. Undo?"
-  6b fail       exo-sysd rolls back to the pre snapshot by itself
+  5b fail       the engine puts the old files back by itself
                 ledger: change.reverted, with the failed check
                 person sees: "That did not work, so I put it back."
 ```
 
+A package install is the other kind. It goes through exo-sysd, which takes a snapper pre snapshot and a
+post snapshot around it and returns a signed receipt for the ledger. It always asks (OS-4, OS-7).
+
 Three rules hold this together.
 
-1. **Nothing changes without a pre snapshot and a ledger entry.** If either fails, the change does not start.
-2. **Undo is always one step and always named in plain words.** "Undo" means "go back to the pre snapshot of
-   change #4127". The ledger keeps the old state, so even an undo can be undone.
+1. **Nothing changes without a ledger entry.** The proposal is recorded before any file is touched. A
+   package install also needs its pre snapshot.
+2. **Undo is always one step and always named in plain words.** For a profile change, "Undo" means "go back
+   to the profile before change #4127": a new commit that restores it, itself logged, so even an undo can be
+   undone. For a package install, it means "go back to the pre snapshot".
 3. **A failed check reverts without asking.** Reverting a reversible change is itself reversible, so it does
    not need a human. What it does need is a clear line telling the person it happened.
 
 This is close to the propose, test, switch loop that NixOS gives for free (build, test, switch, with each
-version a boot entry; note 01 §3). On Arch, Exo OS gets the same shape only for the files exo-sysd manages,
-which is why that list is short and written down (note 01 §9).
+version a boot entry; note 01 §3). On Arch, Exo OS gets the same shape only for the files the machine repo
+tracks and for packages, which is why that list is short and written down (note 01 §9).
 
 ### 5.4 The log
 
