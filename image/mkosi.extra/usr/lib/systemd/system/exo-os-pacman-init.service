@@ -1,7 +1,8 @@
 [Unit]
 Description=Exo OS: create this machine's pacman keyring (first boot)
 # The keyring holds a private key, so each machine makes its own instead of sharing one baked into the image.
-# mkosi.postinst.chroot removes /etc/pacman.d/gnupg from the image so this condition holds on first boot.
+# mkosi.postinst.chroot removes /etc/pacman.d/gnupg from the image. pacman-key --init keeps a secret key it
+# finds, so that removal is what makes the key per machine; accept_keyring checks the key is newer than boot.
 # The marker is written last, after --populate. Gating on it (not on trustdb.gpg, which --init creates
 # at once) means a boot that stopped half-way is retried, and exo-os-sysd waits for the marker too.
 ConditionPathExists=!/etc/pacman.d/gnupg/exo-os-populated

@@ -428,7 +428,7 @@ def keyring_ssh(tmp_path, **unit):
 
 
 @pytest.mark.parametrize("state", [
-    # skipped by its condition (keyring already in the image): inactive, but never ran
+    # skipped by its condition (marker already present): inactive, but never ran
     dict(active="inactive", result="success", exit="0"),
     # still running its second command: a oneshot is "activating", never "active"
     dict(active="activating", result="success", exit="0"),
@@ -473,3 +473,29 @@ def test_image_carries_no_pacman_keyring(tmp_path):
     assert r.returncode == 0, r.stderr
     assert not fake.exists()
     assert (tmp_path / "etc/pacman.d").is_dir()
+
+
+def test_keyring_wait_fails_when_the_private_key_predates_the_boot(tmp_path):
+    # The unit can succeed on a keyring baked into the image: pacman-key --init keeps an existing secret key.
+    body = keyring_ssh(tmp_path, active="inactive", result="success", exit="123456").replace(
+        "else return 0; fi", "elif [[ $* == *btime* ]]; then return 1; else return 0; fi")
+    r = run_harness(tmp_path, "accept_keyring; echo FALSE_PASS", ssh_body=body)
+    assert r.returncode != 0 and "FALSE_PASS" not in r.stdout
+    assert "baked into the image" in r.stdout
+
+
+def test_keyring_key_age_check_compares_with_boot_time(tmp_path):
+    # Run the real remote command against stand-in /proc/stat and gpg output.
+    cmd = next(ln for ln in HARNESS.read_text().splitlines() if ln.lstrip().startswith("fresh_key="))
+    cmd = cmd.split("=", 1)[1].strip().strip("'")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gpg").write_text('#!/bin/sh\necho "sec:u:255:22:ABCDEF:$KEY_TIME:::u:::scESC:::+:::23::0:"\n')
+    (bin_dir / "gpg").chmod(0o755)
+    stat = tmp_path / "stat"
+    stat.write_text("cpu 1 2 3\nbtime 1000000\n")
+    cmd = cmd.replace("/proc/stat", str(stat))
+    for key_time, ok in (("1000030", True), ("999950", True), ("900000", False)):
+        r = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True,
+                           env={"PATH": f"{bin_dir}:/usr/bin:/bin", "KEY_TIME": key_time})
+        assert (r.returncode == 0) is ok, (key_time, r.stderr)
