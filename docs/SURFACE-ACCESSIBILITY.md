@@ -3,12 +3,20 @@
 The prompt bar remains the starting point. Type an app name to open it or a question
 to send it to Exo. Type `panels` and choose **Open panels** to move keyboard focus
 into the panel drawer; Tab reaches its controls, and Escape closes the drawer and
-returns focus to the prompt. Panels opened by Exo appear without taking focus.
+returns focus to the prompt. Background panel redraws map the drawer without
+requesting window activation or refocusing the prompt. In layer-shell mode,
+the drawer's keyboard mode stays `NONE` until the person explicitly opens it.
 Type `transcript` and choose **Read recent conversation** for a selectable,
 read-only text view. Escape returns to the prompt. These local reading actions do
 not ask the model or fetch history from the daemon. If Exo has asked a question,
 Enter treats `panels` or `transcript` as the answer; use the second palette choice
 to open the local view instead.
+
+Panel redraws do not request changes to prompt text, caret position or selection,
+or reclaim focus from another work window. Explicitly reopening the prompt ends
+local drawer reading and returns keyboard ownership to the prompt. Restoring
+prompt focus preserves an existing entry target, including GTK's internal
+`GtkText` child, rather than grabbing it again and selecting text being edited.
 
 **Recent conversation** contains only history currently loaded in this surface,
 up to the newest 200 text lines and 100,000 characters. Older loaded content is
@@ -30,7 +38,9 @@ and format controls are escaped. The credential request card retains its separat
 destination check and full outbound request preview. Y and N answer only during
 explicit review, after the card's arming interval and a fresh unmodified key press; Ctrl, Alt, Super and
 Meta combinations do not answer. Escape defers without sending a decision. A
-response leaves review and returns focus to the prompt. A click on Yes or No can
+response leaves review and returns focus to the prompt unless an explicitly
+opened drawer owns the keys. Ending review during reconciliation also preserves
+that drawer's ownership. A click on Yes or No can
 answer the exact pending preview after its guard interval. Each button captures
 the identity and full content it displays; an old button cannot answer a replacement.
 The next queued request requires its own review gesture for keyboard consent.
@@ -38,11 +48,16 @@ Reopening the prompt preserves deferrals and ends review. A reconnect, pending
 snapshot, uncertain answer, changed request or resolution also ends review;
 neither reconciliation nor replay sends an answer automatically.
 
+A hidden card receives a fresh 700 ms guard when shown again, even for the same
+request and review state. An unchanged visible repaint does not restart it.
+Resetting the guard leaves observed held Y/N/F6 keys intact. A remap cannot turn
+a held key into a fresh consent gesture.
+
 Pure model tests cover request text and reading limits. The private GTK display
 smoke test checks focus, text selection, modifier and held-key behavior, and
 direction changes when an Arabic or Urdu profile is applied. Private Broadway
 checks widget focus and simulated text only. Phase 3 runs
-the same synthetic checks on the disposable image's actual Wayland layer
+the shared `exo-surface-gtk-v2` probe on the disposable image's actual Wayland layer
 surfaces, with real `wtype` delivery across request arrival, including initial Y/N
 and the late `tod|ay` boundary, alongside its separate real protocol checks.
 Its held-F6 evidence must show actual repeated delivery to the original handler
@@ -50,6 +65,30 @@ while the next request is pending. A duplicate discarded before delivery cannot
 pass that coverage check. The temporary observer is removed afterward.
 The timing-only unarmed assertions use a frozen clock so compositor latency cannot
 turn a pre-arm assertion into an assertion after the guard has already expired.
+
+The v2 prompt checks require a mapped entry target and actual `wtype` delivery.
+The `exo focus marker` text must arrive in full in both entry and model, with the matching
+sequence of positive physical key codes, no response sent and no review entered.
+The checks cover unsolicited panels, drawer closure, approval deferral and
+returning from other work. A panel update is also injected during actual marker
+typing. Retaining only the suffix fails the check.
+
+`Gtk.Window.is_active()` is informational for these prompt checks. In an older
+VM fixture it stayed false after remapping while real keys reached the entry.
+Local widget focus alone is also insufficient. Card activation and focus-loss
+guards, and explicit drawer activation checks, retain their separate requirements.
+
+Another native check injects a panel update while `yesterday` is being typed in
+a separate work window. It requires the full text and physical key sequence in
+that window, its active focus target preserved, unchanged prompt/model text and
+no responses sent. The result validator requires all v2 evidence, rejects
+incomplete or synthetic native records, and checks the probe's exit status.
+Private Broadway reports its keyboard coverage as `synthetic`.
+
+These requirements do not establish acceptance of the current runtime. A fresh
+image containing the focus and card lifecycle changes still needs a complete
+native probe and Phase 3 run. Earlier failed fixtures remain failed. A tools-only
+diagnostic against an older image does not validate the new runtime.
 
 The `vmtest` profile sets `GSK_RENDERER=cairo` only for `exo-surface.service`.
 These VM checks therefore run on Wayland with Cairo. Production retains GTK's
