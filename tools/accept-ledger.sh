@@ -47,7 +47,9 @@ for item in checks:
 }
 run_probe '' private_state_unreadable append_with_service_identity idempotent_operation \
   truncation_detected explicit_projection_recovery edited_row_detected unconfirmed_tail_detected direct_key_write_refused
-ssh_vm 'systemctl stop exo-ledger.socket exo-ledger.service; test ! -S /run/exo-ledger.sock'
+# systemd leaves a stale filesystem socket by default (RemoveOnStop=no). Require
+# both units to be inactive; the real client probes below prove nothing listens.
+ssh_vm 'systemctl stop exo-ledger.socket exo-ledger.service; test "$(systemctl is-active exo-ledger.socket)" = inactive; test "$(systemctl is-active exo-ledger.service)" = inactive'
 run_probe --signer-unavailable missing_signer_refuses_append missing_signer_refuses_verification
 ssh_vm 'systemctl start exo-ledger.socket'
 echo '      scope: actual local signer and user projection; no off-machine witness is claimed' | tee -a "$report"
