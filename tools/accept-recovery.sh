@@ -71,11 +71,16 @@ reboot_rc=0
 ssh_vm 'systemctl reboot' || reboot_rc=$?
 [[ $reboot_rc == 0 || $reboot_rc == 255 ]]
 ready=0
-for attempt in $(seq 1 90); do
+boot_timeout=${EXO_OS_VM_BOOT_TIMEOUT:-180}
+if [[ ! $boot_timeout =~ ^[1-9][0-9]{0,2}$ ]] || ((boot_timeout > 900)); then
+  result reboot 0 'EXO_OS_VM_BOOT_TIMEOUT must be a positive integer no greater than 900 seconds.'
+  exit 1
+fi
+for attempt in $(seq 1 "$boot_timeout"); do
   kill -0 "$qemu" 2>/dev/null || { result reboot 0 'QEMU exited during recovery reboot'; exit 1; }
   current=$(ssh_vm 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null) || current=''
   if [[ -n $current && $current != "$old_boot" ]]; then ready=1; break; fi
-  sleep 3
+  sleep 1
 done
 [[ $ready == 1 ]] || { result reboot 0 'Recovery did not become ready within the reboot deadline'; exit 1; }
 actual=$(ssh_vm 'cat /sys/class/dmi/id/product_uuid' | tr '[:upper:]' '[:lower:]')

@@ -267,7 +267,7 @@ def test_recovery_does_not_expand_model_root_actions():
 
 def test_image_exposes_manual_entrypoint_and_regular_uki_default():
     project = Path(__file__).resolve().parents[1]
-    config = (project / "image/mkosi.extra/boot/loader/loader.conf").read_text()
+    config = (project / "image/mkosi.extra/efi/loader/loader.conf").read_text()
     assert "default *.efi" in config and "timeout 5" in config and "editor no" in config
     assert "exo-os-recovery" in (project / "image/mkosi.postinst.chroot").read_text()
 

@@ -58,6 +58,26 @@ tools/test-linux.sh
 EXO_OS_DOCKER_CONTEXT=your-context tools/test-linux.sh
 ```
 
+For an x86-64 guest on a host without KVM, QEMU can use TCG explicitly. The
+acceptance scripts keep a 180-second SSH deadline by default; set a larger
+positive value up to 900 seconds when emulation is slow. Firmware paths can be
+overridden for hosts whose OVMF files use different names.
+
+```sh
+EXO_OS_VM_ACCEL=tcg EXO_OS_VM_CPU=max EXO_OS_VM_SMP=4 \
+  EXO_OS_VM_BOOT_TIMEOUT=600 tools/accept-phase1.sh
+```
+
+On a Linux build host with a native mkosi executable, `EXO_OS_MKOSI` selects
+that executable and avoids the Arch user-prefix Python path. For example, a
+Debian sid tools tree can provide native `systemd-repart` while the image
+target remains Arch x86-64:
+
+```sh
+EXO_OS_MKOSI=/path/to/mkosi tools/build-image.sh \
+  --tools-tree=yes --tools-tree-distribution=debian --tools-tree-release=sid
+```
+
 ## Still required
 
 Build a new x86-64 `vmtest` image and run `tools/accept-phase1.sh`,
