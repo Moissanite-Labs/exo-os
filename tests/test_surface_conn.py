@@ -177,3 +177,17 @@ def test_surface_joins_as_the_principal(tmp_path):
     token = pr.issue(sock)
     client = conn._default_client(str(sock))
     assert client._who() == {pr.HEADER: token, "X-Exo-Client": "surface"}
+
+
+def test_stop_twice_does_not_raise(paths):
+    sock, state = paths
+    exod = Exod(sock)
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is True)
+    finally:
+        exod.stop()
+    c.stop()
+    c.stop()  # stopping an already-stopped connection is a no-op, not a crash

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sys
 from typing import Any
 
 from .. import paths
@@ -29,7 +30,10 @@ class SysdClient:
         except (OSError, ValueError) as e:
             raise SysdError(f"The system helper is not reachable ({e}).") from None
         if record and reply.get("receipt") and action not in ("status", "snapshot.list"):
-            open_sink(paths.store(), paths.exo_home()).append("system.action", {"receipt": reply["receipt"]})
+            try:
+                open_sink(paths.store(), paths.exo_home()).append("system.action", {"receipt": reply["receipt"]})
+            except Exception as e:  # the action already ran; a broken ledger must not hide its result
+                print(f"Warning: the action ran but was not written to the ledger: {e}", file=sys.stderr)
         if not reply.get("ok"):
             raise SysdError(reply.get("error") or "the system helper refused")
         return reply.get("result")

@@ -39,10 +39,7 @@ def find_window(cls: str) -> str | None:
 
 
 def focus(address: str) -> bool:
-    r = subprocess.run(["hyprctl", "dispatch", f'hl.dsp.focus({{ window = "address:{address}" }})'],
-                       capture_output=True, text=True, timeout=10)
-    if r.returncode == 0 and "error" not in r.stdout.lower():
-        return True
+    # hyprctl dispatch takes a dispatcher name; the Lua hl.dsp.focus call is config-side only.
     r = subprocess.run(["hyprctl", "dispatch", "focuswindow", f"address:{address}"], capture_output=True,
                        text=True, timeout=10)
     return r.returncode == 0

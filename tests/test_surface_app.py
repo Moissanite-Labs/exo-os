@@ -37,6 +37,13 @@ def test_toggle_path_does_not_load_gtk():
     assert out.stdout.split() == ["False", "False"], out.stderr
 
 
+def test_load_profile_with_wrong_shaped_toml_uses_default(tmp_path):
+    from exo_os.profile import Profile
+
+    (tmp_path / "machine.toml").write_text("apps = 5\n")  # valid TOML, wrong shape: not a ValueError
+    assert app.load_profile(tmp_path / "machine.toml").data == Profile.default().data
+
+
 def test_unknown_command_is_refused():
     assert app.main(["exo-surface", "dance"]) == 2
 
@@ -141,6 +148,13 @@ CHILD = textwrap.dedent('''
     pump()
     assert sent[-1] == s.ApprovalRespond(request_id="a1", decision="allow", client="exo-surface", binding="h1")
     assert not ui.card.get_visible()
+
+    ui.on_event(ev(s.ApprovalRequested(request_id="a2", summary="Delete everything?", binding="h2")))
+    pump()
+    assert ui.card.get_visible() and ui.card.summary.get_text() == "Delete everything?"
+    n = len(sent)
+    ui.card._answer("allow")  # a key still held from the last answer: the new card is not armed yet
+    assert len(sent) == n and ui.card.get_visible()
 
     ui.hide()
     pump()

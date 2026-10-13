@@ -116,7 +116,11 @@ def _run(args: argparse.Namespace) -> int:
     if args.cmd == "show":
         prof = eng.profile()
         if args.path:
-            value = prof.get(args.path) if "." in args.path else prof.data[args.path]
+            try:
+                value = prof.get(args.path) if "." in args.path else prof.data[args.path]
+            except KeyError:
+                print(f"There is no setting called {args.path}.", file=sys.stderr)
+                return 1
             print(json.dumps(value) if args.json or not isinstance(value, str) else value)
         else:
             print(json.dumps(prof.data, indent=2) if args.json else prof.dumps())
