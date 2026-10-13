@@ -7,7 +7,7 @@ from exo.protocol import schema as s
 
 from exo_os.profile import Profile
 from exo_os.surface.model import (NOT_RUNNING, RECENT_CHARS, RECENT_LINES, WAITING, WORKING, Line, Panel,
-                                  SurfaceModel, markdown_to_plain, match_apps, panel_view)
+                                  SurfaceModel, approval_token, markdown_to_plain, match_apps, panel_view)
 
 SID = "s_0000000000000001"
 
@@ -557,3 +557,62 @@ def test_review_requires_fresh_gesture_after_state_reset(reset):
 def test_card_key_mapping_never_turns_escape_into_a_decision(key, action):
     from exo_os.surface.model import approval_key
     assert approval_key(key) == action
+
+
+def _install_row(rid, names):
+    return {"request_id": rid, "summary": "system_package_install (costly, private). Why: x. Default if no reply: skip.",
+            "risk": "high", "options": ["allow", "deny", "allow_always"], "approvers": ["principal"],
+            "binding": f"b_{rid}", "call": {"id": f"c_{rid}", "name": "system_package_install",
+                                            "arguments": {"names": names, "reason": "x"}}}
+
+
+@pytest.mark.parametrize("bad_names", [[1, 2], "git", [], None])
+def test_malformed_arguments_get_a_refuse_only_card(bad_names):
+    m = _model(plain=True)
+    m.add_approval(_install_row("bad", bad_names))
+    card = m.approval
+    assert card.request_id == "bad" and card.options == ["deny"]
+    assert "can only be refused" in card.summary and "Install g, i, t" not in card.summary
+    assert "system_package_install" in card.detail  # the exact request stays inspectable
+    assert m.answer("allow", approval_token(card), explicit_click=True) is None
+    reply = m.answer("deny", approval_token(card), explicit_click=True)
+    assert reply is not None and reply.decision == "deny" and reply.binding == "b_bad"
+
+
+@pytest.mark.parametrize("bad_first", [True, False])
+def test_one_malformed_row_does_not_hide_the_other_approvals(bad_first):
+    m = _model(plain=True)
+    rows = [_install_row("bad", [1, 2]), _install_row("good", ["git"])]
+    m.reconcile_approvals(rows if bad_first else rows[::-1], 5)
+    shown = {a.request_id: a for a in m.approvals}
+    assert set(shown) == {"bad", "good"}
+    assert shown["good"].summary == "Install git on this computer? Reason: x. It can be undone."
+    assert shown["good"].options == ["allow", "deny"]
+    assert shown["bad"].options == ["deny"]
+
+
+def test_a_row_that_fails_for_any_reason_still_shows_a_refuse_only_card(monkeypatch):
+    m = _model(plain=True)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("wording failed")
+
+    monkeypatch.setattr("exo_os.surface.model.plain_wording", boom)
+    m.reconcile_approvals([_install_row("bad", ["git"]), {"request_id": "plain", "summary": "Pay $40?"}], 5)
+    cards = {a.request_id: a for a in m.approvals}
+    assert set(cards) == {"bad", "plain"} and cards["bad"].options == ["deny"]
+    assert cards["bad"].binding == "b_bad"
+    assert cards["plain"].options == ["allow", "deny"]
+
+
+def test_malformed_credential_request_is_refuse_only():
+    m = _model(plain=True)
+    m.add_approval({"request_id": "cred", "summary": "x", "binding": "b", "options": ["allow", "deny"],
+                    "call": {"id": "c", "name": "credential_request", "arguments": ["not", "a", "dict"]}})
+    assert m.approval.options == ["deny"]
+
+
+def test_malformed_arguments_in_full_mode_do_not_crash():
+    m = _model(plain=False)
+    m.add_approval(_install_row("bad", [1, 2]))
+    assert m.approval.request_id == "bad"

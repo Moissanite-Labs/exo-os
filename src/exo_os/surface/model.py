@@ -21,7 +21,7 @@ from typing import Any
 
 from exo.protocol import schema as s
 
-from ..words import approval_request_details, credential_request_preview, describe_call, plain_summary
+from ..words import approval_request_details, credential_request_preview, plain_summary, plain_wording
 from ..profile import Profile
 
 CLIENT = "exo-surface"
@@ -287,6 +287,22 @@ class SurfaceModel:
             return set()
         if approvers and "principal" not in approvers:
             return set()  # a seat answers this one, not the person at the desk
+        try:
+            card = self._card_for(req, rid)
+        except Exception:
+            # One request that cannot be read or worded must not stop the others being shown. Its card can only refuse.
+            card = self._unreadable_card(req, rid)
+        previous = next((a for a in self.approvals if a.request_id == rid), None)
+        if previous is not None:
+            if previous == card:
+                return set()
+            self.approvals[self.approvals.index(previous)] = card
+            self._reviewed_token = None
+        else:
+            self.approvals.append(card)
+        return {"approval", "status"}
+
+    def _card_for(self, req: dict[str, Any], rid: str) -> ApprovalCard:
         call = req.get("call")
         if isinstance(call, dict):
             call = s.ToolCall(id=call.get("id", ""), name=call.get("name", ""), arguments=call.get("arguments") or {})
@@ -301,18 +317,21 @@ class SurfaceModel:
             if not permitted:
                 options = ["deny"]  # no approval when the destination cannot be verified
         elif self.plain:
-            summary = (describe_call(call.name, call.arguments) if call else None) or plain_summary(summary)
-        card = ApprovalCard(rid, summary, req.get("binding") or "", options or ["allow", "deny"],
+            words, malformed = plain_wording(call.name, call.arguments) if call else (None, False)
+            summary = words or plain_summary(summary)
+            if malformed:
+                # Exo asks before it checks arguments. A request that cannot be worded truthfully can only be refused.
+                summary = "This request is not well formed, so it can only be refused. " + summary
+                options = ["deny"]
+        return ApprovalCard(rid, summary, req.get("binding") or "", options or ["allow", "deny"],
                             req.get("risk") or "medium", req.get("session"), detail)
-        previous = next((a for a in self.approvals if a.request_id == rid), None)
-        if previous is not None:
-            if previous == card:
-                return set()
-            self.approvals[self.approvals.index(previous)] = card
-            self._reviewed_token = None
-        else:
-            self.approvals.append(card)
-        return {"approval", "status"}
+
+    def _unreadable_card(self, req: dict[str, Any], rid: str) -> ApprovalCard:
+        binding = req.get("binding")
+        session = req.get("session")
+        return ApprovalCard(rid, "This request could not be read, so it can only be refused.",
+                            binding if isinstance(binding, str) else "", ["deny"], "high",
+                            session if isinstance(session, str) else None, "")
 
     def _approval_resolved(self, rid: str) -> set[str]:
         if self._reviewed_token is not None and self._reviewed_token[1] == rid:
