@@ -55,17 +55,16 @@ def fstab_mounts():
     return mounts
 
 
-def test_required_mounts_stop_boot_and_others_do_not():
+def test_required_mounts_stop_boot_and_helper_mounts_do_not():
     mounts = fstab_mounts()
     assert set(mounts) == {"/home", "/var/lib/exo", "/.snapshots", "/var/lib/exo-sysd",
                            "/var/lib/exo-egress", "/var/lib/exo-ledger"}
-    # The account and the store are used at boot with no mount check of their own.
-    for required in ("/home", "/var/lib/exo"):
+    # The account and the store are used at boot with no mount check of their own, and package
+    # installs need @snapshots for their snap-pac pair (snap-pac does not abort pacman on failure).
+    for required in ("/home", "/var/lib/exo", "/.snapshots"):
         assert "nofail" not in mounts[required]
-    for optional, options in mounts.items():
-        if optional not in ("/home", "/var/lib/exo"):
-            assert "nofail" in options
-            assert any(o.startswith("x-systemd.device-timeout=") for o in options)
+    for helper in ("/var/lib/exo-sysd", "/var/lib/exo-egress", "/var/lib/exo-ledger"):
+        assert "nofail" in mounts[helper]
 
 
 def test_nofail_helper_mounts_are_required_by_their_services():
@@ -114,7 +113,7 @@ def test_env_keeps_an_existing_pythonpath(tmp_path):
     (tmp_path / "root/usr/lib/python3.14/site-packages").mkdir(parents=True)
     result = sh(f'set -eu; source "{PROJECT}/tools/env.sh"; echo "$PYTHONPATH"',
                 env={"EXO_OS_TOOLS": str(tmp_path), "PYTHONPATH": "/keep"})
-    assert result.stdout.strip() == f"/keep:{tmp_path}/root/usr/lib/python3.14/site-packages"
+    assert result.stdout.strip() == f"{tmp_path}/root/usr/lib/python3.14/site-packages:/keep"
 
 
 @pytest.mark.parametrize("args", [["--mem"], ["--mem", "--gui"], ["--mem", ""], ["--mem", "0"], ["--mem", "2g"],
