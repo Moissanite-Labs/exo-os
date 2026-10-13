@@ -2,10 +2,12 @@ import json
 import subprocess
 import sys
 
+import pytest
 from conftest import make_exo_desktop
 
 from exo_os.changes import NOT_OURS, ChangeEngine
 from exo_os.ledger import ExoLedgerSink, MemorySink
+from exo_os.profile import Profile, ProfileError
 
 
 def _engine(tmp_path, checks=None, ledger=None):
@@ -145,3 +147,25 @@ def test_a_desktop_that_is_not_exo_os_is_left_alone(tmp_path):
         assert not r.ok and r.message == NOT_OURS
     assert sorted(p.name for p in config.rglob("*")) == ["hypr", "hyprland.lua"]
     assert not (tmp_path / "store").exists() and not ran and not sink.events
+
+
+def test_a_profile_that_would_not_read_back_is_never_written(tmp_path, monkeypatch):
+    eng = _engine(tmp_path)
+    assert eng.init().ok
+    bad = eng.profile().put_app({"name": "Notes", "command": "foot"})
+    bad.data["apps"][-1]["name"] = "Notes\n"  # a value that got past validation
+    monkeypatch.setattr(type(bad), "validate", lambda self: None)
+    before = (tmp_path / "store/machine/machine.toml").read_text()
+    r = eng.apply(bad, "Added Notes")
+    assert not r.ok and "read back" in r.message and not eng.ledger.events[2:]
+    assert (tmp_path / "store/machine/machine.toml").read_text() == before
+    assert eng.profile().data == Profile.default().data and len(eng.history()) == 1
+
+
+def test_a_newline_in_an_app_name_cannot_brick_the_engine(tmp_path):
+    eng = _engine(tmp_path)
+    assert eng.init().ok
+    with pytest.raises(ProfileError):
+        eng.apply(eng.profile().put_app({"name": "Notes\n", "command": "foot"}), "Added Notes")
+    assert eng.profile().data == Profile.default().data
+    assert eng.apply(eng.profile().set_value("display.scale", 1.5), "Larger").ok and eng.undo().ok

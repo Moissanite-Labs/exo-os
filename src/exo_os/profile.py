@@ -28,9 +28,16 @@ DEFAULT: dict[str, Any] = {
     ],
 }
 
-KEY_RE = re.compile(r"^(SUPER|CTRL|ALT|SHIFT)(\+(SUPER|CTRL|ALT|SHIFT))*\+[A-Z0-9]+$|^[A-Z0-9]+$")
-LAYOUT_RE = re.compile(r"^[a-z]{2,3}$")
-NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$")
+# Every pattern is used with `fullmatch`. `re.match` with a trailing `$` also accepts a final "\n", which
+# the TOML writer then puts raw inside a string and makes machine.toml unreadable.
+KEY_RE = re.compile(r"(SUPER|CTRL|ALT|SHIFT)(\+(SUPER|CTRL|ALT|SHIFT))*\+[A-Z0-9]+|[A-Z0-9]+")
+LAYOUT_RE = re.compile(r"[a-z]{2,3}")
+NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}")
+SWITCH_RE = re.compile(r"[a-z_]+:[a-z_]+")
+URL_RE = re.compile(r"https?://[^\s\"'\\]+")
+COMMAND_RE = re.compile(r"[A-Za-z0-9_./+=:@%, -]+")
+CLASS_RE = re.compile(r"[A-Za-z0-9_.:-]+")
+WEBAPP_URL_RE = re.compile(r"[a-z]+://([^/:]+)(?::\d+)?(/.*)?")
 
 # Field -> (type, check). Only these fields can be set. Each check returns an error string or "".
 _RANGE = lambda lo, hi: (lambda v: "" if lo <= v <= hi else f"must be between {lo} and {hi}")  # noqa: E731
@@ -38,8 +45,8 @@ FIELDS: dict[str, tuple[type | tuple[type, ...], Any]] = {
     "display.scale": ((int, float), _RANGE(0.5, 3.0)),
     "display.text_scale": ((int, float), _RANGE(0.5, 3.0)),
     "keyboard.layouts": (list, lambda v: "" if v and len(v) <= 4 and all(
-        isinstance(x, str) and LAYOUT_RE.match(x) for x in v) else "1 to 4 layout codes such as us, ara, pk"),
-    "keyboard.switch": (str, lambda v: "" if re.match(r"^[a-z_]+:[a-z_]+$", v) else "an xkb option like grp:alts_toggle"),
+        isinstance(x, str) and LAYOUT_RE.fullmatch(x) for x in v) else "1 to 4 layout codes such as us, ara, pk"),
+    "keyboard.switch": (str, lambda v: "" if SWITCH_RE.fullmatch(v) else "an xkb option like grp:alts_toggle"),
     "keyboard.repeat_rate": (int, _RANGE(5, 100)),
     "keyboard.repeat_delay": (int, _RANGE(100, 2000)),
     "pointer.natural_scroll": (bool, lambda v: ""),
@@ -50,7 +57,7 @@ FIELDS: dict[str, tuple[type | tuple[type, ...], Any]] = {
     "look.theme": (str, lambda v: "" if v in ("light", "dark") else "light or dark"),
     "look.gaps": (int, _RANGE(0, 40)),
     "look.border": (int, _RANGE(0, 10)),
-    "surface.key": (str, lambda v: "" if KEY_RE.match(v) else "a key like SUPER+SPACE"),
+    "surface.key": (str, lambda v: "" if KEY_RE.fullmatch(v) else "a key like SUPER+SPACE"),
     "surface.language": (str, lambda v: "" if v in ("en", "ur", "ar") else "en, ur or ar"),
     "surface.plain": (bool, lambda v: ""),
 }
@@ -87,6 +94,24 @@ class Profile:
         prof = cls(data)
         prof.validate()
         return prof
+
+    def check_roundtrip(self) -> None:
+        """Refuse a profile whose file would not read back as itself.
+
+        `validate` checks the values; this checks what `dumps` writes. It is the last guard before a change
+        touches disk, so a gap in any validator cannot leave an unreadable machine.toml behind."""
+        try:
+            back = Profile.loads(self.dumps())
+        except (tomllib.TOMLDecodeError, ProfileError) as exc:
+            raise ProfileError(f"that profile would not read back from its own file ({exc})") from exc
+        if back.data != self._as_written():
+            raise ProfileError("that profile would not read back from its own file as the same settings")
+
+    def _as_written(self) -> dict[str, Any]:
+        """The data as `dumps` writes it: unset (None) app fields are left out of the file."""
+        data = copy.deepcopy(self.data)
+        data["apps"] = [{k: v for k, v in app.items() if v is not None} for app in data["apps"]]
+        return data
 
     def get(self, path: str) -> Any:
         section, _, key = path.partition(".")
@@ -171,7 +196,7 @@ def webapp_class(url: str) -> str:
     https://mail.google.com/ -> chrome-mail.google.com__-Default, http://127.0.0.1:8741 ->
     chrome-127.0.0.1__-Default (port and trailing slash dropped). The form for URLs with a path is a
     guess (slashes become underscores); set `class` on the app when it is known."""
-    m = re.match(r"^[a-z]+://([^/:]+)(?::\d+)?(/.*)?$", url)
+    m = WEBAPP_URL_RE.fullmatch(url)
     if not m:
         raise ProfileError(f"{url} is not a web address")
     host, path = m.group(1), (m.group(2) or "/")
@@ -196,17 +221,20 @@ def _check_app(app: dict[str, Any]) -> None:
     if extra:
         raise ProfileError(f"app setting {sorted(extra)[0]} is not known")
     name = app.get("name")
-    if not isinstance(name, str) or not NAME_RE.match(name):
+    if not isinstance(name, str) or not NAME_RE.fullmatch(name):
         raise ProfileError("an app needs a short name (letters, digits, spaces)")
     if bool(app.get("url")) == bool(app.get("command")):
         raise ProfileError(f"app {name} needs either a url or a command")
-    if app.get("url") and not re.match(r"^https?://[^\s\"'\\]+$", app["url"]):
+    for field in ("url", "command", "class"):
+        if app.get(field) is not None and not isinstance(app[field], str):
+            raise ProfileError(f"app {name}: {field} must be text")
+    if app.get("url") and not URL_RE.fullmatch(app["url"]):
         raise ProfileError(f"app {name}: url must start with http:// or https://")
-    if app.get("command") and not re.match(r"^[A-Za-z0-9_./+=:@%, -]+$", app["command"]):
+    if app.get("command") and not COMMAND_RE.fullmatch(app["command"]):
         raise ProfileError(f"app {name}: command has characters that are not allowed")
-    if app.get("class") is not None and not re.match(r"^[A-Za-z0-9_.:-]+$", app["class"]):
+    if app.get("class") is not None and not CLASS_RE.fullmatch(app["class"]):
         raise ProfileError(f"app {name}: class has characters that are not allowed")
-    if app.get("key") is not None and not (isinstance(app["key"], str) and KEY_RE.match(app["key"])):
+    if app.get("key") is not None and not (isinstance(app["key"], str) and KEY_RE.fullmatch(app["key"])):
         raise ProfileError(f"app {name}: key must look like SUPER+1")
     ws = app.get("workspace")
     if ws is not None and not (isinstance(ws, int) and not isinstance(ws, bool) and 1 <= ws <= 10):
