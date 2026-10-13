@@ -17,7 +17,10 @@ def _usd(value: Any) -> str:
 
 
 def describe_spend(value: Any) -> str:
-    if not isinstance(value, dict) or value.get("state") not in {"offline", "ready", "stopped"}:
+    if not isinstance(value, dict):
+        return UNAVAILABLE
+    state = value.get("state")
+    if not isinstance(state, str) or state not in {"offline", "ready", "stopped"}:  # a list is unhashable
         return UNAVAILABLE
     try:
         daily, monthly, day, month, pending = (_usd(value[key]) for key in

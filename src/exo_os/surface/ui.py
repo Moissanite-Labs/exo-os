@@ -283,7 +283,7 @@ def panel_widget(v: dict[str, Any], on_close: Callable[[str], None],
         if v.get("prompt"):
             box.append(_label(v["prompt"]))
         for oid, label in v.get("options") or []:
-            b = Gtk.Button(label=label, css_classes=["big"])
+            b = Gtk.Button(label=label, css_classes=["big"], sensitive=v.get("chosen") is None)
             b.connect("clicked", lambda _b, o=oid: on_choice(pid, o))
             box.append(b)
     elif kind == "chart":
@@ -640,7 +640,7 @@ class SurfaceUI:
     def choose(self, panel_id: str, option_id: str) -> None:
         for body in self.model.choose(panel_id, option_id):
             self._send(body)
-        self.render({"transcript"})
+        self.render({"transcript", "panels"})
 
     def _answer(self, decision: str, token: tuple[Any, ...], *, explicit_click: bool = False) -> None:
         if (body := self.model.answer(decision, token, explicit_click=explicit_click)) is not None:

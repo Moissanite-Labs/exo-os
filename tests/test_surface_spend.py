@@ -53,10 +53,17 @@ def test_budget_readout_preserves_small_charges_and_retained_uncertainty():
 
 @pytest.mark.parametrize("value", [None, {}, status(state="unavailable"), status(day_charged_usd="NaN"),
                                   status(monthly_cap_usd=5), status(pending_count=True),
-                                  status(pending_reserved_usd="-1")])
+                                  status(pending_reserved_usd="-1"), status(state=[]), status(state={}),
+                                  status(state=["ready"]), status(state=None)])
 def test_missing_or_malformed_accounting_never_appears_as_zero(value):
     assert describe_spend(value) == UNAVAILABLE
     assert "$0" not in describe_spend(value)
+
+
+def test_budget_with_an_unhashable_state_reaches_the_transcript():
+    model = SurfaceModel()
+    model.model_spend({"state": []})
+    assert [line.text for line in model.visible_lines()][-1] == UNAVAILABLE
 
 
 def test_spend_stop_has_no_retry_prompt_after_turn_completion():
