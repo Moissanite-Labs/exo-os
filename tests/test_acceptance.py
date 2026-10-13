@@ -89,7 +89,8 @@ def test_acceptance_rejects_other_machine_before_running_checks(tmp_path):
 def test_acceptance_rejects_image_with_different_exo_pin(tmp_path):
     ssh = '''if [[ $* == *product_uuid* ]]; then echo "$EXO_OS_VM_UUID";
     elif [[ $* == *EXO_PIN* ]]; then printf '%040d\\n' 0;
-    elif [[ $* == *systemctl* ]]; then echo UNEXPECTED_CHECK; fi'''
+    elif [[ $* == *is-system-running* ]]; then echo running;
+    elif [[ $* == *base64* ]]; then echo UNEXPECTED_CHECK; fi'''
     r = run_harness(tmp_path, "accept_start 1 1024", ssh_body=ssh)
     assert r.returncode != 0 and "provenance" in r.stdout
     assert "UNEXPECTED_CHECK" not in r.stdout
@@ -181,6 +182,16 @@ def test_acceptance_applies_configured_readiness_budget(tmp_path):
       [[ $* == *"timeout 270 systemctl is-system-running --wait"* ]] && echo running; fi'''
     r = run_harness(tmp_path, "accept_start 1 1024", ssh_body=ssh,
                     extra_env={"EXO_OS_VM_READY_TIMEOUT": "270"})
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_acceptance_finishes_first_boot_before_mode_audit(tmp_path):
+    ssh = '''if [[ $* == *product_uuid* ]]; then echo "$EXO_OS_VM_UUID";
+    elif [[ $* == *is-system-running* ]]; then touch "$out/ready"; echo running;
+    elif [[ $* == *EXO_PIN* ]]; then cat "$here/exo.pin";
+    elif [[ $* == *EXO_OS_BUILD.json* ]]; then cat "$here/image/out/extra/opt/exo/EXO_OS_BUILD.json";
+    elif [[ $* == *base64* ]]; then test -e "$out/ready" && echo ok; fi'''
+    r = run_harness(tmp_path, "accept_start 1 1024", ssh_body=ssh)
     assert r.returncode == 0, r.stdout + r.stderr
 
 
