@@ -42,6 +42,17 @@ User data and the principal's signed ledger therefore stay current while system
 files return to the checkpoint. The original `@` remains available as the regular
 boot entry. Recovery is a separate working root, not promotion of the clone to `@`.
 The recovered root cannot itself create another checkpoint with this first version.
+Staging removes the checkpoint-era pacman database lock only from this writable
+clone. The read-only checkpoint retains its captured file and the original system's
+live lock remains held until the administrator operation finishes.
+
+The helper's `/var/lib/exo-sysd` signing key, receipt outbox and root audit state
+currently live on `@`, so they return to the checkpoint's older state on the clone.
+The principal ledger on `@store` stays current, but it cannot recover helper receipts
+that had not reached it before recovery, and a later helper key rotation may no
+longer match the recovered helper identity. This path does not establish continuous
+root audit history across rollback. A separately mounted persistent helper-state
+subvolume is required before claiming that property; it is not implemented here.
 
 Only checkpoints made by this command are eligible. A plain snapper snapshot
 without archived boot artifacts is not claimed bootable: the EFI partition is
@@ -82,7 +93,9 @@ makes a checkpoint, writes newer home/store data and a changed system marker,
 checks that systemd-boot recognizes the menu entry, selects it once and **actually
 reboots**. It then verifies a changed boot ID, the same VM identity, the recovery
 root mount, the older system marker, current home/store mounts and data, unchanged
-principal-store hashes with exod stopped at both measurements, a valid signed ledger, and preservation of original `@`.
+principal-store hashes with exod stopped at both measurements, a valid signed
+ledger, absence of a stale pacman lock on the recovery root, and preservation of
+original `@`.
 Any missing prerequisite, malformed output, wrong VM or missed reboot fails.
 A successful host fixture test is not evidence of an actual boot. The report is
 `image/out/accept-recovery.txt` when this script is run; this implementation has
