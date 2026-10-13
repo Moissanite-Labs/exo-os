@@ -147,3 +147,20 @@ snapshot with the current kernel can mismatch its modules. Explicit checkpoints
 retain the boot artifacts at the same time. EFI invocation options select the clone
 only when Secure Boot is disabled for this image's unsigned UKIs; enabled or unknown
 state is rejected. A signed recovery design remains separate work.
+
+## OS-15. Every tool crosses an installed execution boundary
+
+**Decision.** The image requires the pinned core's `exo.executors` interface and
+the root-controlled OS adapter. File, search, patch and shell operations run in
+a workspace-only namespace with Landlock and seccomp. Reviewed structured
+desktop operations run in trusted host code; every other adapter is denied
+until reviewed. Missing enforcement never falls back to a host handler. Policy,
+runtime and required plugins are controlled by the image administrator.
+
+**Why.** Isolating only the shell leaves file handlers, workers and indirect
+subprocesses with host authority. The boundary belongs in shared core dispatch;
+Linux enforcement belongs in this repository. Core handoff/completion also
+avoid host Git inspection of tool-writable repositories. The actual kernel
+tests include network/socket denial, hidden credentials and detached-child
+cleanup. The remaining trust in installed code and desktop applications is
+explicit in `docs/TOOL-ISOLATION.md`.

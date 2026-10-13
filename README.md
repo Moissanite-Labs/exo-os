@@ -11,12 +11,12 @@ Exo OS stays one with Exo: same core, same protocol, no fork. Exo is a dependenc
 ## Status
 
 The initial phases 1–3 passed their earlier VM checks, with the gaps in `ROADMAP.md`.
-The current runtime adds recoverable approvals, authenticated root receipts and stricter acceptance
-checks. The updated image still needs a fresh VM build and boot; earlier results are not evidence for
-this revision. Built:
+The current runtime adds recoverable approvals, authenticated root receipts, compulsory isolated tool
+execution and administrator boot recovery. A fresh image is being validated; earlier VM results are
+not evidence for this revision. Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
-  home, snapshots and the Exo store; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
+  home, snapshots, the Exo store and persistent helper identity/audit; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
   `exod` as a user service; exo-sysd behind a socket; automatic login to the desktop.
 - **Change engine.** A machine profile (`machine.toml`) is the one file that says how the desktop should be.
   Every change is validated, rendered to Hyprland and hypridle config, checked, committed to a git repo in
@@ -30,11 +30,17 @@ this revision. Built:
 - **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client,
   with approval cards in plain words. Escape defers; lost answers are reconciled without automatic retry.
 - **Timeline.** `exo-os today` and the `timeline_show` tool: what Exo did on a day, from the ledger.
+- **Tool boundary.** Every registry call passes through the required executor. Workspace tools run
+  under bubblewrap, Landlock and seccomp with no network, credentials or host control sockets.
+  Unsupported adapters refuse execution. Reviewed desktop operations use structured arguments.
+- **Boot recovery.** An administrator can checkpoint a system together with its matching kernel image
+  and stage a separate recovery boot. Home, the store and the helper's identity/audit persist.
 
-Not yet: rollback that boots an older snapshot, the sandbox and secrets layers, voice and phone clients.
-See `ROADMAP.md` and [the core/OS contract](docs/CORE-CONTRACT.md). Same-user tools can still bypass the
-consent gate by invoking named root operations directly; the compulsory broker and sandbox remain
-required before daily use.
+Still required: current-image boot/recovery acceptance, credential-injecting egress, a separate core
+ledger signer and off-machine anchor, voice and phone clients, and the hardware trials in `ROADMAP.md`.
+Isolation covers model tool processes. Installed providers/plugins and the person's other desktop
+applications remain trusted; this is not a claim of separation between every same-user process.
+See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL-ISOLATION.md).
 
 ## Use
 
@@ -46,6 +52,8 @@ required before daily use.
     tools/run-vm.sh [--gui]                # boot it in QEMU (throwaway overlay; SSH on 127.0.0.1:2222)
     tools/vm-ssh.sh <command>              # run a command in the VM as root
     tools/accept-phase1.sh                 # the phase 1 acceptance checks
+    tools/accept-isolation.sh              # kernel isolation in a disposable booted image
+    tools/accept-recovery.sh               # checkpoint, reboot into recovery and verify persistence
 
 On a machine running Exo OS. On any other desktop, `exo-os` changes nothing there and says so; the Exo store
 still works. The image explicitly marks its desktop with
@@ -69,6 +77,8 @@ mentioning Exo is not an ownership marker.
 | `docs/CORE-CONTRACT.md` | Principles as acceptance conditions; shared-core integration requirements |
 | `docs/SYSTEM-TRUST.md` | Root authentication, signed outcomes and audit recovery |
 | `docs/SURFACE-RECOVERY.md` | Approval recovery, connection health and protocol limits |
+| `docs/TOOL-ISOLATION.md` | Compulsory execution, working set and trust limits |
+| `docs/BOOT-RECOVERY.md` | Administrator checkpoints and matching-kernel recovery |
 | `src/exo_os/profile.py` | The machine profile: fields, checks, apps |
 | `src/exo_os/render/` | Profile to Hyprland Lua and hypridle config |
 | `src/exo_os/changes.py` | The change engine: apply, check, commit or put back, undo |
