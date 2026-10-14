@@ -13,7 +13,7 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 out="$here/image/out"
 report="$out/accept-isolation.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }
-as_exo() { ssh_vm "cd /tmp && as-exo $*"; }
+as_exo() { accept_as_exo "$@"; }
 pass=0 fail=0
 result() {
   local line
