@@ -132,7 +132,9 @@ class Bar(Gtk.Window):
         self.entry = Gtk.Entry(placeholder_text=PLACEHOLDER, hexpand=True, css_classes=["prompt"])
         self.entry.update_property([Gtk.AccessibleProperty.LABEL], [PLACEHOLDER])
         self.status = _label("", "status", wrap=False)
-        self.review = Gtk.Button(label="Review request (F6)", visible=False)
+        # Completion Tab/Space must not become a review gesture while typing.
+        # Mouse clicks and the dedicated F6 shortcut remain explicit review paths.
+        self.review = Gtk.Button(label="Review request (F6)", visible=False, focusable=False)
         self.pending = _label("", "status")
         self.pending.set_visible(False)
         row.append(self.entry)

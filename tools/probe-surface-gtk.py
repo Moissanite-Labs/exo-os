@@ -371,6 +371,45 @@ def review_with_f6():
     remember_renderer("card", ui.card)
 
 
+# Completion navigation must not turn into keyboard consent through Tab/Space.
+ui.show()
+ui.on_event(ev(s.ApprovalRequested(request_id="completion_tab", summary="Pending during completion",
+                                 binding="completion-bound")))
+ui.bar.entry.set_text("launcher draft")
+ui.bar.entry.grab_focus()
+assert ui.bar.review.get_visible() and not ui.bar.review.get_focusable()
+before_tab = len(sent)
+if backend == "wayland-layer":
+    tab_events, tab_overflow = [], []
+    tab_ctl = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+
+    def observe_tab_input(_ctl, keyval, code, _state):
+        if len(tab_events) < 64:
+            tab_events.append({"keyval": keyval, "code": code,
+                               "review_target": focus_within(ui.bar, ui.bar.review)})
+        else:
+            tab_overflow[:] = [True]
+        return False
+
+    tab_ctl.connect("key-pressed", observe_tab_input)
+    ui.bar.add_controller(tab_ctl)
+    try:
+        finish_keys(start_keys("-k", "Tab", "-k", "space", "-s", str(A.ARM_MS + 100), "-k", "y", "-k", "n"))
+        required = {A.Gdk.KEY_Tab, A.Gdk.KEY_space, A.Gdk.KEY_y, A.Gdk.KEY_n}
+        assert not tab_overflow and {row["keyval"] for row in tab_events} == required, tab_events
+        assert all(row["code"] > 0 and not row["review_target"] for row in tab_events), tab_events
+    finally:
+        ui.bar.remove_controller(tab_ctl)
+else:
+    ui.bar.child_focus(Gtk.DirectionType.TAB_FORWARD)
+    pump()
+    assert not focus_within(ui.bar, ui.bar.review)
+assert model.reviewed_approval is None and not ui.card.reviewing
+assert not any(isinstance(body, s.ApprovalRespond) for body in sent[before_tab:])
+ui.on_event(ev(s.ApprovalResolved(request_id="completion_tab", decision="deny")))
+ui.bar.entry.set_text("")
+
+
 # Wayland uses actual compositor keyboard delivery, including the late tod|ay boundary.
 # Private Broadway has no compositor keyboard: it covers widget focus/model text only.
 for index, (text, offset) in enumerate((("who are my calls today", 20), ("yesterday", 0),
@@ -573,6 +612,7 @@ n = len(sent)
 ui.card.shown_at -= (A.ARM_MS + 50) * 1000
 old_yes.emit("clicked")
 ui._answer("allow", old_token, explicit_click=True)
+ui._answer("allow", None, explicit_click=True)  # an untargeted activation cannot select the new request
 assert len(sent) == n and model.approval.request_id == "stale_b"
 if backend == "broadway-private":
     review_with_f6()  # fallback never maps an unreviewed standalone card

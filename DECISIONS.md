@@ -120,6 +120,10 @@ reply or reconnection, read pending approvals before making a card answerable ag
 consent automatically. Probe daemon responsiveness and event progress with bounded calls; retain
 backoff across short failed connections. Details and protocol limitations: `docs/SURFACE-RECOVERY.md`.
 
+Desktop keyboard review uses the dedicated F6 shortcut or a targeted review
+button click. The review button stays outside the launcher's Tab completion
+order, so completion input cannot become a review gesture.
+
 ## OS-13. Acceptance requires current, bounded evidence
 
 **Decision.** VM acceptance first checks the unique identity of the VM started by that run. Failed
