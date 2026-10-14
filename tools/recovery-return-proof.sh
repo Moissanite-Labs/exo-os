@@ -5,6 +5,10 @@ required_checks=11  # original ten results plus the separately named return proo
 return_out=$out/recovery-return-proof
 mkdir "$return_out"
 printf '%s\n' "$pass" > "$return_out/original-check-count.txt"
+# The original helper check already proved the post-checkpoint audit survived.
+# Its recovery-root status call then appended a receipt. Preserve that complete
+# audit exactly across this return reboot, rather than comparing its older hash.
+helper_audit_return_before=$(ssh_vm 'sha256sum /var/lib/exo-sysd/audit.log | cut -d " " -f 1')
 ssh_vm 'bootctl list --json=short' > "$return_out/boot-menu.json"
 normal_entry=$("$here/.venv/bin/python" - "$return_out/boot-menu.json" <<'PY'
 import json,sys
@@ -44,7 +48,7 @@ spend_journal_probe check "$id"
 [[ $(ssh_vm 'findmnt -n -o FSROOT /var/lib/exo-sysd') == /@sysd ]] || return 1
 [[ $(ssh_vm 'stat -c "%a %U %G" /var/lib/exo-sysd') == '700 root root' ]] || return 1
 [[ $(ssh_vm 'sha256sum /var/lib/exo-sysd/sysd.key | cut -d " " -f 1') == "$helper_key_before" ]] || return 1
-[[ $(ssh_vm 'sha256sum /var/lib/exo-sysd/audit.log | cut -d " " -f 1') == "$helper_audit_before" ]] || return 1
+[[ $(ssh_vm 'sha256sum /var/lib/exo-sysd/audit.log | cut -d " " -f 1') == "$helper_audit_return_before" ]] || return 1
 ssh_vm 'as-exo /opt/exo/bin/exo-os system status >/dev/null'
 [[ $(ssh_vm '/opt/exo/bin/python -c "import hashlib; from exo_os.sysd.protocol import PUBLIC_KEY; print(hashlib.sha256(PUBLIC_KEY.read_bytes()).hexdigest())"') == "$helper_pub_before" ]] || return 1
 [[ $(ssh_vm 'findmnt -n -o FSROOT /var/lib/exo-egress') == /@egress ]] || return 1

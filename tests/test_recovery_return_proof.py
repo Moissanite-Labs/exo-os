@@ -22,7 +22,9 @@ def digest(name): return hashlib.sha256((root/name).read_bytes()).hexdigest()
 def mode(name,owner): return f'{stat.S_IMODE((root/name).stat().st_mode):o} {owner} {owner}'
 if command=='bootctl list --json=short': print((root/'menu.json').read_text())
 elif command.startswith('bootctl set-oneshot '): (root/'oneshot').write_text(command)
-elif command=='systemctl reboot': (root/'boot').write_text(config['next_boot'])
+elif command=='systemctl reboot':
+    (root/'boot').write_text(config['next_boot'])
+    if config.get('damage_audit_on_reboot'): (root/'helper-audit').write_text('changed protected state')
 elif command=='cat /proc/sys/kernel/random/boot_id': print(read('boot'))
 elif command=='wait':
     assert os.environ['BOOT_TIMEOUT']=='900' and os.environ['READY_TIMEOUT']=='900'
@@ -47,7 +49,9 @@ elif command.startswith('sha256sum /var/lib/exo/model-spend/'): print(digest('sp
 elif command.startswith('sha256sum /var/lib/exo-sysd/sysd.key'): print(digest('helper-key'))
 elif command.startswith('sha256sum /var/lib/exo-sysd/audit.log'): print(digest('helper-audit'))
 elif 'PUBLIC_KEY.read_bytes()' in command: print(digest('helper-public'))
-elif command.startswith('systemctl start ') or command.startswith('as-exo /opt/exo/bin/exo-os system status'): pass
+elif command.startswith('as-exo /opt/exo/bin/exo-os system status'):
+    with (root/'helper-audit').open('a') as log: log.write('\nnormal-root status receipt')
+elif command.startswith('systemctl start '): pass
 elif command=='authority check': assert read('authority')=='committed operation'
 elif command.startswith('spend check '): assert read('spend-journal')=='stopped journal'
 elif command=='egress check': assert read('egress-journal')=='reserved operation'
@@ -89,6 +93,11 @@ def controlled_return(tmp_path):
                 'spend_policy_before': values['spend-policy'], 'spend_hash_before': sha('spend-policy') + sha('spend-journal'),
                 'helper_key_before': sha('helper-key'), 'helper_audit_before': sha('helper-audit'),
                 'helper_pub_before': sha('helper-public')}
+    # Original10 hashes the preserved audit, then status appends a root receipt.
+    # Model that service effect before entering the separately counted return.
+    with (guest / 'helper-audit').open('a') as log:
+        log.write('\nrecovery-root status receipt')
+    assert sha('helper-audit') != baseline['helper_audit_before']
     process = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
     def run(*, counts=(10, 0, 10)):
         assignments = {'here': str(here), 'out': str(out), 'qemu': str(process.pid), 'id': 'checkpoint',
@@ -143,6 +152,8 @@ def test_actual_return_helper_refuses_changed_persistent_or_boot_state(controlle
         config['uuid'] = 'unrelated-vm'
     elif damage == 'wrong_root':
         config['mounts']['/'] = '/@snapshots/recovery'
+    elif damage == 'helper-audit':
+        config['damage_audit_on_reboot'] = True
     elif damage.endswith('_mode'):
         (guest / {'signer_mode': 'signer/private', 'helper_mode': 'helper', 'egress_mode': 'egress'}[damage]).chmod(0o755)
     else:
