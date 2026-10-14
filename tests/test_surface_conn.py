@@ -167,6 +167,11 @@ def test_exod_down_then_up_then_resume(paths):
         exod = Exod(sock)
         rec.wait(lambda: rec.last("connected") is True and rec.last("session"))
         first = rec.last("session")
+        # `connected` is posted just before the event feed opens. Stop exod before the feed is up and its
+        # request can be left unanswered on a half-closed socket: the surface then notices only at its next
+        # probe, 15 s later. A completed turn shows the feed is live, so stopping exod ends it with an EOF.
+        c.send_turn("feed is up")
+        rec.wait(lambda: rec.events("turn.completed"))
         exod.stop()
         rec.wait(lambda: rec.last("connected") is False)
 
@@ -268,6 +273,8 @@ class FakeDaemon:
         self.pending = [{"request_id": "a1", "summary": "Send?", "binding": "h1"}]
         self.clients = []
         self.answers = []
+        self.turns = []
+        self.hold_snapshot = None  # a threading.Event: approvals.list waits for it, to hold the connect open
         self.probes = 0
         self.stall_commands = False
 
@@ -286,10 +293,14 @@ class FakeDaemon:
                 if isinstance(body, s.SessionCreate):
                     return {"session": {"id": "s_fake"}}
                 if isinstance(body, s.ApprovalsList):
+                    while daemon.hold_snapshot is not None and not daemon.hold_snapshot.is_set():
+                        await asyncio.sleep(0.01)
                     return {"approvals": list(daemon.pending)}
                 raise AssertionError(type(body))
 
             async def send(self, body):
+                if isinstance(body, s.TurnSend):
+                    daemon.turns.append(body)
                 if isinstance(body, s.ApprovalRespond):
                     daemon.answers.append(body)
                     if daemon.failure == "lost_applied":
@@ -313,6 +324,37 @@ class FakeDaemon:
         client = FakeClient()
         self.clients.append(client)
         return client
+
+
+def test_turn_sent_while_the_connect_snapshot_is_pending_is_delivered(paths):
+    # Between the session event and the end of the approval snapshot the UI already shows a session.
+    sock, state = paths
+    sock.touch()
+    daemon = FakeDaemon()
+    daemon.hold_snapshot = threading.Event()
+    rec = ModelRecorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct, client_factory=daemon.client)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("session") == "s_fake")
+        assert rec.last("connected") is not True  # still in the snapshot window
+        c.send_turn("first")
+        c.send_turn("second")
+        rec.wait(lambda: len(daemon.turns) == 2)
+        assert [t.text for t in daemon.turns] == ["first", "second"]
+        assert not [call for call in rec.calls if call[0] == "failed"]
+        # An answer may not overtake the snapshot: it is refused, never sent, and its card is rearmed.
+        c.respond_approval("a1", "allow", "h1")
+        assert daemon.answers == []
+        assert ("approval_result", "a1") in rec.calls and rec.last("failed") == "not_connected"
+        daemon.hold_snapshot.set()
+        rec.wait(lambda: rec.last("connected") is True and rec.model.approval is not None)
+        assert daemon.answers == [] and len(daemon.clients) == 1
+        c.respond_approval("a1", "allow", "h1")  # once reconciled, an answer goes out
+        rec.wait(lambda: len(daemon.answers) == 1)
+    finally:
+        daemon.hold_snapshot.set()
+        c.stop()
 
 
 @pytest.mark.parametrize("failure", ["lost_unapplied", "lost_applied", "rejected", None])

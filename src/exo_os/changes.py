@@ -26,7 +26,7 @@ from typing import Callable, Iterator
 
 from .checks import DEFAULT_CHECKS, Check
 from .ledger import NullSink, Sink
-from .paths import DESKTOP_MARK, owns_desktop
+from .paths import DESKTOP_INCLUDE, DESKTOP_OWNER, DESKTOP_OWNER_CONTENT, owns_desktop
 from .profile import Profile
 from .render.hyprland import render as render_hyprland
 
@@ -175,7 +175,9 @@ class ChangeEngine:
         """Nothing is written, checked or reloaded unless this desktop is an Exo OS one."""
         if self.owns(self.config_home):
             return None
-        return Result(False, NOT_OURS, checks=[f"{self.config_home / 'hypr/hyprland.lua'} does not load {DESKTOP_MARK}"])
+        return Result(False, NOT_OURS, checks=[
+            f"needs {self.config_home / DESKTOP_OWNER} containing {DESKTOP_OWNER_CONTENT.strip()} and an active "
+            f"{DESKTOP_INCLUDE} line in {self.config_home / 'hypr/hyprland.lua'}"])
 
     def _planned_files(self, profile: Profile) -> dict[str, str]:
         files = {"machine.toml": profile.dumps()}
