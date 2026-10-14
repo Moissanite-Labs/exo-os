@@ -15,6 +15,12 @@ widget cannot authorize a replacement. A submitted card stays hidden while deliv
 cannot submit the same request. The status says “Checking your answer…”. A
 replacement or reopened card receives a fresh 700 ms anti-misclick window.
 
+The review button is outside the launcher's Tab completion order. Tab followed
+by Space during typing cannot enter review through that button. F6 remains the
+dedicated keyboard gesture, and a targeted mouse click still opens review.
+The GTK navigation test and native Tab/Space/Y/N probe cover this boundary.
+Host decision tests alone do not establish real keyboard navigation behavior.
+
 Escape defers the current card locally. It sends neither allow nor deny. The
 request stays pending; only **Review request (F6)** explicitly reopens it.
 Opening the prompt preserves deferrals and ends keyboard review.

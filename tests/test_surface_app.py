@@ -96,3 +96,69 @@ def test_widgets_smoke(tmp_path):
                                "--exit-code", str(out.returncode)], input=out.stdout, capture_output=True,
                               text=True, timeout=10)
     assert verified.returncode == 0, out.stdout + out.stderr + verified.stderr
+
+
+def test_review_button_is_outside_real_gtk_tab_navigation(tmp_path):
+    """GTK's own focus traversal is required; a fake property cannot certify it."""
+    proc, env = _broadway(tmp_path)
+    if proc is None:
+        pytest.skip("no private display: install gtk4-broadwayd")
+    env["PYTHONPATH"] = SRC + os.pathsep + env.get("PYTHONPATH", "")
+    code = '''import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import GLib, Gtk
+assert Gtk.init_check()
+from exo.protocol import schema as s
+from exo_os.profile import Profile
+from exo_os.surface.model import SurfaceModel
+from exo_os.surface.ui import SurfaceUI
+model = SurfaceModel(Profile.default())
+model.set_session("tab-session")
+sent = []
+ui = SurfaceUI(model, sent.append)
+ui.on_connected(True)
+ui.show()
+ui.on_event(s.Event.of(s.ApprovalRequested(request_id="tab", summary="Pending", binding="bound"), 1, "tab-session"))
+ui.bar.entry.set_text("launcher draft")
+def pump():
+    context = GLib.MainContext.default()
+    for _ in range(100):
+        if not context.pending(): break
+        context.iteration(False)
+def inside(target):
+    focused = ui.bar.get_focus()
+    while focused is not None:
+        if focused == target: return True
+        focused = focused.get_parent()
+    return False
+pump()
+assert ui.bar.review.get_visible() and not ui.bar.review.get_focusable()
+ui.bar.entry.grab_focus()
+assert inside(ui.bar.entry)
+for direction in (Gtk.DirectionType.TAB_FORWARD, Gtk.DirectionType.TAB_BACKWARD):
+    for _ in range(12):
+        ui.bar.child_focus(direction)
+        pump()
+        assert not inside(ui.bar.review)
+        assert model.reviewed_approval is None
+# The test must detect the reviewed bug when focusability is reintroduced.
+ui.bar.review.set_focusable(True)
+ui.bar.entry.grab_focus()
+ui.bar.child_focus(Gtk.DirectionType.TAB_FORWARD)
+pump()
+assert inside(ui.bar.review)
+ui.bar.review.set_focusable(False)
+ui.bar.entry.grab_focus()
+# An explicitly targeted button click remains supported despite Tab exclusion.
+ui.bar.review.emit("clicked")
+pump()
+assert model.reviewed_approval is not None and ui.card.reviewing
+assert not any(isinstance(body, s.ApprovalRespond) for body in sent)
+ui.hide()
+'''
+    try:
+        run = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=60)
+    finally:
+        proc.terminate()
+        proc.wait(5)
+    assert run.returncode == 0, run.stdout + run.stderr

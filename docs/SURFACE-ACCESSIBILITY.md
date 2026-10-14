@@ -23,6 +23,8 @@ opens the exact request for review. F6 is handled only while this surface owns
 the keys, and initially focuses the card's selectable summary, before Yes or No.
 A held F6 or a modifier change cannot reopen another request. Its release must
 be observed before a fresh unmodified press enters a new keyboard review.
+The review button is excluded from Tab completion navigation, so ordinary
+Tab/Space input cannot open it. Use F6 or an explicit mouse click to review.
 When the request includes a tool call, the card also shows its full literal JSON
 arguments in a selectable, read-only text area in both plain and operator modes.
 This includes long suffixes that a short summary may omit. Invisible direction

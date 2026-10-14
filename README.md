@@ -30,6 +30,7 @@ not evidence for this revision. Built:
 - **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client,
   with keyboard-accessible panels and recent loaded history, plus full selectable approval details.
   Pending requests preserve typing; **Review request (F6)** enters keyboard review.
+  The review button stays outside Tab completion navigation. Mouse review remains available.
   Escape defers; losing review focus revokes keyboard consent; lost answers are reconciled without automatic retry.
 - **Timeline.** `exo-os today` and the `timeline_show` tool: what Exo did on a day, from the ledger.
 - **Tool boundary.** Every registry call passes through the required executor. Workspace tools run
