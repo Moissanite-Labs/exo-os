@@ -368,9 +368,11 @@ def test_recovery_records_receipt_once_without_running_action(tmp_path, socket_d
     first = client.recover_pending()
     assert first == {'recorded': [request_id], 'already_recorded': [], 'rejected': [], 'errors': [], 'root_audit_errors': []}
     second = client.recover_pending()
-    assert second['already_recorded'] == [request_id] and second['recorded'] == []
+    assert second == {'recorded': [], 'already_recorded': [], 'rejected': [], 'errors': [], 'root_audit_errors': []}
     assert len(sink.events) == 1 and len(srv.actions.runner.calls) == 1
-    assert caught.value.outbox_path.exists()
+    # Kept, not deleted: it moves out of the scanned outbox once the ledger holds it.
+    assert not caught.value.outbox_path.exists()
+    assert (caught.value.outbox_path.parent / 'recorded' / caught.value.outbox_path.name).exists()
 
 
 def test_recovery_rejects_forged_tampered_and_relocated_receipts(tmp_path, monkeypatch, trust_context):
@@ -427,10 +429,13 @@ def test_real_ledger_dedupe_works(tmp_path, monkeypatch, trust_context):
     monkeypatch.setattr('exo_os.sysd.client.open_sink', open_sink)
     srv = _server(tmp_path)
     receipt = srv.handle_line(encode(_request()), (os.getpid(), os.getuid(), os.getgid()))['receipt']
-    _save_receipt(_outbox_dir(), receipt)
+    saved = _save_receipt(_outbox_dir(), receipt)
     client = SysdClient(trust_key=crypto.pubkey_b64(srv.key))
     assert client.recover_pending()['recorded'] == [receipt['request_id']]
+    # A crash between the ledger append and the move leaves the file in place: deduped, then moved.
+    (saved.parent / 'recorded' / saved.name).replace(saved)
     assert client.recover_pending()['already_recorded'] == [receipt['request_id']]
+    assert client.recover_pending()['already_recorded'] == []
     ledger = open_sink(store, tmp_path / 'home').ledger
     assert len(list(ledger.iter(kind='action'))) == 1
 
@@ -579,3 +584,98 @@ def test_server_rejects_excess_connections_without_new_threads(tmp_path, monkeyp
     with pytest.raises(StopIteration):
         srv.serve(Listener())
     assert started == [0] and closed == [1, 2]
+
+
+def _saved_audit_fault(tmp_path):
+    """A mutation receipt whose root log write failed, saved in the outbox but not in any ledger."""
+    from exo_os.sysd.client import _outbox_dir, _save_receipt
+
+    srv = _server(tmp_path)
+
+    class FailingLog:
+        def write(self, wire): raise OSError('disk full')
+        def close(self): pass
+
+    srv._open_log = lambda: FailingLog()
+    receipt = srv.handle_line(encode(_request()), (os.getpid(), os.getuid(), os.getgid()))['receipt']
+    assert receipt['audit_error']
+    return srv, _save_receipt(_outbox_dir(), receipt), receipt
+
+
+def test_recorded_audit_fault_is_reported_once_then_reconcile_is_clean(tmp_path, monkeypatch, trust_context, capsys):
+    from exo_os import cli
+
+    srv, saved, receipt = _saved_audit_fault(tmp_path)
+    monkeypatch.setattr('exo_os.sysd.client.SysdClient.__init__',
+                        lambda self, *a, **k: (setattr(self, 'trust_key', crypto.pubkey_b64(srv.key))))
+    monkeypatch.setattr(cli, 'engine', lambda: None)
+    assert cli.main(['system', 'reconcile']) == 1  # news: this run records a receipt with a root-log fault
+    assert 'root_audit_errors' in capsys.readouterr().err and len(trust_context.events) == 1
+    for _ in range(2):  # handled: the receipt is in the ledger, so the same fault no longer fails reconcile
+        assert cli.main(['system', 'reconcile']) == 0
+        assert 'root_audit_errors' not in capsys.readouterr().err
+    assert not saved.exists() and (saved.parent / 'recorded' / saved.name).exists()
+    assert len(trust_context.events) == 1
+
+
+def test_receipt_already_in_ledger_does_not_fail_reconcile_for_its_audit_fault(tmp_path, trust_context):
+    srv, saved, receipt = _saved_audit_fault(tmp_path)
+    trust_context.append('system.action', {'receipt': receipt})  # what call() did before exiting 3
+    summary = SysdClient(trust_key=crypto.pubkey_b64(srv.key)).recover_pending()
+    assert summary['already_recorded'] == [receipt['request_id']]
+    assert summary['root_audit_errors'] == [] and summary['errors'] == [] and not saved.exists()
+
+
+def test_reconcile_failing_to_archive_stays_a_failure(tmp_path, monkeypatch, trust_context):
+    srv, saved, receipt = _saved_audit_fault(tmp_path)
+
+    def broken(directory, path): raise OSError('read-only file system')
+
+    monkeypatch.setattr('exo_os.sysd.client._archive_receipt', broken)
+    summary = SysdClient(trust_key=crypto.pubkey_b64(srv.key)).recover_pending()
+    assert summary['recorded'] == [receipt['request_id']] and len(summary['errors']) == 1 and saved.exists()
+
+
+def test_sqlite_error_during_reconcile_is_a_clean_failure(tmp_path, monkeypatch, trust_context, capsys):
+    import sqlite3
+    from exo_os import cli
+
+    srv, saved, receipt = _saved_audit_fault(tmp_path)
+
+    class Locked:
+        class ledger:
+            @staticmethod
+            def iter(**kwargs): raise sqlite3.OperationalError('database is locked')
+
+    monkeypatch.setattr('exo_os.sysd.client.open_sink', lambda *a: Locked())
+    monkeypatch.setattr('exo_os.sysd.client.SysdClient.__init__',
+                        lambda self, *a, **k: (setattr(self, 'trust_key', crypto.pubkey_b64(srv.key))))
+    monkeypatch.setattr(cli, 'engine', lambda: None)
+    assert cli.main(['--json', 'system', 'reconcile']) == 1
+    assert 'database is locked' in json.loads(capsys.readouterr().out)['errors'][0]['error']
+    assert saved.exists()
+
+
+def _after_reboot(monkeypatch, tmp_path):
+    """The default anchor's directory does not exist: the helper has not run since boot."""
+    gone = Path('/exo-sysd-test-no-such-dir/receipt.pub')  # root-owned ancestors only, like /var/lib/...
+    monkeypatch.setattr('exo_os.sysd.client.PUBLIC_KEY', gone)
+    return gone
+
+
+def test_reconcile_works_with_no_helper_key_when_nothing_is_saved(tmp_path, monkeypatch, trust_context, capsys):
+    from exo_os import cli
+
+    _after_reboot(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, 'engine', lambda: None)
+    assert SysdClient().recover_pending() == {'recorded': [], 'already_recorded': [], 'rejected': [],
+                                              'errors': [], 'root_audit_errors': []}
+    assert cli.main(['system', 'reconcile']) == 0
+
+
+def test_reconcile_fails_closed_when_receipts_exist_but_the_anchor_does_not(tmp_path, monkeypatch, trust_context):
+    srv, saved, receipt = _saved_audit_fault(tmp_path)
+    _after_reboot(monkeypatch, tmp_path)
+    summary = SysdClient().recover_pending()
+    assert summary['recorded'] == [] and len(summary['errors']) == 1 and saved.exists()
+    assert 'No such file' in summary['errors'][0]['error'] and trust_context.events == []
