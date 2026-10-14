@@ -1,0 +1,12 @@
+[Unit]
+Description=Exo approved HTTPS egress socket
+
+[Socket]
+ListenStream=/run/exo-egress.sock
+SocketUser=root
+SocketGroup=exo-sys
+SocketMode=0660
+Backlog=8
+
+[Install]
+WantedBy=sockets.target

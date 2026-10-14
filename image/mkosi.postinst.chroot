@@ -3,21 +3,38 @@
 # wheelhouse that tools/build-image.sh put in /opt/exo/wheels (no network), creates the person's
 # account, and configures snapper for the system subvolume.
 set -eu
+umask 022
 
 # Exo and exo-os in one venv. --system-site-packages: the prompt bar uses the distribution's PyGObject.
 python -m venv --system-site-packages --without-pip /opt/exo
 python -m pip --python /opt/exo/bin/python install --quiet --no-index --no-cache-dir \
     --find-links /opt/exo/wheels exo exo-os
 rm -rf /opt/exo/wheels
-for b in exo exo-os exo-surface exo-os-setup; do ln -sf "/opt/exo/bin/$b" "/usr/local/bin/$b"; done
+for b in exo exo-os exo-surface exo-os-setup exo-os-recovery exo-ledger-admin exo-model-spend-admin; do ln -sf "/opt/exo/bin/$b" "/usr/local/bin/$b"; done
 
 # The person. Phase 1 has one account with automatic login; onboarding will create it in later phases.
 getent group exo-sys >/dev/null || groupadd --system exo-sys
+# Static broker principal; the desktop account receives no credential files.
+getent group exo-egress >/dev/null || groupadd --system exo-egress
+id exo-egress >/dev/null 2>&1 || useradd --system --gid exo-egress --no-create-home \
+    --home-dir /var/lib/exo-egress --shell /usr/bin/nologin exo-egress
+# Repart copies this root-controlled source into persistent @egress. On boot,
+# StateDirectory changes its ownership after the required mount is present.
+install -d -m 0700 /var/lib/exo-egress
+getent group exo-ledger >/dev/null || groupadd --system exo-ledger
+id exo-ledger >/dev/null 2>&1 || useradd --system --gid exo-ledger --no-create-home \
+    --home-dir /var/lib/exo-ledger --shell /usr/bin/nologin exo-ledger
+# Root-owned public identity on @signer; provisioning creates the private service-owned subtree.
+install -d -m 0755 /var/lib/exo-ledger
 id exo >/dev/null 2>&1 || useradd --create-home --groups wheel,exo-sys,video,input --shell /bin/bash exo
 passwd --lock exo >/dev/null
-install -d -m 0700 /var/lib/exo/exo
+# Git archives can supply this existing parent as 0775; creating its child does
+# not reset the parent's mode. Repart needs a root-controlled @store source.
+install -d -o root -g root -m 0755 /var/lib/exo
+install -d -m 0700 /var/lib/exo/exo /var/lib/exo-sysd
 cp -rT /etc/skel /home/exo   # explicit: useradd did not copy the skeleton in the image build
 mkdir -p /home/exo/.config/hypr/exo
+mkdir -p /home/exo/Workspace
 /opt/exo/bin/python - <<'PY'
 from exo_os.profile import Profile
 from exo_os.render.hyprland import render
@@ -33,3 +50,37 @@ sed -e 's/^SUBVOLUME=.*/SUBVOLUME="\/"/' -e 's/^TIMELINE_CREATE=.*/TIMELINE_CREA
 chmod 0640 /etc/snapper/configs/root
 echo 'SNAPPER_CONFIGS="root"' > /etc/conf.d/snapper
 mkdir -p /.snapshots
+
+# Extra trees may have been archived from a host filesystem whose default mode is
+# group-writable. Trusted-path checks require root-owned, non-writable ancestors.
+/bin/sh /usr/lib/exo-os/harden-image-modes.sh
+rm -f /usr/lib/exo-os/harden-image-modes.sh
+rmdir /usr/lib/exo-os 2>/dev/null || true
+
+# Repart copies this source to @store. Remove only the known empty placeholder,
+# then enforce the same fresh-store shape required by boot provisioning.
+/opt/exo/bin/python - <<'STORE'
+import stat
+from pathlib import Path
+
+store = Path("/var/lib/exo")
+info = store.lstat()
+if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+    raise RuntimeError("fresh image store must be a root-owned non-writable directory")
+
+placeholder = store / ".keep"
+if placeholder.exists() or placeholder.is_symlink():
+    info = placeholder.lstat()
+    # The checked-in empty placeholder is 0644; git archive can emit it as 0664.
+    if (not stat.S_ISREG(info.st_mode) or info.st_size != 0
+            or info.st_uid != 0 or stat.S_IMODE(info.st_mode) not in (0o644, 0o664)):
+        raise RuntimeError("unexpected fresh image store placeholder")
+    placeholder.unlink()
+
+if {path.name for path in store.iterdir()} != {"exo"}:
+    raise RuntimeError("fresh image store has unexpected entries")
+skeleton = store / "exo"
+info = skeleton.lstat()
+if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022 or any(skeleton.iterdir()):
+    raise RuntimeError("fresh image store must contain only its empty root-owned principal skeleton")
+STORE

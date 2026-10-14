@@ -1,6 +1,9 @@
 """Plain words for changes, used in history, in the ledger and on screen."""
 from __future__ import annotations
 
+import json
+import unicodedata
+
 from typing import Any
 
 LAYOUT_NAMES = {"us": "English", "ara": "Arabic", "pk": "Urdu", "gb": "English (UK)", "fr": "French",
@@ -85,6 +88,67 @@ def describe_call(name: str, args: dict[str, Any] | None) -> str | None:
         path = str(a.get("path") or a.get("file_path") or "a file")
         return f"Change the file {path.rsplit('/', 1)[-1]}?"
     return None
+
+
+def credential_request_preview(args: dict[str, Any], approval_id: str) -> tuple[str, str, bool]:
+    """Full literal request metadata, with its bound destination checked against operator policy.
+
+    This reads only the root-owned policy through the egress policy API. It never imports the broker
+    or reads a credential file. JSON escaping makes controls and markup literal and inspectable.
+    """
+    # Put the destination and operation ahead of even a maximum-sized body.
+    # Unknown metadata remains visible and is still rejected by validation below.
+    metadata = ("profile", "request_id", "expected_origin", "method", "path")
+    request = {key: args[key] for key in metadata if key in args}
+    request.update((key, value) for key, value in args.items() if key not in metadata and key != "body")
+    request["body"] = args.get("body", "")
+    literal = json.dumps({"approval_request_id": approval_id, "request": request}, indent=2, ensure_ascii=False)
+    # Keep normal Unicode readable; expose direction/format controls and Unicode line separators as
+    # JSON escapes so a payload cannot visually overwrite its destination or hide a suffix.
+    literal = _escape_format_controls(literal)
+    details = "Outbound request (full JSON; escaped characters preserve exact text):\n" + literal
+    blocked = "This request cannot be approved. "
+    allowed_fields = {"profile", "request_id", "expected_origin", "method", "path", "body"}
+    required = allowed_fields - {"body"}
+    if not required <= set(args) or set(args) - allowed_fields:
+        return blocked + "The request is incomplete or invalid.", details, False
+    try:
+        from .egress.policy import load_policy, validate_request
+        from .sandbox.policy import SandboxError
+    except ImportError:
+        return blocked + "Destination policy is unavailable.", details, False
+    try:
+        validate_request({"version": 1, "nonce": "surface-preview", **request})
+    except (ValueError, TypeError, UnicodeError):
+        return blocked + "The request is incomplete or invalid.", details, False
+    try:
+        profile = load_policy().get(args["profile"])
+    except (OSError, ValueError, SandboxError):
+        return blocked + "Destination policy is unavailable.", details, False
+    if profile is None:
+        return blocked + "The destination profile is not configured.", details, False
+    if profile.origin != args["expected_origin"]:
+        return blocked + "The destination does not match operator policy.", details, False
+    if not profile.permits(args["method"], args["path"]):
+        return blocked + "This method or path is not allowed by operator policy.", details, False
+    return f"Send {args['method']} {args['path']} to {profile.origin} using your saved credential?", details, True
+
+
+def approval_request_details(name: str, args: dict[str, Any], approval_id: str) -> str:
+    """An exact, selectable ordinary approval preview in both surface modes.
+
+    JSON makes model-provided markup literal. Escaping invisible direction and
+    format controls keeps the destination and trailing text inspectable.
+    """
+    literal = json.dumps({"approval_request_id": approval_id, "tool": name, "arguments": args},
+                         indent=2, ensure_ascii=False)
+    return "Full request details (literal JSON; escaped controls preserve exact text):\n" + _escape_format_controls(literal)
+
+
+def _escape_format_controls(text: str) -> str:
+    return "".join(json.dumps(c, ensure_ascii=True)[1:-1] if (
+        unicodedata.category(c) in {"Cf", "Zl", "Zp"} or 0x7F <= ord(c) < 0xA0
+    ) else c for c in text)
 
 
 def plain_summary(summary: str) -> str:

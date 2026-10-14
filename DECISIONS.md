@@ -130,3 +130,83 @@ mounts. An earlier image's acceptance report never counts as a pass for a new im
 **Why.** The principal's trust is a runtime property. Passing output from the wrong machine, a silent
 skip, or an older build does not establish it. The core remains a tested commit dependency while its
 development proceeds independently (`docs/CORE-CONTRACT.md`).
+
+## OS-14. Boot recovery is a manual administrator operation
+
+**Decision.** The unsigned systemd-boot image offers explicit root-admin checkpoints
+and recovery staging through `exo-os-recovery`. A checkpoint preserves a read-only
+system snapshot together with its matching UKI. Staging creates a separate writable
+clone and a boot-menu entry. The existing `@home`, `@store` and persistent helper `@sysd` remain mounted;
+original `@` is not promoted or replaced. No named root action or agent capability
+is added, and the command does not select a default or reboot. Details and pending
+actual reboot acceptance: `docs/BOOT-RECOVERY.md`.
+
+**Why.** OS-4 excludes bootloader and reboot operations from the model's root door.
+The EFI partition lies outside the system snapshot, so booting an arbitrary snapper
+snapshot with the current kernel can mismatch its modules. Explicit checkpoints
+retain the boot artifacts at the same time. EFI invocation options select the clone
+only when Secure Boot is disabled for this image's unsigned UKIs; enabled or unknown
+state is rejected. A signed recovery design remains separate work.
+
+## OS-15. Every tool crosses an installed execution boundary
+
+**Decision.** The image requires the pinned core's `exo.executors` interface and
+the root-controlled OS adapter. File, search, patch and shell operations run in
+a workspace-only namespace with Landlock and seccomp. Reviewed structured
+desktop operations run in trusted host code; every other adapter is denied
+until reviewed. Missing enforcement never falls back to a host handler. Policy,
+runtime and required plugins are controlled by the image administrator.
+
+**Why.** Isolating only the shell leaves file handlers, workers and indirect
+subprocesses with host authority. The boundary belongs in shared core dispatch;
+Linux enforcement belongs in this repository. Core handoff/completion also
+avoid host Git inspection of tool-writable repositories. The actual kernel
+tests include network/socket denial, hidden credentials and detached-child
+cleanup. The remaining trust in installed code and desktop applications is
+explicit in `docs/TOOL-ISOLATION.md`.
+
+## OS-17. Ledger authority is protected state, provisioned explicitly
+
+The desktop uses a pinned append authority over an authenticated local socket.
+Each stream binds exact writer keys/attributions and a projection path in a
+root-owned manifest. Keys and FULL-synchronous journal belong to static
+`exo-ledger` on persistent `@signer`, outside system rollback; public identity
+stays root-owned. Missing established state refuses rather than reseeding.
+Fresh root provisioning precedes initializer/runtime writes, and refuses local
+history or partial state. The built image selects required authority mode; booted
+image acceptance remains a separate gate. Checkpoint export includes genesis and is ready for
+an independently pinned witness; no remote endpoint or automatic delivery is
+configured. See `docs/LEDGER-AUTHORITY.md`.
+
+Every provisioned writer permits the desktop account `exo` as its caller.
+Separate writer keys do not isolate processes within that UID (Unix user ID).
+Writer attribution therefore trusts that desktop UID. The service still checks
+the caller UID for each stream/writer and enforces each writer's allowed authors.
+Signer keys and journal ownership remain separate from desktop processes.
+
+Trusted providers, plugins and desktop applications under `exo` can request
+signatures for any configured writer. Sandboxed tools have no authority socket
+in their box by design, with current native proof pending. Planned principal
+credentials and authenticated core-peer binding are not implemented.
+
+## OS-16. Credentialed actions preserve both consent and uncertainty
+
+**Decision.** A separate unprivileged `exo-egress` service injects named systemd
+credentials into HTTPS requests permitted by root-owned profiles. The exact
+expected origin, method, path, body and operation ID are bound to one-shot
+approval and shown in full. The service checks the expected origin against its
+loaded policy, never treats it as routing authority, and returns only bounded
+outcome metadata. No destination or credential is granted in the shipped image.
+
+Before sending, the service durably reserves each ID and argument fingerprint.
+An uncertain operation is never sent again; its journal persists on `@egress`
+across system recovery. Missing enforcement, unavailable identity, changed
+arguments or unverifiable approval details refuse the action. Root's activated
+listener and the service sender are authenticated separately with Linux kernel
+credentials. Details: `docs/CREDENTIAL-EGRESS.md`.
+
+**Why.** A lost reply does not establish that an external action failed, and
+rolling back the OS must not erase that uncertainty. A destination label alone
+does not reveal what the person is approving. Arbitrary upstream response text
+can also reflect an injected credential in an encoding a generic redactor
+misses, so read APIs need reviewed response adapters before being enabled.

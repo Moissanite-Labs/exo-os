@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Boot the Exo OS image in QEMU with KVM. The base image is never written: writes go to a throwaway
-# overlay unless --keep is given.
+# Boot the Exo OS image in QEMU. The base image is never written: writes go to a throwaway overlay
+# unless --keep is given. KVM is the default; set EXO_OS_VM_ACCEL=tcg and EXO_OS_VM_CPU=max when
+# host acceleration is unavailable. EXO_OS_VM_SMP controls the vCPU count.
 #
 #   tools/run-vm.sh [--gui] [--gl] [--keep] [--mem MB]
 #
@@ -14,7 +15,12 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 source "$here/tools/env.sh"
 out="$here/image/out"
 mkdir -p "$out"
-fw="${EXO_OS_TOOLS:-$HOME/.local/opt/exo-os-tools}/root/usr/share/edk2/x64"
+fw_dir="${EXO_OS_TOOLS:-$HOME/.local/opt/exo-os-tools}/root/usr/share/edk2/x64"
+fw="${EXO_OS_VM_FIRMWARE_CODE:-${EXO_OS_FIRMWARE:-$fw_dir/OVMF_CODE.4m.fd}}"
+fw_vars="${EXO_OS_VM_FIRMWARE_VARS:-${EXO_OS_FIRMWARE_VARS:-$fw_dir/OVMF_VARS.4m.fd}}"
+accel="${EXO_OS_VM_ACCEL:-kvm}"
+cpu="${EXO_OS_VM_CPU:-host}"
+smp="${EXO_OS_VM_SMP:-2}"
 gui=0 gl=0 keep=0 mem=2048
 while (($#)); do
   case $1 in
@@ -25,7 +31,7 @@ while (($#)); do
 done
 
 [[ -f $out/vmtest-key ]] || ssh-keygen -q -t ed25519 -N '' -C exo-os-vmtest -f "$out/vmtest-key"
-cp "$fw/OVMF_VARS.4m.fd" "$out/vars.fd"
+cp "$fw_vars" "$out/vars.fd"
 disk="$out/exo-os.raw"
 if ((!keep)); then
   rm -f "$out/overlay.qcow2"
@@ -39,8 +45,8 @@ display=(-display none -vga none -device virtio-gpu-pci)
 
 exec qemu-system-x86_64 \
   -uuid "${EXO_OS_VM_UUID:-$(python3 -c 'import uuid; print(uuid.uuid4())')}" \
-  -machine q35,accel=kvm -cpu host -smp 2 -m "$mem" \
-  -drive if=pflash,format=raw,readonly=on,file="$fw/OVMF_CODE.4m.fd" \
+  -machine "q35,accel=$accel" -cpu "$cpu" -smp "$smp" -m "$mem" \
+  -drive if=pflash,format=raw,readonly=on,file="$fw" \
   -drive if=pflash,format=raw,file="$out/vars.fd" \
   -drive if=virtio,file="$disk",format="$([[ $disk == *.qcow2 ]] && echo qcow2 || echo raw)" \
   -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:${EXO_OS_SSH_PORT:-2222}-:22 \

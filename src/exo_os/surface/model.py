@@ -14,12 +14,14 @@ hands them to the connection. The model never talks to the network itself.
 from __future__ import annotations
 
 import re
+from collections import deque
 from dataclasses import dataclass, field
+from itertools import chain
 from typing import Any
 
 from exo.protocol import schema as s
 
-from ..words import describe_call, plain_summary
+from ..words import approval_request_details, credential_request_preview, describe_call, plain_summary
 from ..profile import Profile
 
 CLIENT = "exo-surface"
@@ -29,6 +31,8 @@ WAITING = "Waiting for your answer."
 # The view shows at most this many transcript lines while a turn runs.
 TRANSCRIPT_LINES = 12
 MAX_SUGGESTIONS = 5
+RECENT_LINES = 200
+RECENT_CHARS = 100_000
 
 # Plain sentences for command errors and error events, by code (codes from exod's CommandFailed and Error).
 PLAIN_ERRORS = {
@@ -38,6 +42,8 @@ PLAIN_ERRORS = {
     "forbidden": "You cannot answer that one here.",
     "session_locked": "This conversation is closed. Close the bar and open it again to start a new one.",
     "not_connected": NOT_RUNNING,
+    "model_spend_refused": "This request cannot run under the current spending policy. Type budget to inspect the limits, or ask an administrator to review the model configuration.",
+    "model_spend_stopped": "Model work is stopped. Type budget to inspect spending and limits, then ask an administrator to review them.",
 }
 PLAIN_ERROR = "Something went wrong. Please try again."
 PLAIN_STOPS = {
@@ -68,7 +74,7 @@ class ApprovalCard:
     options: list[str] = field(default_factory=lambda: ["allow", "deny"])
     risk: str = "medium"
     session: str | None = None
-    detail: str = ""  # tool and arguments; empty in plain mode
+    detail: str = ""  # full literal request in both modes when a tool call is available
 
 
 @dataclass
@@ -110,6 +116,7 @@ class SurfaceModel:
         self.lines: list[Line] = []
         self.streaming: dict[str, str] = {}  # message_id -> text so far
         self.busy = False
+        self._spend_error = False
         self.shown_from = 0  # transcript lines before this were cleared from view when the bar hid
         self.outbox: list[Any] = []  # commands an event calls for (a panel closed unseen is "ignored")
         self.activity = ""  # what the running turn is doing, for the status line
@@ -165,6 +172,7 @@ class SurfaceModel:
 
     def _on_TurnStarted(self, b: s.TurnStarted) -> set[str]:
         self.busy = True
+        self._spend_error = False
         self.activity = WORKING if self.plain or not b.model else f"{WORKING} ({b.model})"
         return {"status", "transcript"}
 
@@ -204,7 +212,7 @@ class SurfaceModel:
                 self.lines.append(Line("exo", text.strip()))
         self.streaming.clear()
         self.busy = False
-        if b.stop_reason not in ("end", "tool_use"):
+        if b.stop_reason not in ("end", "tool_use") and not (b.stop_reason == "error" and self._spend_error):
             if self.plain:
                 self.lines.append(Line("note", PLAIN_STOPS.get(b.stop_reason, PLAIN_STOPS["error"])))
             else:
@@ -233,6 +241,8 @@ class SurfaceModel:
         return {"transcript"}
 
     def _on_Error(self, b: s.Error) -> set[str]:
+        if b.code in {"model_spend_refused", "model_spend_stopped"}:
+            self._spend_error = True
         self.lines.append(Line("error", self.error_text(b.code, b.message)))
         return {"transcript"}
 
@@ -271,12 +281,17 @@ class SurfaceModel:
         call = req.get("call")
         if isinstance(call, dict):
             call = s.ToolCall(id=call.get("id", ""), name=call.get("name", ""), arguments=call.get("arguments") or {})
-        detail = "" if self.plain or call is None else f"{call.name} {_short_args(call.arguments)}".strip()
+        detail = approval_request_details(call.name, call.arguments, rid) if call is not None else ""
         options = [o for o in (req.get("options") or ["allow", "deny"]) if o in ("allow", "deny", "allow_always")]
         if self.plain:
             options = [o for o in options if o != "allow_always"]  # a standing grant is an operator's call
         summary = req.get("summary") or "Exo is waiting for your answer."
-        if self.plain:
+        if call is not None and call.name == "credential_request":
+            summary, detail, permitted = credential_request_preview(call.arguments, rid)
+            options = [o for o in options if o != "allow_always"]  # credentials are always one-shot
+            if not permitted:
+                options = ["deny"]  # no approval when the destination cannot be verified
+        elif self.plain:
             summary = (describe_call(call.name, call.arguments) if call else None) or plain_summary(summary)
         self.approvals.append(ApprovalCard(rid, summary,
                                            req.get("binding") or "", options or ["allow", "deny"],
@@ -398,6 +413,15 @@ class SurfaceModel:
         q = text.strip()
         if not q:
             return []
+        for names, kind, label in (("transcript", "transcript", "Read recent conversation"),
+                                   ("panels", "panels", "Open panels")):
+            if q.casefold() == names:
+                action = Suggestion(kind, label, "", strong=self.question is None)
+                answer = Suggestion("ask", ("Answer: " if self.question else "Ask Exo: ") + q, q)
+                return [answer, action] if self.question else [action, answer]
+        if self.question is None and q.casefold() in ("bud", "budget", "spend", "spending", "model spending", "model budget"):
+            return [Suggestion("spend", "Model spending and limits", "", strong=True),
+                    Suggestion("ask", "Ask Exo: " + q, q)]
         if not self.plain and q.startswith("/"):
             return [Suggestion("command", q, q, strong=True)]
         strong, weak = match_apps(q, [a["name"] for a in self.profile.data["apps"]])
@@ -415,6 +439,16 @@ class SurfaceModel:
         self.set_input("")
         if pick.kind == "app":
             return Action("open_app", pick.value)
+        if pick.kind == "spend":
+            if not self.connected:
+                self.lines.append(Line("error", NOT_RUNNING))
+                return Action("none")
+            self.lines.append(Line("you", "Show model spending and limits"))
+            return Action("send", command=s.ModelsList())
+        if pick.kind == "transcript":
+            return Action("show_transcript")
+        if pick.kind == "panels":
+            return Action("show_panels")
         if pick.kind == "command":
             name, _, args = text[1:].partition(" ")
             return Action("send", text, s.CommandRun(name=name, args=args, session=self.session))
@@ -437,6 +471,11 @@ class SurfaceModel:
         return {"transcript"}
 
     # -- errors and status
+
+    def model_spend(self, value: Any) -> set[str]:
+        from .spend import describe_spend
+        self.lines.append(Line("note", describe_spend(value)))
+        return {"transcript"}
 
     def error_text(self, code: str, message: str) -> str:
         if self.plain:
@@ -481,6 +520,28 @@ class SurfaceModel:
         if not self.busy:
             self.shown_from = len(self.lines)
         return {"transcript"}
+
+    def recent_conversation(self) -> str:
+        """A bounded local reading view; it never requests or implies complete session history."""
+        recent: deque[str] = deque(maxlen=RECENT_LINES + 1)
+        labels = {"you": "You", "exo": "Exo", "note": "Notice", "error": "Error", "tool": "Tool"}
+        stream = self.stream_text()
+        for line in chain(self.lines, [Line("exo", stream)] if stream else []):
+            for index, chunk in enumerate(line.text.splitlines() or [""]):
+                recent.append((labels.get(line.role, line.role) + ": " if index == 0 else "  ") + chunk)
+        limited = len(recent) > RECENT_LINES
+        shown = list(recent)[-RECENT_LINES:]
+        while shown and len("\n".join(shown)) > RECENT_CHARS:
+            limited = True
+            if len(shown) == 1:
+                shown[0] = "…" + shown[0][-(RECENT_CHARS - 1):]
+                break
+            shown.pop(0)
+        note = "Earlier loaded content omitted by the 200-line or 100,000-character view limit.\n" if limited else ""
+        return ("Recent conversation\n"
+                f"Only currently loaded history is shown, up to {RECENT_LINES} recent lines and "
+                f"{RECENT_CHARS:,} characters. Earlier conversation may be unavailable.\n"
+                + note + ("\n".join(shown) if shown else "No conversation lines loaded yet."))
 
     def take_outbox(self) -> list[Any]:
         out, self.outbox = self.outbox, []

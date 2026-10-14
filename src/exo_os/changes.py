@@ -98,6 +98,14 @@ class ChangeEngine:
     def apply(self, new: Profile, summary: str, *, by: str = "exo", undoes: str = "",
               force: bool = False) -> Result:
         new.validate()
+        from .sandbox.desktop import check_profile, required
+        from .sandbox.policy import SandboxError
+
+        if required():
+            try:
+                check_profile(new)
+            except SandboxError as exc:
+                return Result(False, f"Not changed: {exc}")
         if refused := self._refuse():
             return refused
         if not (self.repo / ".git").exists() and summary != INIT_SUMMARY:

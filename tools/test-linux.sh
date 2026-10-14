@@ -13,13 +13,24 @@ if [[ $(git -C "$dep" rev-parse HEAD) != "$pin" ]]; then
   exit 1
 fi
 "${docker_cmd[@]}" build -q -t exo-os-tests -f "$here/tools/test-linux.Dockerfile" "$here/tools"
-container=$("${docker_cmd[@]}" run -d --cpus 2 --memory 2g --tmpfs /run --tmpfs /tmp:rw,exec exo-os-tests sleep infinity)
+run_args=(-d --cpus 2 --memory 2g --tmpfs /run --tmpfs /tmp:rw,exec)
+if [[ ${EXO_OS_SANDBOX_TESTS:-0} == 1 ]]; then
+  # Nested user/pid/network namespaces need a privileged disposable container. It has no host mounts,
+  # credentials, or desktop socket. Never change host kernel sysctls to make these checks pass.
+  run_args+=(--privileged)
+fi
+container=$("${docker_cmd[@]}" run "${run_args[@]}" exo-os-tests sleep infinity)
 cleanup() { "${docker_cmd[@]}" rm -f "$container" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 "${docker_cmd[@]}" exec "$container" mkdir -p /test/exo
 git -C "$dep" archive HEAD | "${docker_cmd[@]}" exec -i "$container" tar -xf - -C /test/exo
 # Explicit input list includes uncommitted work under review, excludes stores, keys, build output and .git.
-COPYFILE_DISABLE=1 tar --no-xattrs --exclude=__pycache__ -C "$here" -cf - src tests image/mkosi.extra tools pyproject.toml exo.pin \
+COPYFILE_DISABLE=1 tar --no-xattrs --exclude=__pycache__ -C "$here" -cf - src tests image/mkosi.conf image/mkosi.extra image/mkosi.profiles image/mkosi.repart image/mkosi.postinst.chroot tools pyproject.toml exo.pin \
   | "${docker_cmd[@]}" exec -i "$container" tar -xf - -C /test/exo-os
 "${docker_cmd[@]}" exec "$container" python -m pip install -q -e '/test/exo[tui,dev]' -e '/test/exo-os[dev]'
 "${docker_cmd[@]}" exec -e EXO_OS_TEST_CONTAINER=1 "$container" python -m pytest -ra "$@"
+if [[ ${EXO_OS_SANDBOX_TESTS:-0} == 1 ]]; then
+  # Clear supplementary groups and run as an ordinary account: the isolation must not rely on root.
+  "${docker_cmd[@]}" exec --user root "$container" setpriv --reuid=nobody --regid=nogroup --clear-groups \
+    env EXO_OS_SANDBOX_TESTS=1 python -m pytest -ra tests/test_sandbox_linux.py
+fi

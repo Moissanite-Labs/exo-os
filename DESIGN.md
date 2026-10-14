@@ -10,13 +10,17 @@ benchmarks in this document except the few that a cited source measured.
 
 ---
 
-## Since phase 0 (2026-10-12)
+## Since phase 0 (updated 2026-10-13)
 
 Current executable boundaries and remaining shared-core requirements are in
-`docs/CORE-CONTRACT.md`, `docs/SYSTEM-TRUST.md` and `docs/SURFACE-RECOVERY.md`.
-In particular, verifying a root receipt does not establish that its caller passed the consent gate;
-the compulsory tool broker/isolation boundary is still required. OS-11 through OS-13 record the
-implemented recovery and verification decisions. The larger design below remains the target.
+`docs/CORE-CONTRACT.md`, `docs/SYSTEM-TRUST.md`, `docs/SURFACE-RECOVERY.md`,
+`docs/TOOL-ISOLATION.md` and `docs/BOOT-RECOVERY.md`. The pinned core now requires
+the OS execution adapter; workspace tools cannot reach host credentials or
+control sockets. Root receipts independently establish execution, while the
+core gate remains responsible for consent. Administrator recovery preserves a
+matched system/kernel checkpoint and separate persistent data. OS-11 through
+OS-15 record these implemented decisions and their evidence limits. The larger
+design below remains the target, including capabilities not yet implemented.
 
 Exo moved on while this design was written, and building started. What changed, checked against Exo
 `4e6e644`:

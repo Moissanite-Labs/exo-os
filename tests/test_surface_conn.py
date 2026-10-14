@@ -59,23 +59,54 @@ class Recorder:
 
 
 class Exod:
-    """exod with the echo engine in its own thread and loop."""
+    """exod with the echo engine in its own thread and loop.
+
+    Startup and shutdown wait for actual server readiness/cleanup. A fixed sleep followed by loop.stop
+    can strand SSE transports before core's asynchronous close finishes, leaving clients connected.
+    """
 
     def __init__(self, sock):
         self.sock = sock
         self.loop = asyncio.new_event_loop()
-        self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
+        self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
         self.task = asyncio.run_coroutine_threadsafe(self._start(), self.loop).result(5)
 
+    def _run_loop(self):
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_forever()
+        finally:
+            self.loop.close()
+
     async def _start(self):
-        return asyncio.ensure_future(serve(EchoEngine(), socket=self.sock))
+        ready = self.loop.create_future()
+        task = asyncio.create_task(serve(EchoEngine(), socket=self.sock, ready=lambda _: ready.set_result(None)))
+        done, _ = await asyncio.wait((task, ready), return_when=asyncio.FIRST_COMPLETED)
+        if task in done:
+            await task  # surface any startup error, rather than waiting for a readiness timeout
+        return task
+
+    async def _shutdown(self):
+        self.task.cancel()
+        await asyncio.gather(self.task, return_exceptions=True)
+        # Echo turns may still be waiting for an unanswered approval. They belong to this test server.
+        remaining = asyncio.all_tasks() - {asyncio.current_task()}
+        for task in remaining:
+            task.cancel()
+        await asyncio.gather(*remaining, return_exceptions=True)
+        await self.loop.shutdown_asyncgens()
+        await self.loop.shutdown_default_executor()
 
     def stop(self):
-        self.loop.call_soon_threadsafe(self.task.cancel)
-        time.sleep(0.2)
-        self.loop.call_soon_threadsafe(self.loop.stop)
-        self.thread.join(5)
+        if self.loop.is_closed():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(self._shutdown(), self.loop).result(5)
+        finally:
+            self.loop.call_soon_threadsafe(self.loop.stop)
+            self.thread.join(5)
+        assert not self.thread.is_alive(), "test exod did not shut down"
 
 
 @pytest.fixture
@@ -126,6 +157,7 @@ def test_exod_down_then_up_then_resume(paths):
     sock, state = paths
     rec = Recorder()
     c = Connection(rec, socket=sock, state=state, post=_direct)
+    exod = None
     c.start()
     try:
         rec.wait(lambda: rec.last("connected") is False)
@@ -148,6 +180,8 @@ def test_exod_down_then_up_then_resume(paths):
         exod.stop()
     finally:
         c.stop()
+        if exod is not None:
+            exod.stop()
 
 
 def test_pending_approvals_are_fetched_on_connect(paths):
@@ -580,3 +614,24 @@ def test_closing_event_feeds_back_off_until_a_stable_connection(paths, monkeypat
     expected = [0.5, 1.0, 0.5, 1.0, 2.0, 2.0] if stable_third_connection else [0.5, 1.0, 2.0, 2.0, 2.0, 2.0]
     assert delays == expected
     assert len(daemon.clients) == 6 and all(client.closed for client in daemon.clients)
+
+
+def test_exod_fixture_shutdown_drains_open_streams_and_unanswered_turn(paths):
+    sock, state = paths
+    exod = Exod(sock)
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is True)
+        c.send_turn("approve: still unanswered on shutdown")
+        rec.wait(lambda: rec.events("approval.requested"))
+        exod.stop()
+        assert exod.loop.is_closed() and not exod.thread.is_alive()
+        assert not sock.exists()
+        assert not asyncio.all_tasks(exod.loop)
+        rec.wait(lambda: rec.last("connected") is False)
+        exod.stop()  # cleanup remains safe if a failing test's finally block calls it again
+    finally:
+        c.stop()
+        exod.stop()

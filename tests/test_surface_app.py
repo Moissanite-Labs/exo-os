@@ -1,11 +1,12 @@
-"""The GTK side. Pure helpers run everywhere. The widget smoke test runs in a child process on a private
-broadway display (gtk4-broadwayd, an in-memory GTK display server), never on the desktop this runs on.
-Set EXO_SURFACE_TEST_DISPLAY=1 to run it on the inherited display instead (for the Exo OS VM)."""
+"""The GTK side. Widget smoke uses the shared probe on a private Broadway display.
+
+Phase 3 separately runs that probe against the authenticated disposable VM's
+Wayland compositor; this pytest launcher never uses an inherited desktop.
+"""
 import os
 import shutil
 import subprocess
 import sys
-import textwrap
 import time
 from pathlib import Path
 
@@ -58,118 +59,8 @@ def test_load_profile(tmp_path, monkeypatch):
     assert app.load_profile().get("surface.language") == "en"
 
 
-CHILD = textwrap.dedent('''
-    import gi
-    gi.require_version("Gtk", "4.0")
-    from gi.repository import GLib, Gtk
-    assert Gtk.init_check(), "no display"
-
-    from exo.core.types import Message
-    from exo.protocol import schema as s
-    from exo_os.profile import Profile
-    from exo_os.surface import ui as A
-    from exo_os.surface.model import SurfaceModel
-
-    def pump():
-        ctx = GLib.MainContext.default()
-        for _ in range(50):
-            while ctx.iteration(False):
-                pass
-
-    SID = "s_1"
-    seq = iter(range(1, 1000))
-    def ev(body):
-        return s.Event.of(body, next(seq), SID)
-
-    prof = Profile.default().put_app({"name": "WhatsApp", "url": "https://web.whatsapp.com/"})
-    model = SurfaceModel(prof)
-    model.set_session(SID)
-    sent, launched = [], []
-    ui = A.SurfaceUI(model, sent.append, launch=lambda name, fail: launched.append(name))
-    ui.on_connected(True)
-    ui.show()
-    pump()
-    assert ui.bar.get_visible()
-
-    ui.bar.entry.set_text("whats")
-    pump()
-    row = ui.bar.suggestions.get_row_at_index(0)
-    assert row.get_child().get_text() == "Open WhatsApp"
-    ui.bar.entry.emit("activate")
-    pump()
-    assert launched == ["WhatsApp"] and not ui.bar.get_visible()
-
-    ui.show()
-    ui.bar.entry.set_text("who do I call today?")
-    ui.bar.entry.emit("activate")
-    assert isinstance(sent[-1], s.TurnSend) and sent[-1].text == "who do I call today?"
-    ui.on_event(ev(s.TurnStarted(turn_id="t1", model="m:x")))
-    ui.on_event(ev(s.MessageDelta(message_id="m1", text="Call Lead A.")))
-    pump()
-    texts = []
-    child = ui.bar.lines.get_first_child()
-    while child is not None:
-        texts.append(child.get_text())
-        child = child.get_next_sibling()
-    assert texts == ["who do I call today?", "Call Lead A."], texts
-    assert ui.bar.status.get_text() == "Working…"
-
-    for kind, data in [("table", {"columns": ["Who"], "rows": [["Lead A"]]}),
-                       ("tasks", {"tasks": [{"title": "Call", "status": "done"}]}),
-                       ("choice", {"prompt": "Which?", "options": [{"id": "a", "label": "Short"}]}),
-                       ("chart", {"labels": ["Mon"], "values": [3]}),
-                       ("diff", {"files": [{"path": "a.txt", "diff": "-a\\n+b"}]}),
-                       ("file", {"path": "f.txt", "content": "hello"}),
-                       ("markdown", {"markdown": "# Today\\n- one"}),
-                       ("approval", {"request_id": "a0", "summary": "Send?"})]:
-        ui.on_event(ev(s.UiPanel(panel_id="p_" + kind, action="open", kind=kind, title=kind, text="text " + kind,
-                                 data=data)))
-    pump()
-    assert ui.drawer.get_visible()
-    opened = [b.panel_id for b in sent if isinstance(b, s.UiRespond) and b.action == "opened"]
-    assert len(opened) == 8, opened
-    ui.choose("p_choice", "a")
-    assert sent[-2] == s.UiRespond(panel_id="p_choice", action="acted", value={"choice": "a"})
-    ui.close_panel("p_table")
-    assert sent[-1] == s.UiRespond(panel_id="p_table", action="dismissed")
-
-    msg = Message.assistant("Call Lead A.")
-    msg.id = "m1"
-    ui.on_event(ev(s.MessageCompleted(message=msg)))
-    ui.on_event(ev(s.TurnCompleted(turn_id="t1")))
-    ui.on_event(ev(s.ApprovalRequested(request_id="a1", summary="Send this message to Ahmed?", binding="h1")))
-    pump()
-    assert ui.card.get_visible() and ui.card.summary.get_text() == "Send this message to Ahmed?"
-    n = len(sent)
-    ui.card._answer("allow")  # too soon after it appeared: ignored
-    assert len(sent) == n and ui.card.get_visible()
-    ui.card.shown_at -= (A.ARM_MS + 50) * 1000
-    ui.card._key(None, A.Gdk.KEY_y, 0, None)
-    pump()
-    assert sent[-1] == s.ApprovalRespond(request_id="a1", decision="allow", client="exo-surface", binding="h1")
-    assert not ui.card.get_visible()
-
-    ui.on_event(ev(s.ApprovalRequested(request_id="a2", summary="Delete everything?", binding="h2")))
-    pump()
-    assert ui.card.get_visible() and ui.card.summary.get_text() == "Delete everything?"
-    n = len(sent)
-    ui.card._answer("allow")  # a key still held from the last answer: the new card is not armed yet
-    assert len(sent) == n and ui.card.get_visible()
-
-    ui.card._key(None, A.Gdk.KEY_Escape, 0, None)  # dismissal works even before arming
-    pump()
-    assert len(sent) == n and not ui.card.get_visible()
-    assert model.approvals[-1].request_id == "a2" and not model.answer_check
-    ui.show()
-    pump()
-    assert ui.card.get_visible() and ui.card.summary.get_text() == "Delete everything?"
-    ui.card._answer("deny")
-    assert len(sent) == n  # reopening also gets the anti-misclick arm window
-    ui.hide()
-    pump()
-    assert not ui.bar.get_visible() and not ui.drawer.get_visible()
-    print("SMOKE OK", "layer-shell" if ui.bar.layered else "plain windows")
-''')
+PROBE = Path(__file__).resolve().parents[1] / "tools" / "probe-surface-gtk.py"
+VALIDATOR = Path(__file__).resolve().parents[1] / "tools" / "validate-surface-probe.py"
 
 
 def _broadway(tmp_path):
@@ -189,18 +80,19 @@ def _broadway(tmp_path):
 
 
 def test_widgets_smoke(tmp_path):
-    if os.environ.get("EXO_SURFACE_TEST_DISPLAY"):
-        proc, env = None, dict(os.environ)
-    else:
-        proc, env = _broadway(tmp_path)
-        if proc is None:
-            pytest.skip("no private display: install gtk4-broadwayd or set EXO_SURFACE_TEST_DISPLAY=1")
+    proc, env = _broadway(tmp_path)
+    if proc is None:
+        pytest.skip("no private display: install gtk4-broadwayd")
     env["PYTHONPATH"] = SRC + os.pathsep + env.get("PYTHONPATH", "")
     env["XDG_STATE_HOME"] = str(tmp_path / "state")
     try:
-        out = subprocess.run([sys.executable, "-c", CHILD], env=env, capture_output=True, text=True, timeout=60)
+        out = subprocess.run([sys.executable, str(PROBE)], env=env, capture_output=True, text=True, timeout=60)
     finally:
         if proc is not None:
             proc.terminate()
             proc.wait(5)
-    assert "SMOKE OK" in out.stdout, out.stdout + out.stderr
+    assert out.returncode == 0, out.stdout + out.stderr
+    verified = subprocess.run([sys.executable, str(VALIDATOR), "--backend", "broadway-private",
+                               "--exit-code", str(out.returncode)], input=out.stdout, capture_output=True,
+                              text=True, timeout=10)
+    assert verified.returncode == 0, out.stdout + out.stderr + verified.stderr

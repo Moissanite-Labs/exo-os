@@ -17,7 +17,7 @@ from .actions import ActionError, Actions
 from .protocol import MAX_REPLY, MAX_REQUEST, PUBLIC_KEY, VERSION, decode, encode, peer_credentials, read_line
 
 KEY = Path('/var/lib/exo-sysd/sysd.key')
-LOG = Path('/var/log/exo-sysd.log')
+LOG = Path('/var/lib/exo-sysd/audit.log')
 MAX_CONNECTIONS = 8
 IO_TIMEOUT = 5.0
 

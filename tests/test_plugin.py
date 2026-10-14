@@ -60,7 +60,7 @@ async def _turn(d, eng, sid, text, answer=None):
     asked = []
     while eng._tasks:
         for ev in eng.hub.since(start):
-            if isinstance(ev.body, s.ApprovalRequested) and ev.body.request_id in eng._approvals:
+            if isinstance(ev.body, s.ApprovalRequested) and ev.body.request_id in eng.approvals.open:
                 asked.append(ev.body.summary)
                 if answer:
                     r = await d.run(s.Command.of(s.ApprovalRespond(request_id=ev.body.request_id, decision=answer,
@@ -132,3 +132,29 @@ def test_package_install_asks_first(env, monkeypatch):
     asked = asyncio.run(main())
     assert asked, "installing a package must ask"
     assert calls == []
+
+
+@pytest.mark.parametrize("mode", ["enforce", "observe"])
+def test_credential_request_has_single_exact_one_shot_approval(env, monkeypatch, mode):
+    monkeypatch.setenv("EXO_GATE_MODE", mode)
+    calls = []
+    monkeypatch.setattr("exo_os.egress.client.EgressClient.call", lambda self, args:
+                        calls.append(args) or {"state": "completed", "status": 200, "retryable": False})
+    arguments = {"request_id": "stable1", "profile": "fixture", "expected_origin": "https://fixture.example", "method": "POST", "path": "/api/item", "body": "{}"}
+    rules = [{"match": "send", "steps": [{"tool": "credential_request", "args": arguments}, "done"]}]
+    eng = _engine(env, rules)
+
+    async def main():
+        d = Dispatcher(eng, caller="principal:surface")
+        sid = (await d.run(s.Command.of(s.SessionCreate()))).result["session"]["id"]
+        first = await _turn(d, eng, sid, "send", answer="allow")
+        second = await _turn(d, eng, sid, "send", answer="deny")
+        return first, second
+
+    first, second = asyncio.run(main())
+    assert len(first) == len(second) == 1
+    assert calls == [arguments]
+    approvals = [ev.body for ev in eng.hub.since(0) if isinstance(ev.body, s.ApprovalRequested)]
+    assert all(a.binding and a.options == ["allow", "deny"] for a in approvals)
+    assert approvals[0].binding == approvals[1].binding
+    assert not eng.approvals.always

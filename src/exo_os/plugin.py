@@ -1,6 +1,7 @@
 """The exo-os plugin for Exo: tools that let the agent look at and change this machine.
 
-Loaded by Exo through the `exo.plugins` entry point. The tools carry Exo's registry risk labels
+The image loads the explicit `/opt/exo/plugins/exo-os` folder adapter; ordinary installs can use
+the `exo.plugins` entry point. The tools carry Exo's registry risk labels
 ("low": the agent runs it and it is logged; "high": the gate asks the person first). The names are
 chosen so the gate rules Exo OS writes at setup (setup.py: `system_package_*` and
 `system_snapshot_undo` ask, `machine_*` acts, `app_open` acts) sort them the way DESIGN.md §5.2 wants
@@ -143,6 +144,11 @@ def system_snapshots_list(args: dict, **kw: Any) -> str:
         raise _error(str(e)) from None
 
 
+def credential_request(args: dict, **kw: Any) -> str:
+    from .egress.client import EgressClient
+    return json.dumps(EgressClient().call(args))
+
+
 def timeline_show(args: dict, **kw: Any) -> str:
     from . import timeline
 
@@ -175,6 +181,17 @@ APP_PROPS = {
 }
 
 TOOLS = [
+    ("credential_request", credential_request, "high", _schema(
+        "Send one approved HTTPS request using an administrator profile. Always asks once per call. "
+        "Reuse request_id only to retrieve a previous outcome, never change it to retry an unknown operation.",
+        {"profile": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+         "expected_origin": {"type": "string", "maxLength": 256,
+                             "description": "Exact HTTPS origin shown for consent; must match the admin profile. An assertion, never a route."},
+         "request_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$",
+                        "description": "Stable operation identifier retained across loss of replies"},
+         "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]},
+         "path": {"type": "string", "maxLength": 2048},
+         "body": {"type": "string", "maxLength": 32768}}, ["profile", "expected_origin", "request_id", "method", "path"])),
     ("machine_show", machine_show, "low", _schema(
         "Show this machine's settings (screen and text size, keyboard languages, idle and lock times, theme) "
         "and the apps on keys.", {}, [])),

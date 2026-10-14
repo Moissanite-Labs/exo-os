@@ -16,12 +16,13 @@ OS can close, and lays out the build path. Read it before planning a stage.
 ## Status
 
 The initial phases 1–3 passed their earlier VM checks, with the gaps in `ROADMAP.md`.
-The current runtime adds recoverable approvals, authenticated root receipts and stricter acceptance
-checks. The updated image still needs a fresh VM build and boot; earlier results are not evidence for
-this revision. Built:
+The current runtime adds recoverable approvals, authenticated root receipts, compulsory isolated tool
+execution and administrator boot recovery. This source batch pins merged core main `3ea58f4`,
+with the required trusted-folder adapter through OS PR 41. Source `4aec0b9` passed 545 Linux host
+tests with 12 skipped. Native image acceptance remains pending. Earlier VM results do not transfer. Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
-  home, snapshots and the Exo store; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
+  home, snapshots, the Exo store, protected ledger, helper audit and egress history; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
   `exod` as a user service; exo-sysd behind a socket; automatic login to the desktop.
 - **Change engine.** A machine profile (`machine.toml`) is the one file that says how the desktop should be.
   Every change is validated, rendered to Hyprland and hypridle config, checked, committed to a git repo in
@@ -29,17 +30,37 @@ this revision. Built:
   logged change.
 - **Exo plugin.** Tools that let the agent show and change the machine, open apps, list changes, undo, and
   install packages (which asks first), placed by Exo's own gate.
-- **exo-sysd.** The one root process: five named actions (status, snapshot create, list and undo,
+- **exo-sysd.** The privileged action helper: five named actions (status, snapshot create, list and undo,
   package install), kernel-authenticated peers, independently verified receipts, and reconciliation of
   receipts that could not be written to the principal ledger.
 - **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client,
-  with approval cards in plain words. Escape defers; lost answers are reconciled without automatic retry.
+  with keyboard-accessible panels and recent loaded history, plus full selectable approval details.
+  Escape defers; lost answers are reconciled without automatic retry.
 - **Timeline.** `exo-os today` and the `timeline_show` tool: what Exo did on a day, from the ledger.
+- **Tool boundary.** Every registry call passes through the required executor. Workspace tools run
+  under bubblewrap, Landlock and seccomp with no network, credentials or host control sockets.
+  Unsupported adapters refuse execution. Reviewed desktop operations use structured arguments.
+- **Boot recovery.** An administrator can checkpoint a system together with its matching kernel image
+  and stage a separate recovery boot. Home, the store, signer identity/history, helper audit and egress reservations persist.
+- **Credentialed actions.** A separate service sends approved HTTPS requests to administrator-defined
+  destinations. The full outgoing request is inspectable in the approval card; keys stay in the service.
+  Durable request IDs prevent an uncertain action from being sent again. The shipped policy grants no destinations.
+- **Protected history.** A separate service owns ledger keys and committed history. Fresh provisioning
+  precedes login; missing established state refuses startup. Normal verification detects an altered or
+  shortened desktop copy without repairing it. Explicit synchronization recovers committed rows.
+  Writer attribution trusts the desktop account: processes running as `exo` can request signatures
+  for any configured writer within its allowed author list. Separate writer keys do not isolate them.
+- **Model spend.** A root policy and persistent exo-owned journal start with zero daily/monthly paid
+  ceilings and no priced routes. The offline fake model remains usable. Missing or altered spend state
+  blocks login; status stays readable after an accounting stop. See [model spend](docs/MODEL-SPEND.md).
 
-Not yet: rollback that boots an older snapshot, the sandbox and secrets layers, voice and phone clients.
-See `ROADMAP.md` and [the core/OS contract](docs/CORE-CONTRACT.md). Same-user tools can still bypass the
-consent gate by invoking named root operations directly; the compulsory broker and sandbox remain
-required before daily use.
+Still required: current-image boot/recovery acceptance, general API response adapters, independent
+witness deployment, voice and phone clients, and the hardware trials in `ROADMAP.md`.
+Independent witness state and transport are staged in a separate core draft, outside this pin.
+An independently administered endpoint and OS delivery remain unconfigured.
+Isolation covers model tool processes. Installed providers/plugins and the person's other desktop
+applications remain trusted; this is not a claim of separation between every same-user process.
+See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL-ISOLATION.md).
 
 ## Use
 
@@ -47,10 +68,14 @@ required before daily use.
     .venv/bin/pytest                       # the tests
     tools/test-linux.sh                    # Linux socket + GTK tests in a disposable Docker container
     tools/host-tools.sh                    # mkosi, QEMU and OVMF into ~/.local/opt/exo-os-tools (no root)
-    tools/build-image.sh --profile=vmtest  # build image/out/exo-os.raw
+    tools/build-image.sh --profile=vmtest  # build the acceptance image; omitting this builds production
     tools/run-vm.sh [--gui]                # boot it in QEMU (throwaway overlay; SSH on 127.0.0.1:2222)
     tools/vm-ssh.sh <command>              # run a command in the VM as root
     tools/accept-phase1.sh                 # the phase 1 acceptance checks
+    tools/accept-isolation.sh              # kernel isolation in a disposable booted image
+    tools/accept-ledger.sh                 # protected signer, tamper detection and signer outage
+    tools/accept-model-spend.sh            # zero-paid offline model and persistent journal checks
+    tools/accept-recovery.sh               # checkpoint, reboot into recovery and verify persistence
 
 On a machine running Exo OS. On any other desktop, `exo-os` changes nothing there and says so; the Exo store
 still works. The image explicitly marks its desktop with
@@ -75,6 +100,12 @@ mentioning Exo is not an ownership marker.
 | `docs/CORE-CONTRACT.md` | Principles as acceptance conditions; shared-core integration requirements |
 | `docs/SYSTEM-TRUST.md` | Root authentication, signed outcomes and audit recovery |
 | `docs/SURFACE-RECOVERY.md` | Approval recovery, connection health and protocol limits |
+| [`docs/SURFACE-ACCESSIBILITY.md`](docs/SURFACE-ACCESSIBILITY.md) | Keyboard access, readable approval details and remaining screen-reader validation |
+| `docs/TOOL-ISOLATION.md` | Compulsory execution, working set and trust limits |
+| `docs/BOOT-RECOVERY.md` | Administrator checkpoints and matching-kernel recovery |
+| `docs/CREDENTIAL-EGRESS.md` | Approved HTTPS actions, key isolation and uncertain outcomes |
+| `docs/LEDGER-AUTHORITY.md` | Protected append history, first boot and independent witness handoff |
+| `docs/MODEL-SPEND.md` | Zero-paid boot policy, journal persistence and trust limits |
 | `src/exo_os/profile.py` | The machine profile: fields, checks, apps |
 | `src/exo_os/render/` | Profile to Hyprland Lua and hypridle config |
 | `src/exo_os/changes.py` | The change engine: apply, check, commit or put back, undo |

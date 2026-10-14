@@ -20,6 +20,10 @@ CORE_PLUGINS = ["exo-gate", "exo-memory", "exo-context", "exo-os"]
 # Exo OS's default gate rules, written into the person's policies/gates.yaml at first setup. They are
 # the person's policy from then on: visible, editable, and enforced by Exo's gate, not by the model.
 GATE_RULES = """rules:
+  # The credential name inherits the core credential floor: exact one-shot approval.
+  - match: {tool: "credential_request"}
+    decision: ask
+    reason: sends an authenticated request outside this computer
   # Exo OS: installing software changes the system. The person decides, every time.
   - match: {tool: "system_package_*"}
     decision: ask
@@ -55,6 +59,12 @@ def main() -> int:
     cfg_path = home / "config.json"
     cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
     store = home / "principals" / principal
+    from exo.ledger_authority.factory import configured
+    if configured():
+        # Root must bind/provision the empty stream before even the first initializer write.
+        from .ledgerd.client import create_authority
+        authority = create_authority(store / "ledger.sqlite", principal)
+        authority.head()
     if not store.is_dir():
         subprocess.run([sys.executable, "-m", "exo.cli", "init", principal], check=True,
                        env={**os.environ, "EXO_HOME": str(home)})
