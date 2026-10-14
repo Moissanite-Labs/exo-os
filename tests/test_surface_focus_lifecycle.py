@@ -17,6 +17,9 @@ from exo_os.surface.model import ApprovalCard, Panel, SurfaceModel
 
 
 class Window:
+    def get_mapped(self):
+        return self.mapped
+
     def get_visible(self):
         return self.visible
 
@@ -65,7 +68,7 @@ def ui_module(monkeypatch):
 def make_card(ui):
     card = ui.Card.__new__(ui.Card)
     card.token, card.reviewing, card.layered = ("request",), False, True
-    card.visible, card.shown_at = False, 8_000_000
+    card.visible, card.mapped, card.shown_at = False, False, 8_000_000
     card.summary, card.review_hint, card.detail, card.detail_scroll = [MagicMock() for _ in range(4)]
     card.buttons = MagicMock()
     card.buttons.get_first_child.return_value = None
@@ -73,7 +76,13 @@ def make_card(ui):
     card.on_answer = MagicMock()
     card.on_defer = MagicMock()
     card.is_active = lambda: False
-    card.present = lambda: card.set_visible(True)
+
+    def present():
+        # Explicit host state, separate from visibility and compositor activation.
+        card.set_visible(True)
+        card.mapped = True
+
+    card.present = present
     return card
 
 
