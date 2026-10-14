@@ -18,8 +18,8 @@ OS can close, and lays out the build path. Read it before planning a stage.
 The initial phases 1–3 passed their earlier VM checks, with the gaps in `ROADMAP.md`.
 The current runtime adds recoverable approvals, authenticated root receipts, compulsory isolated tool
 execution and administrator boot recovery. This source batch pins merged core main `3ea58f4`,
-with the required trusted-folder adapter through OS PR 41. Full Linux validation at the new head
-and native image acceptance remain pending. Earlier VM results do not transfer. Built:
+with the required trusted-folder adapter through OS PR 41. Source `4aec0b9` passed 545 Linux host
+tests with 12 skipped. Native image acceptance remains pending. Earlier VM results do not transfer. Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
   home, snapshots, the Exo store, protected ledger, helper audit and egress history; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;

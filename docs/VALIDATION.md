@@ -9,8 +9,16 @@ adapter. Pin alignment also updates tests to the public approval desk API and
 recovery checks to the public receipt-key path after OS main PR 102.
 Before merging the egress review delta, the focused through-41 contract audit
 recorded 66 passing tests and three skipped. This is source-only evidence.
-The full Linux suite at the exact new head and native
-image acceptance remain pending. No earlier image is evidence for this batch.
+The full Linux ARM host suite at source `4aec0b9342b5eba9019b43d598e9e4ab8335ebcd`
+with that exact core pin passed 545 tests, with 12 skipped, in 17.80 seconds.
+This run used committed archives, isolated declared dependencies and private
+executable scratch space. Archive hashes, import origins, JUnit and the copied
+evidence bundle were verified. Nine namespace tests, one privileged trust test,
+one Hyprland check and native GTK collection were skipped. These are unverified
+boundaries, not passing kernel or GTK checks. Evidence is retained under
+`image/out/host-batch2-4aec0b9/`.
+
+Native image acceptance remains pending. No earlier image is evidence for this batch.
 
 ## Historical source and container checks
 
