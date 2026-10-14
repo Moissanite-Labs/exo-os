@@ -137,7 +137,7 @@ through an actual older-root reboot. Current home/store, signer history, helper
 audit, model-spend stop and synthetic egress reservation survived. The first
 attempt ended in host OOM and remains retained separately.
 
-The built `7170b3d` image still needs its own recovery acceptance. Witness receipt
+The built `c2d1ad9` image still needs its own recovery acceptance. Witness receipt
 persistence, power-loss behavior and hardware/soak checks remain unrun. Exact
 identities, report hashes and limits are in
 [VALIDATION.md](VALIDATION.md#historical-image-5a86e3b).

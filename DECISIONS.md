@@ -147,7 +147,7 @@ is added, and the command does not select a default or reboot. Details:
 
 **Evidence update, 2026-10-13.** The older `5a86e3b` image with core `cff62d1`
 passed ten recovery checks, including an actual older-root reboot with current
-persistent state retained. The built `7170b3d` image has not yet repeated VM
+persistent state retained. The built `c2d1ad9` image has not yet repeated recovery
 acceptance. Neither result establishes hardware, soak or power-loss durability.
 Exact identities and retained attempts: `docs/VALIDATION.md`.
 

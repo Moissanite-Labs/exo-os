@@ -33,16 +33,14 @@ reviewed response adapters. The shared-core ledger authority now runs under a se
 with a persistent journal, root-pinned public identity and explicit fresh-image provisioning before login.
 Both normal verification commands detect modified or missing copies without repairing them first.
 The staged OS candidate pins core `cff62d1e1afbc861e410659f1f26f01afd1ed249` and adds a
-default-disabled witness publisher that requires explicit administrator action. Its earlier host suite passed. The `7170b3d` image built successfully and passed a read-only audit of 1,657
-protected paths. Its phase-3 suite passed seven checks and failed the shared GTK probe
-while waiting for the unsolicited drawer/focus condition. That run did not capture the failing widget state or reach native held-F6 coverage.
-Later diagnostics captured text loss during a panel update: all physical keys arrived,
-but the update selected the typed prefix and the next key replaced it.
-These diagnostics do not change the failed acceptance result.
-The other six suites remain pending. The older `5a86e3b` image has 47
-passing checks across ledger, zero-paid spending, recovery and phases 1–2. That image's
-phase-3 and isolation suites failed. Those results and the renderer diagnosis remain
-historical. No pass carries over to the new image. See
+default-disabled witness publisher that requires explicit administrator action. The `c2d1ad9` Linux ARM host suite passed 1,044 tests with 80 skipped.
+The image built and its read-only audit checked 1,662 protected paths.
+A separate strict postflight passed cleanup. Native acceptance remains held:
+phase 3 first failed boot, then passed six checks and failed two. No complete
+native suite has passed. The other six suites and witness cases are not run.
+The input mismatch and held-F6 repeat failure need diagnosis. Neither establishes
+a drawer transport or product cause. Later review fixes require a new candidate
+and rebuild. Historical passes remain limited to their named images. See
 [current image evidence](docs/VALIDATION.md#current-image-evidence).
 Four witness kernel cases, one installed-flow case and receipt persistence remain pending, as do native
 AT-SPI, Orca, loaded browser pages and Urdu pixels. No independent endpoint is deployed.

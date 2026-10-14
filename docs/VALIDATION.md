@@ -1,5 +1,9 @@
 # Runtime and isolation validation
 
+Checks recorded on 2026-10-13. The `c2d1ad9` image is built and audited.
+Acceptance is held: no complete native suite has passed on this image.
+Historical results below do not transfer to it.
+
 ## Land batch-2 source evidence
 
 Source audit on 2026-10-13. The separate land/batch-2 dependency was merged
@@ -22,13 +26,58 @@ boundaries, not passing kernel or GTK checks. Evidence is retained under
 
 Native image acceptance remains pending. No earlier image is evidence for this batch.
 
-Checks recorded on 2026-10-13. The `7170b3d` `vmtest` image built successfully
-and passed a read-only image audit. Fresh VM acceptance is incomplete: phase 3
-passed seven checks and failed one. Its core pin
-is unchanged from the older `5a86e3b` image, but that image's passing suites do
-not transfer to this build.
 
 ## Current image evidence
+
+| Identity | SHA256 or commit |
+|---|---|
+| Built OS and acceptance harness | `c2d1ad90d60fbb4f24d1cdd0909bb7a0f864116f` |
+| Pinned core | `cff62d1e1afbc861e410659f1f26f01afd1ed249` |
+| Raw image SHA256 | `7c4d26679fa81c4897533f19a175668b2dc54f2d13451fd9b605661126e7807c` |
+| Runtime/image source digest | `c6254581a3e51844b04ef70254d4900f993b0d6de1dd1b061a681ff40d792553` |
+
+The Linux ARM full host suite passed 1,044 tests with 80 skipped in 47.18 seconds.
+The image build exited `0` after 279 seconds. The read-only audit reports correct
+content and modes on 1,662 protected paths. Its script used global `set +e`, so
+that audit alone is not strict cleanup evidence. A separate strict postflight
+reported `PASS` for cleanup. These records establish build and audit evidence,
+not successful native acceptance or release readiness.
+
+Evidence is retained under `image/out/build-c2d1ad9/`. The host suite, image
+identity and native acceptance have separate result records.
+
+| Native check | Status |
+|---|---|
+| Phase 3, attempt 1 | Failed: SSH not ready within 900 seconds. Guest entered emergency service. Cause unproved |
+| Phase 3, attempt 2 | Failed: 6 checks passed, 2 failed |
+| Ledger, model spending, recovery, phases 1–2 and isolation | Not run |
+| Four witness kernel cases and one installed-flow case | Not run |
+| Native accessibility, receipt reboot persistence, loaded apps and Urdu pixels | Unverified |
+
+Attempt 2 passed provenance, fake-only routes, palette launch, a question answer,
+explicit approval and launch with exod stopped. The drawer check received
+`who are my caalls today` rather than the exact fixture input
+`who are my calls today`. This is an upstream input mismatch. It does not prove
+a drawer transport fault. The strict version-2 probe observed the first F6 review
+of request A but no repeated event during the hold. That failed its native repeat
+assertion. The evidence does not establish the product cause. Successful retry
+boot does not establish boot stability.
+
+A separately labelled diagnostic boot differs from acceptance and cannot close
+its boot failure. Input diagnostic sessions 1 and 2 had invalid setup or logging
+and produced no usable key trace. Their results cannot count as a pass.
+The old wrapper's `surface restored 0` is not proof that the service failed:
+its compound helper queried the root user manager. PR 55 at `d14bb499` repairs
+complete command-body scope. Native restoration with that repair remains pending.
+
+Later review-fix heads for PRs 28, 31, 51, 55 and 90 are outside frozen `c2d1ad9`.
+They require a fresh combined candidate, host validation, rebuild and native
+acceptance. No newer source or diagnostic result changes this image's status.
+
+## Historical image `7170b3d`
+
+This older image built and passed its audit. Its phase-3 attempt passed seven
+checks and failed one. Those records and diagnostics apply only to this artifact.
 
 | Identity | SHA256 or commit |
 |---|---|
@@ -45,7 +94,7 @@ Evidence is retained under `image/out/build-7170b3d/build-provenance/` and
 `image/out/build-7170b3d/audit-7170b3d-cff62d1/`. These establish the built artifact,
 not successful completion of desktop, isolation, spending, recovery or witness acceptance.
 
-| Fresh-image check | Status |
+| Historical image check | Status |
 |---|---|
 | Phase 3, harness `b5e9291` | Failed: 7 passed, 1 failed, harness exit `1` |
 | Ledger, zero-paid spending, recovery, phases 1–2 and isolation | Pending |
@@ -53,7 +102,7 @@ not successful completion of desktop, isolation, spending, recovery or witness a
 | Witness receipts through normal and older-root reboot | Pending |
 | Loaded browser pages, memory and Urdu pixels | Pending |
 
-### Fresh phase-3 attempt
+### Historical phase-3 attempt
 
 The report dated `2026-10-13T14:11:56Z` names the `7170b3d` image and separate
 `b5e9291` harness. Its successful checks cover provenance, fake-only model routes,
@@ -103,27 +152,17 @@ attempt's unrecorded state.
 
 The trace is retained at
 `16-panel-update-diagnostic-attempt1-7d7f559/evidence/out/panel-update-input-trace.json`
-under the current acceptance directory. No runtime or acceptance-probe repair
+under the historical acceptance directory. No runtime or acceptance-probe repair
 was installed for that diagnostic. Full surface restoration was not confirmed
 within 30 seconds. QEMU was then stopped. The raw backing image was unchanged.
 Neither this shutdown nor the diagnostic establishes successful restoration.
 
-### Source repairs awaiting a fresh build
+### Historical source checks before the current build
 
-The selected source repairs cover the test budget (PR 84), spending across a
-fork and crash (85), decoded writer keys (86), witness publication checks (89),
-build receipts (90), complete host generations (92), and focus lifecycle and
-version-2 observation (94). Their inclusion in a local composition is source
-work, not evidence that they run in the `7170b3d` image.
-
-The local combined candidate is `adce2fa`, which adds only the `e41f22c`
-documentation merge to `da7588a`. Selected repair heads are in its ancestry.
-No GitHub merge or new native image build is claimed. The macOS focus candidate
-at runtime `a048a58` with the later documentation-only `e41f22c` recorded 754 passing tests,
-21 skipped and five timing failures in 455.55 seconds.
-Independent full Linux ARM host validation of the frozen source candidate
-remains pending. Native witness acceptance requires four kernel cases and one
-installed-flow case, five cases total. All five remain pending on the fresh image.
+The earlier macOS focus candidate at runtime `a048a58`, with later documentation
+head `e41f22c`, recorded 754 passing tests, 21 skipped and five timing failures
+in 455.55 seconds. This is separate from the current Linux host result and does
+not establish native acceptance.
 
 The core pin remains `cff62d1`. OS work tracked in issues 16 and 18 awaits the
 stable shared-core authority/cursor contract tracked in core issue 109.

@@ -21,7 +21,11 @@ execution and administrator boot recovery. This new source composition pins merg
 main `859fbcc`; no image build or native acceptance is claimed for it. The separate
 land/batch-2 source `4aec0b9` with core `3ea58f4` passed 545 Linux host tests with
 12 skipped. Earlier image results do not transfer. Historical image evidence is
-recorded in [validation](docs/VALIDATION.md#current-image-evidence). Built:
+recorded in [validation](docs/VALIDATION.md#current-image-evidence).
+
+Frozen image `c2d1ad9` with core `cff62d1` is built and audited. Its acceptance
+is held: phase 3 failed both attempts and no complete native suite has passed.
+The other six suites and witness cases are not run. Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
   home, snapshots, the Exo store, protected ledger, helper audit and egress history; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;

@@ -16,13 +16,13 @@ memory criterion remains open. Screenshot SHA256:
 `c370c34eb3d197cc5eee31676559d02f3452723fe71f5c6238c42f8b93ad90d0`.
 See [historical image evidence](VALIDATION.md#historical-image-5a86e3b).
 
-## Fresh surface snapshot (2026-10-13)
+## Historical surface snapshot (2026-10-13)
 
 The failed phase-3 attempt on `7170b3d`, core `cff62d1`, harness `b5e9291`,
 records surface PSS 60 MiB, labelled MB by the script. This is one snapshot in
 the QEMU/TCG `vmtest` environment with a service-only Cairo renderer. It does not
 establish an agreed memory budget, loaded browser workload or hardware use.
-See [the failed attempt and limits](VALIDATION.md#fresh-phase-3-attempt).
+See [the failed attempt and limits](VALIDATION.md#historical-phase-3-attempt).
 
 ## Renderer diagnostic (2026-10-13)
 

@@ -84,6 +84,6 @@ disposable overlay and leaves the test journal stopped by its synthetic fixture.
 The older `5a86e3b` image with core `cff62d1` passed twelve spending checks using
 the corrected tools-only harness `e26775f`. Its recovery checks preserved the
 post-checkpoint stopped journal through an actual older-root reboot. These are
-offline/mocked-HTTP results. Paid usage, billing accuracy and the new `7170b3d`
+offline/mocked-HTTP results. Paid usage, billing accuracy and the new `c2d1ad9`
 image's spending acceptance remain unverified. The original failed attempt is
 retained. See [historical evidence](VALIDATION.md#historical-image-5a86e3b).

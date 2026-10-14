@@ -258,7 +258,7 @@ discard with the overlay. Run it last on a fresh disposable VM. Its single JSON
 evidence record is printed with `-s`; retain it with the outer raw-image hash and
 boot UUID proof. This synthetic loopback test establishes no independent endpoint.
 
-The `7170b3d` image has build and read-only audit evidence. Installed witness
+The `c2d1ad9` image has build and read-only audit evidence. Installed witness
 acceptance remains pending. The four kernel cases and one installed-flow case, receipt persistence through
 normal and older-root reboots, full worker Landlock execution, power-loss behavior
 and independent remote deployment remain separate checks. Unrelated historical

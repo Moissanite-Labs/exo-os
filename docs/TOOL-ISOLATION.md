@@ -93,7 +93,7 @@ booted-image check. The separate signer has historical ledger/recovery evidence.
 The older `5a86e3b` isolation suite failed 1 of 13 checks because its spending
 probe assumed Bash's `is_error` meant access was allowed. The raw probe outcome
 was not retained, so that run confirms neither denial nor disclosure for spending
-state. The corrected harness and fresh `7170b3d` image need VM acceptance. See
+state. The corrected harness and fresh `c2d1ad9` image need VM acceptance. See
 [results and limits](VALIDATION.md#historical-image-5a86e3b). A named
 root receipt proves execution; compulsory tool isolation prevents a tool from
 reaching that socket, but the principal's other same-user applications remain
