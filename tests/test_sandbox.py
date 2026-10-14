@@ -142,3 +142,15 @@ def test_restoring_unsafe_profile_is_refused_before_any_change(tmp_path, monkeyp
     result = engine.apply(profile, "Undo unsafe history")
     assert not result.ok and "reviewed" in result.message
     assert not (tmp_path / "machine").exists()
+
+
+def test_check_app_rejects_non_string_url():
+    from exo_os.sandbox.desktop import check_app
+    with pytest.raises(SandboxError):
+        check_app({"url": 123})
+
+
+def test_check_app_rejects_unhashable_command():
+    from exo_os.sandbox.desktop import check_app
+    with pytest.raises(SandboxError):
+        check_app({"command": ["chromium"]})

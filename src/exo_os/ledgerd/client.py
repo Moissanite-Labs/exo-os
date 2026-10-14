@@ -17,6 +17,7 @@ from exo.ledger_authority import (
 )
 
 from ..egress.server import account_uid
+from ..egress.policy import EgressError
 from ..sandbox.policy import trusted_path
 from ..sysd.protocol import peer_credentials
 from .policy import SOCKET, TIMEOUT, load_manifest
@@ -26,9 +27,13 @@ from .wire import GREETING, MAX_WIRE, decode, encode, read_line, request
 def verify_socket(path, listener_uid):
     trusted_path(Path(path).parent, directory=True)
     trusted_path(Path("/etc/group"))
+    try:
+        gid = grp.getgrnam("exo-sys").gr_gid
+    except KeyError:
+        raise AuthorityUnavailable("untrusted authority socket") from None
     info = Path(path).lstat()
     if (not stat.S_ISSOCK(info.st_mode) or info.st_uid != listener_uid or stat.S_IMODE(info.st_mode) != 0o660
-            or info.st_gid != grp.getgrnam("exo-sys").gr_gid):
+            or info.st_gid != gid):
         raise AuthorityUnavailable("untrusted authority socket")
 
 
@@ -160,8 +165,11 @@ def create_authority(ledger_path, writer=None):
     for stream, entry in load_manifest()["streams"].items():
         if path == entry["ledger_path"]:
             if writer is None:
-                candidates = [alias for alias, accounts in entry["callers"].items()
-                              if any(account_uid(name) == os.geteuid() for name in accounts)]
+                try:
+                    candidates = [alias for alias, accounts in entry["callers"].items()
+                                  if any(account_uid(name) == os.geteuid() for name in accounts)]
+                except EgressError:
+                    raise AuthorityUnavailable("no authorized verification identity") from None
                 if not candidates:
                     raise AuthorityUnavailable("no authorized verification identity")
                 return ReadAuthorityClient(stream, sorted(candidates)[0], entry["identity"])

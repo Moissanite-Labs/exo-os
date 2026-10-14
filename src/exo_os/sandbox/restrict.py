@@ -19,7 +19,6 @@ class Ruleset(c.Structure):
 
 
 class Beneath(c.Structure):
-    _pack_ = 1
     _fields_ = [("allowed_access", c.c_uint64), ("parent_fd", c.c_int32)]
 
 
@@ -74,6 +73,11 @@ def seccomp() -> None:
         "process_vm_writev", "bpf", "perf_event_open", "keyctl", "add_key", "request_key",
         "userfaultfd", "io_uring_setup", "kexec_load", "init_module", "finit_module", "delete_module",
         "reboot", "open_by_handle_at",
+        # The newer mount API and chroot: same class as mount(2), denied for completeness.
+        # socketpair/sendto/recvfrom stay allowed: the event loop's private socketpair is created
+        # before this filter loads, and blocking them risks breaking asyncio internals.
+        "open_tree", "move_mount", "fsopen", "fsmount", "fsconfig", "chroot",
+        "pidfd_open", "pidfd_getfd",
     )
     try:
         for syscall in denied:

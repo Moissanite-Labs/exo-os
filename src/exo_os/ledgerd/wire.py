@@ -35,6 +35,8 @@ def request(raw):
         raise AuthorityError("invalid sequence")
     if raw["op"] == "read_since" and (raw["seq"] is None or type(raw["limit"]) is not int or not 1 <= raw["limit"] <= MAX_BATCH):
         raise AuthorityError("invalid replay bound")
+    # Defense in depth: encode() already bounds the document through canonical(),
+    # so this cannot fire unless encode() changes. It stays as a second bound.
     if len(encode(raw)) > MAX_WIRE:
         raise AuthorityError("authority request exceeds bound")
     return raw

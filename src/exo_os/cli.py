@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tomllib
 from typing import Any
 
 from . import apps, paths
@@ -104,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         return _run(args)
-    except ProfileError as e:
+    except (ProfileError, OSError, tomllib.TOMLDecodeError) as e:
         print(f"Not changed: {e}", file=sys.stderr)
         return 2
 

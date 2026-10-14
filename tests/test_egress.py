@@ -256,3 +256,11 @@ def test_bound_origin_mismatch_refuses_without_send(broker):
     service, calls = broker
     assert service.handle(request(expected_origin="https://other.example"))["state"] == "refused"
     assert calls == []
+
+
+def test_client_call_with_unvalidatable_args_returns_refusal():
+    from exo_os.egress.client import EgressClient
+    out = EgressClient().call({})
+    assert out["state"] == "refused"
+    assert out["retryable"] is False
+    assert out["request_id"] is None

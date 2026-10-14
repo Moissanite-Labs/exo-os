@@ -249,6 +249,8 @@ class Recovery:
         for path in (archive, archive / "manifest.json", archive / "kernel.efi"):
             self.trusted_path(path, self.snapshots)
         manifest = json.loads((archive / "manifest.json").read_text())
+        if not isinstance(manifest, dict):
+            raise RecoveryError("Checkpoint manifest is not a JSON object")
         if (manifest.get("version") != 1 or manifest.get("id") != ident or
                 manifest.get("filesystem_uuid") != fs_uuid):
             raise RecoveryError("Checkpoint belongs to another image or manifest version")

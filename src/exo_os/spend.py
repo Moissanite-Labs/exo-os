@@ -524,20 +524,25 @@ def inspect(*, store: Path = STORE, principal: str = PRINCIPAL) -> dict:
             "policy": str(state / "policy.json")}
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("ensure-boot")
     sub.add_parser("status")
     sub.add_parser("repair", help="root console only: preserve refused unused state, then publish fresh zero caps")
     args = parser.parse_args()
-    if args.command == "ensure-boot":
-        ensure_boot()
-    elif args.command == "repair":
-        print(json.dumps(repair(), sort_keys=True))
-    else:
-        print(json.dumps(inspect(), sort_keys=True))
+    try:
+        if args.command == "ensure-boot":
+            ensure_boot()
+        elif args.command == "repair":
+            print(json.dumps(repair(), sort_keys=True))
+        else:
+            print(json.dumps(inspect(), sort_keys=True))
+    except AuthorityError as exc:
+        print(f"model-spend refused: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

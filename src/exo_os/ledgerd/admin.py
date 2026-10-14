@@ -451,7 +451,10 @@ def provision(principal, *, state=STATE, uid=None, gid=None, projection=None):
         os.fsync(fd)
     finally:
         os.close(fd)
-    os.link(temporary, manifest_path, follow_symlinks=False)
+    try:
+        os.link(temporary, manifest_path, follow_symlinks=False)
+    except FileExistsError:
+        raise AuthorityError("established identity at this path requires explicit migration") from None
     _fsync_dir(state)
     temporary.unlink()
     _fsync_dir(state)

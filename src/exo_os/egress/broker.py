@@ -89,8 +89,10 @@ class Broker:
         self.addresses = {}
         for profile in profiles.values():
             parsed = urlsplit(profile.origin)
-            self.addresses[profile.origin] = socket.getaddrinfo(
-                parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)[0]
+            answers = socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+            if not answers:
+                raise EgressError(f"no addresses for {parsed.hostname}")
+            self.addresses[profile.origin] = answers
         if not self.context.check_hostname or self.context.verify_mode != ssl.CERT_REQUIRED:
             raise EgressError("TLS verification must be enabled")
 
@@ -125,18 +127,20 @@ class Broker:
             parsed = urlsplit(profile.origin)
             conn = http.client.HTTPSConnection(parsed.hostname, parsed.port, timeout=TIMEOUT, context=self.context)
             def connect_fixed(address, timeout, source_address=None):
-                family, kind, proto, _, sockaddr = self.addresses[profile.origin]
-                sock = socket.socket(family, kind, proto)
-                try:
-                    sock.settimeout(max(0.001, deadline - time.monotonic()))
-                    sock.connect(sockaddr)
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError()
-                    sock.settimeout(deadline - time.monotonic())
-                    return sock
-                except BaseException:
-                    sock.close()
-                    raise
+                last = None
+                for family, kind, proto, _, sockaddr in self.addresses[profile.origin]:
+                    sock = socket.socket(family, kind, proto)
+                    try:
+                        sock.settimeout(max(0.001, deadline - time.monotonic()))
+                        sock.connect(sockaddr)
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError()
+                        sock.settimeout(deadline - time.monotonic())
+                        return sock
+                    except BaseException as exc:
+                        last = exc
+                        sock.close()
+                raise last
             conn._create_connection = connect_fixed
             deadline = time.monotonic() + TIMEOUT
             conn.connect()
