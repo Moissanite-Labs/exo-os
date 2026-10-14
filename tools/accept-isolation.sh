@@ -3,11 +3,17 @@
 # Requires a freshly built image containing the sandbox package, bubblewrap and libseccomp.
 # The probe writes only uniquely named synthetic files under the configured workspace and its parent.
 set -Eeuo pipefail
-here="$(cd "$(dirname "$0")/.." && pwd)"
+[[ $# == 3 && ${1:-} == --vm-acceptance && ${2:-} == --image-source \
+   && ${3:-} =~ ^[0-9a-f]{40}$ && ${EXO_OS_VM_ACCEPTANCE:-} == 1 ]] || {
+  echo 'requires --vm-acceptance --image-source FULL_40_HEX_HASH and EXO_OS_VM_ACCEPTANCE=1' >&2
+  exit 2
+}
+image_source=$3
+here="$(cd "$(dirname "$0")/.." && pwd -P)"
 out="$here/image/out"
 report="$out/accept-isolation.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }
-as_exo() { ssh_vm "cd /tmp && as-exo $*"; }
+as_exo() { accept_as_exo "$@"; }
 pass=0 fail=0
 result() {
   local line
@@ -16,7 +22,28 @@ result() {
 }
 
 source "$here/tools/accept-common.sh"
+harness_source=$(python3 "$here/tools/source_identity.py" \
+  --source-root "$here" --require-clean --label "isolation harness source") || exit 2
+manifest="$out/extra/opt/exo/EXO_OS_BUILD.json"
+[[ -s $manifest ]] || { echo 'the selected image build manifest is missing' >&2; exit 2; }
+if ! "$here/.venv/bin/python" - "$manifest" "$image_source" <<'PY_IMAGE_SOURCE'
+import json
+import sys
+try:
+    with open(sys.argv[1]) as source:
+        built = json.load(source)
+    valid = (built.get("schema") == 2 and built.get("build_profile") == "vmtest"
+             and built.get("exo_os_commit") == sys.argv[2])
+except (OSError, ValueError, AttributeError):
+    valid = False
+raise SystemExit(0 if valid else 1)
+PY_IMAGE_SOURCE
+then
+  echo "isolation acceptance requires a vmtest image manifest built from $image_source" >&2
+  exit 2
+fi
 accept_start 4 1536
+echo "      image source: $image_source; isolation harness source: $harness_source" | tee -a "$report"
 # Two daemon checks, the installed spend-state prerequisite, and nine kernel probes.
 accept_set_required_checks 12
 

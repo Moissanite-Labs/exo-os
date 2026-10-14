@@ -67,3 +67,43 @@ def test_webapp_class_seen_on_charminar():
 def test_reserved_desktop_keys():
     with pytest.raises(ProfileError, match="kept for the desktop"):
         Profile.default().put_app({"name": "X", "command": "foot", "key": "SUPER+W"})
+
+
+@pytest.mark.parametrize("path,value", [
+    ("surface.key", "SUPER+X\n"),
+    ("keyboard.switch", "grp:alts_toggle\n"),
+    ("keyboard.layouts", ["us\n"]),
+])
+def test_a_trailing_newline_is_refused_in_settings(path, value):
+    with pytest.raises(ProfileError):
+        Profile.default().set_value(path, value)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("name", "Notes\n"),
+    ("command", "foot\n"),
+    ("class", "foot\n"),
+    ("key", "SUPER+X\n"),
+    ("url", "https://example.com/\n"),
+])
+def test_a_trailing_newline_is_refused_in_apps(field, value):
+    app = {"name": "Notes", "command": "foot", "key": "SUPER+N"}
+    if field == "url":
+        app = {"name": "Notes", "url": value}
+    else:
+        app[field] = value
+    with pytest.raises(ProfileError):
+        Profile.default().put_app(app)
+
+
+def test_roundtrip_guard_catches_what_a_validator_misses():
+    p = Profile.default()
+    p.check_roundtrip()
+    p.data["apps"][0]["name"] = "Browser\n"  # simulate a gap in a validator
+    with pytest.raises(ProfileError, match="read back"):
+        p.check_roundtrip()
+
+
+def test_roundtrip_guard_ignores_unset_app_fields():
+    p = Profile.default().put_app({"name": "Notes", "command": "foot", "workspace": None})
+    p.check_roundtrip()

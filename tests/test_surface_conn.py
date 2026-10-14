@@ -1,6 +1,7 @@
 """The surface's connection against a real exod running the echo engine on a private socket."""
 import asyncio
 import json
+import logging
 import threading
 import time
 
@@ -120,7 +121,14 @@ def _direct(fn, *args):
     fn(*args)
 
 
-def test_turn_approval_and_state(paths):
+def _assert_one_drop_logged(caplog, panel_id, action, reason):
+    [record] = [r for r in caplog.records if r.name == conn_mod.LOG.name and "dropped" in r.getMessage()]
+    message = record.getMessage()
+    assert record.levelno == logging.WARNING
+    assert panel_id in message and action in message and reason in message
+
+
+def test_turn_approval_and_state(paths, caplog):
     sock, state = paths
     exod = Exod(sock)
     rec = Recorder()
@@ -146,6 +154,7 @@ def test_turn_approval_and_state(paths):
         c.send(s.TurnSend(session="s_nobody", text="x"))
         rec.wait(lambda: rec.last("failed") == "not_found")
         assert [c_ for c_ in rec.calls if c_[0] == "failed"] == [("failed", "not_found")]
+        _assert_one_drop_logged(caplog, "p_missing", "dismissed", "unsupported")  # refused, quiet, but traced
     finally:
         c.stop()
         exod.stop()
@@ -367,6 +376,7 @@ def test_answer_delivery_is_reconciled_without_automatic_resend(paths, failure):
     c.start()
     try:
         rec.wait(lambda: rec.last("connected") is True and rec.model.approval is not None)
+        rec.model.show_approvals()
         body = rec.model.answer("allow")
         assert rec.model.answer("allow") is None
         c.send(body)
@@ -375,6 +385,7 @@ def test_answer_delivery_is_reconciled_without_automatic_resend(paths, failure):
         if failure in ("lost_unapplied", "rejected"):
             assert rec.model.approval.request_id == "a1"
             assert rec.model.approval.binding == "h1"
+            assert rec.model.reviewed_approval is None and rec.model.answer("allow") is None
         else:
             assert rec.model.approval is None
         if failure and failure.startswith("lost"):
@@ -558,6 +569,7 @@ def test_reconnect_cancels_inflight_answer_before_rearming(paths, applied):
     c.start()
     try:
         rec.wait(lambda: rec.model.approval is not None and rec.model.connected)
+        rec.model.show_approvals()
         c.send(rec.model.answer("allow"))
         assert entered.wait(2)
         c._loop.call_soon_threadsafe(c._reconnect.set)
@@ -635,3 +647,245 @@ def test_exod_fixture_shutdown_drains_open_streams_and_unanswered_turn(paths):
     finally:
         c.stop()
         exod.stop()
+
+
+def _asks_for_events(daemon, log):
+    """A client factory that records how each client subscribed to the event feed."""
+    def factory(socket):
+        client = daemon.client(socket)
+        feed = client.events
+
+        def events(**kwargs):
+            log.append(kwargs)
+            return feed(**kwargs)
+
+        client.events = events
+        return client
+    return factory
+
+
+@pytest.mark.parametrize("saved, head, expected", [
+    (5, 15, 5),     # a gap of exactly REPLAY_MAX is replayed from the saved cursor
+    (5, 16, 16),    # one event more and the surface starts from now, not from a long replay
+    (500, 20, 20),  # a cursor ahead of exod (its log was reset) cannot be resumed either
+    (0, 20, 20),    # no saved cursor: start from now
+])
+def test_replay_resumes_only_across_a_short_gap(paths, monkeypatch, saved, head, expected):
+    sock, state = paths
+    sock.touch()
+    monkeypatch.setattr(conn_mod, "REPLAY_MAX", 10)
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({"session": "s_fake", "seq": saved}))
+    daemon = FakeDaemon()
+    daemon.seq = head
+    asked = []
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct, client_factory=_asks_for_events(daemon, asked))
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is True and asked)
+        assert asked[0]["since"] == expected
+        assert c.seq == expected
+        # A skipped replay must not hide what needs an answer: pending approvals come from approvals.list.
+        assert [row["request_id"] for row in rec.last("approvals")] == ["a1"]
+    finally:
+        c.stop()
+
+
+def test_replay_prefers_this_runs_cursor_over_the_saved_one(paths):
+    sock, state = paths
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({"session": "s_fake", "seq": 5}))
+    c = Connection(Recorder(), socket=sock, state=state, post=_direct)
+    assert c._since(60) == 5
+    c.seq = 50
+    assert c._since(60) == 50
+
+
+def test_send_before_start_and_after_stop_reports_not_connected(paths):
+    sock, state = paths
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct)
+
+    def refused():
+        rec.calls.clear()
+        c.send(s.TurnSend(session="s_x", text="hi"))
+        assert rec.calls == [("failed", "not_connected")]
+        rec.calls.clear()
+        # An answer that cannot be sent must still release the card that is waiting on it.
+        c.respond_approval("r1", "allow", "b1")
+        assert rec.calls == [("approval_result", "r1"), ("failed", "not_connected")]
+
+    refused()  # before start()
+    exod = Exod(sock)
+    try:
+        c.start()
+        rec.wait(lambda: rec.last("connected") is True)
+    finally:
+        c.stop()
+        exod.stop()
+    refused()  # after stop()
+
+
+def test_panel_signal_on_a_dead_link_is_quiet_but_other_commands_are_not(paths):
+    sock, state = paths  # no exod: the link is down
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is False)
+        c.respond_panel("p1", "dismissed")
+        assert not [call for call in rec.calls if call[0] == "failed"]  # the person never asked for it
+        c.send(s.TurnSend(session="s_x", text="hi"))
+        assert rec.last("failed") == "not_connected"
+    finally:
+        c.stop()
+
+
+def test_dropped_panel_signal_leaves_a_trace(paths, caplog):
+    sock, state = paths
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is False)
+        caplog.clear()
+        caplog.set_level(logging.DEBUG, logger=conn_mod.LOG.name)
+        c.respond_panel("p1", "ignored", {"choice": "secret text"})
+        [record] = [r for r in caplog.records if r.name == conn_mod.LOG.name]
+        assert record.levelno == logging.WARNING
+        assert "p1" in record.getMessage() and "ignored" in record.getMessage()
+        assert "secret text" not in record.getMessage()
+    finally:
+        c.stop()
+
+
+def test_panel_signal_lost_in_flight_is_quiet_and_still_rejoins(paths, caplog):
+    sock, state = paths
+    sock.touch()
+    daemon = FakeDaemon()
+    sent = []
+
+    def factory(socket):
+        client = daemon.client(socket)
+        accept = client.send
+
+        async def send(body):
+            if isinstance(body, s.UiRespond):
+                sent.append(body)
+                raise ConnectionError("link died after the signal was sent")
+            return await accept(body)
+
+        client.send = send
+        return client
+
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct, client_factory=factory)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is True)
+        c.respond_panel("p1", "dismissed")
+        rec.wait(lambda: len(daemon.clients) >= 2)  # the lost reply makes the surface rejoin
+        assert [b.panel_id for b in sent] == ["p1"]  # and the signal is not sent again
+        assert not [call for call in rec.calls if call[0] == "failed"]
+        _assert_one_drop_logged(caplog, "p1", "dismissed", "ConnectionError")
+    finally:
+        c.stop()
+
+
+def test_panel_signal_cancelled_in_flight_leaves_a_trace(paths, caplog):
+    sock, state = paths
+    sock.touch()
+    daemon = FakeDaemon()
+    sent = threading.Event()
+
+    def factory(socket):
+        client = daemon.client(socket)
+        accept = client.send
+
+        async def send(body):
+            if isinstance(body, s.UiRespond):
+                sent.set()
+                await asyncio.Event().wait()  # the reply never arrives
+            return await accept(body)
+
+        client.send = send
+        return client
+
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct, client_factory=factory)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is True)
+        c.respond_panel("p1", "ignored")
+        assert sent.wait(5)
+    finally:
+        c.stop()  # tearing the link down cancels the answer still in flight
+    _assert_one_drop_logged(caplog, "p1", "ignored", "cancelled")
+    assert not [call for call in rec.calls if call[0] == "failed"]
+
+
+def test_answer_cancelled_before_it_starts_is_still_reported(paths):
+    """A click that lands in the same loop iteration as a reconnect creates its send task just as the
+    link is torn down. The task is cancelled before its first step, so _send never runs; the card must
+    still leave "answering" and come back from exod's pending list."""
+    sock, state = paths
+    sock.touch()
+    daemon = FakeDaemon()
+    holder = {}
+
+    def factory(socket):
+        client = daemon.client(socket)
+
+        async def events(**kwargs):
+            try:
+                await asyncio.Event().wait()
+                yield
+            finally:
+                if holder.get("body") is not None and not holder.get("sent"):
+                    holder["sent"] = True
+                    # the answer is submitted while this link is being torn down
+                    asyncio.get_running_loop().call_soon(lambda: holder["conn"].send(holder["body"]))
+        client.events = events
+        return client
+
+    rec = ModelRecorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct, client_factory=factory)
+    holder["conn"] = c
+    c.start()
+    try:
+        rec.wait(lambda: rec.model.approval is not None and rec.last("connected") is True)
+        rec.model.show_approvals()
+        holder["body"] = rec.model.answer("allow")
+        assert holder["body"] is not None
+        c._loop.call_soon_threadsafe(c._reconnect.set)
+        rec.wait(lambda: holder.get("sent") and len(daemon.clients) >= 2 and rec.last("connected") is True)
+        rec.wait(lambda: not rec.model.answering and rec.model.approval is not None)
+        assert rec.model.approval.request_id == "a1"
+        assert not daemon.answers  # cancelled, never sent; exod still has it pending
+    finally:
+        c.stop()
+
+
+def test_cancelled_approval_answer_is_reported_once(paths):
+    sock, state = paths
+    sock.touch()
+    daemon = FakeDaemon()
+    rec = Recorder()
+    c = Connection(rec, socket=sock, state=state, post=_direct, client_factory=daemon.client)
+    c.start()
+    try:
+        rec.wait(lambda: rec.last("connected") is True)
+        started = threading.Event()
+
+        async def stuck(body):  # a send that never returns, so the cancel lands mid-flight
+            started.set()
+            await asyncio.Event().wait()
+        c._client.send = stuck
+        c.respond_approval("a1", "allow", "h1")
+        assert started.wait(5)
+        c._loop.call_soon_threadsafe(c._reconnect.set)
+        rec.wait(lambda: len(daemon.clients) >= 2)
+        assert [c_ for c_ in rec.calls if c_[0] == "approval_result"] == [("approval_result", "a1")]
+    finally:
+        c.stop()

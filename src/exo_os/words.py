@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import unicodedata
 
 from typing import Any
@@ -57,37 +58,103 @@ def _q(text: str, n: int = 160) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
-def describe_call(name: str, args: dict[str, Any] | None) -> str | None:
-    """One plain question for an approval card, or None when this tool has no wording here.
+class _Malformed(Exception):
+    """The model's arguments cannot be worded truthfully."""
 
-    Exo's gate words an approval for an operator ("system_package_install (costly, private). Why: ...").
-    Exo's pre_approval_request hook is declared but not called by the core (aska-digital/exo#26), so the surface
-    words the card itself, for exo-os tools and the common Exo ones."""
-    a = args or {}
+
+def _text(a: dict[str, Any], *keys: str, default: str = "") -> str:
+    """The first of `keys` present in `a` as a string. A present value of any other type is malformed."""
+    for key in keys:
+        value = a.get(key)
+        if value is None or value == "":
+            continue
+        if not isinstance(value, str):
+            raise _Malformed(key)
+        return value
+    return default
+
+
+def _number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _setting_words(setting: str, value: Any) -> str:
+    """value_words for model-supplied input: only the shapes it can word truthfully."""
+    if setting == "keyboard.layouts":
+        if not isinstance(value, list) or not value or not all(isinstance(v, str) for v in value):
+            raise _Malformed(setting)
+    elif setting.startswith("idle."):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise _Malformed(setting)
+    elif setting in ("display.scale", "display.text_scale"):
+        if not _number(value) or value <= 0:
+            raise _Malformed(setting)
+    elif not isinstance(value, (bool, str)) and not _number(value):
+        raise _Malformed(setting)
+    return value_words(setting, value)
+
+
+def _describe(name: str, args: dict[str, Any] | None) -> str | None:
+    a = {} if args is None else args
+    if not isinstance(a, dict):
+        raise _Malformed("arguments")
     if name == "system_package_install":
-        names = ", ".join(a.get("names") or []) or "software"
-        reason = f" Reason: {_q(a['reason'])}." if a.get("reason") else ""
-        return f"Install {names} on this computer?{reason} It can be undone."
+        names = a.get("names")
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) and n.strip() for n in names):
+            raise _Malformed("names")  # a bare string would otherwise read as one letter per package
+        reason = f" Reason: {_q(_text(a, 'reason'))}." if _text(a, "reason") else ""
+        return f"Install {', '.join(names)} on this computer?{reason} It can be undone."
     if name == "system_snapshot_undo":
-        return f"Put the system back as it was before snapshot {a.get('post')}? Software added then will be removed."
-    if name == "machine_set" and a.get("setting") in LABELS:
-        return f"Change {LABELS[a['setting']].lower()} to {value_words(a['setting'], a.get('value'))}?"
+        post = a.get("post")
+        if not isinstance(post, str) or not post.strip():
+            raise _Malformed("post")
+        return f"Put the system back as it was before snapshot {post}? Software added then will be removed."
+    if name == "machine_set":
+        setting = a.get("setting")
+        if setting is not None and not isinstance(setting, str):
+            raise _Malformed("setting")
+        if setting not in LABELS:
+            return None  # not a setting this wording knows; the plain summary stands
+        return f"Change {LABELS[setting].lower()} to {_setting_words(setting, a.get('value'))}?"
     if name == "machine_undo":
         return "Undo the last change to this computer?"
     if name in ("machine_app_put", "machine_app_unbind"):
         verb = "Add" if name == "machine_app_put" else "Remove"
-        return f"{verb} {a.get('name', 'this app')}?"
+        return f"{verb} {_text(a, 'name', default='this app')}?"
     if name == "app_open":
-        return f"Open {a.get('name', 'this app')}?"
+        return f"Open {_text(a, 'name', default='this app')}?"
     if name == "send_message":
-        target = a.get("target") or a.get("chat_id") or "this chat"
-        return f"Send this message to {target}? “{_q(a.get('message') or a.get('text') or '')}”"
+        target = _text(a, "target", "chat_id", default="this chat")
+        return f"Send this message to {target}? “{_q(_text(a, 'message', 'text'))}”"
     if name in ("bash", "terminal", "shell", "run_command"):
-        return f"Run this on the computer? {_q(a.get('command') or a.get('cmd') or '', 100)}"
+        return f"Run this on the computer? {_q(_text(a, 'command', 'cmd'), 100)}"
     if name in ("write_file", "patch", "edit_file"):
-        path = str(a.get("path") or a.get("file_path") or "a file")
+        path = _text(a, "path", "file_path", default="a file")
         return f"Change the file {path.rsplit('/', 1)[-1]}?"
     return None
+
+
+def plain_wording(name: Any, args: Any) -> tuple[str | None, bool]:
+    """(plain question, malformed). Never raises, whatever shape the model's arguments have.
+
+    `malformed` is true when this is a tool the wording knows but its arguments cannot be worded
+    truthfully (or the wording failed for any reason). The caller falls back to the plain summary
+    and should offer nothing but refusal."""
+    try:
+        return _describe(name, args), False
+    except Exception:  # _Malformed, TypeError, ValueError, OverflowError, anything: the card must still appear
+        return None, True
+
+
+def describe_call(name: str, args: dict[str, Any] | None) -> str | None:
+    """One plain question for an approval card, or None when this tool has no wording here or its
+    arguments are malformed. Never raises.
+
+    Exo's gate words an approval for an operator ("system_package_install (costly, private). Why: ...").
+    Exo's pre_approval_request hook is declared but not called by the core (aska-digital/exo#26), so the surface
+    words the card itself, for exo-os tools and the common Exo ones. Exo asks before it validates arguments, so
+    these are the model's raw arguments: every one is type-checked before it is put in a sentence."""
+    return plain_wording(name, args)[0]
 
 
 def credential_request_preview(args: dict[str, Any], approval_id: str) -> tuple[str, str, bool]:

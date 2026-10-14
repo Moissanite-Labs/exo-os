@@ -17,9 +17,17 @@ OS can close, and lays out the build path. Read it before planning a stage.
 
 The initial phases 1–3 passed their earlier VM checks, with the gaps in `ROADMAP.md`.
 The current runtime adds recoverable approvals, authenticated root receipts, compulsory isolated tool
-execution and administrator boot recovery. This source batch pins merged core main `3ea58f4`,
-with the required trusted-folder adapter through OS PR 41. Source `4aec0b9` passed 545 Linux host
-tests with 12 skipped. Native image acceptance remains pending. Earlier VM results do not transfer. Built:
+execution and administrator boot recovery. This new source composition pins merged core
+main `859fbcc`; no image build or native acceptance is claimed for it. The separate
+land/batch-2 source `4aec0b9` with core `3ea58f4` passed 545 Linux host tests with
+12 skipped. Earlier image results do not transfer. Historical image evidence is
+recorded in [validation](docs/VALIDATION.md#current-image-evidence).
+The next composition's recovery flow has eleven checks, including a second reboot
+back to normal. That flow is unrun in a VM. Earlier ten-check evidence is historical only.
+
+Frozen image `c2d1ad9` with core `cff62d1` is built and audited. Its acceptance
+is held: phase 3 failed both attempts and no complete native suite has passed.
+The other six suites and witness cases are not run. Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
   home, snapshots, the Exo store, protected ledger, helper audit and egress history; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
@@ -35,7 +43,9 @@ tests with 12 skipped. Native image acceptance remains pending. Earlier VM resul
   receipts that could not be written to the principal ledger.
 - **Surface.** A GTK4 layer-shell prompt bar, panel drawer and approval card, as an Exo protocol client,
   with keyboard-accessible panels and recent loaded history, plus full selectable approval details.
-  Escape defers; lost answers are reconciled without automatic retry.
+  Pending requests preserve typing; **Review request (F6)** enters keyboard review.
+  The review button stays outside Tab completion navigation. Mouse review remains available.
+  Escape defers; losing review focus revokes keyboard consent; lost answers are reconciled without automatic retry.
 - **Timeline.** `exo-os today` and the `timeline_show` tool: what Exo did on a day, from the ledger.
 - **Tool boundary.** Every registry call passes through the required executor. Workspace tools run
   under bubblewrap, Landlock and seccomp with no network, credentials or host control sockets.
@@ -54,10 +64,14 @@ tests with 12 skipped. Native image acceptance remains pending. Earlier VM resul
   ceilings and no priced routes. The offline fake model remains usable. Missing or altered spend state
   blocks login; status stays readable after an accounting stop. See [model spend](docs/MODEL-SPEND.md).
 
-Still required: current-image boot/recovery acceptance, general API response adapters, independent
+Still required: fresh-image acceptance, real-model chat, loaded-web-app memory,
+native accessibility and Urdu visual checks, general API response adapters, independent
 witness deployment, voice and phone clients, and the hardware trials in `ROADMAP.md`.
-Independent witness state and transport are staged in a separate core draft, outside this pin.
-An independently administered endpoint and OS delivery remain unconfigured.
+The current source pins merged core main `859fbcc`, including witness transport
+and the challenged-head API, and adds optional explicit administrator
+[witness delivery](docs/WITNESS-PUBLISHER.md). Enrollment remains disabled by default.
+An independently administered endpoint remains unconfigured. Installed witness
+Linux acceptance is pending.
 Isolation covers model tool processes. Installed providers/plugins and the person's other desktop
 applications remain trusted; this is not a claim of separation between every same-user process.
 See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL-ISOLATION.md).
@@ -72,10 +86,12 @@ See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL
     tools/run-vm.sh [--gui]                # boot it in QEMU (throwaway overlay; SSH on 127.0.0.1:2222)
     tools/vm-ssh.sh <command>              # run a command in the VM as root
     tools/accept-phase1.sh                 # the phase 1 acceptance checks
-    tools/accept-isolation.sh              # kernel isolation in a disposable booted image
+    EXO_OS_VM_ACCEPTANCE=1 tools/accept-isolation.sh --vm-acceptance --image-source <full-built-OS-commit>
+                                            # kernel isolation with separate image/harness provenance
     tools/accept-ledger.sh                 # protected signer, tamper detection and signer outage
-    tools/accept-model-spend.sh            # zero-paid offline model and persistent journal checks
-    tools/accept-recovery.sh               # checkpoint, reboot into recovery and verify persistence
+    EXO_OS_VM_ACCEPTANCE=1 tools/accept-model-spend.sh --vm-acceptance --image-source <full-built-OS-commit>
+                                            # zero-paid offline model and journal checks
+    tools/accept-recovery.sh               # recovery and return-to-normal reboots; eleven checks
 
 On a machine running Exo OS. On any other desktop, `exo-os` changes nothing there and says so; the Exo store
 still works. The image explicitly marks its desktop with
@@ -106,6 +122,7 @@ mentioning Exo is not an ownership marker.
 | `docs/CREDENTIAL-EGRESS.md` | Approved HTTPS actions, key isolation and uncertain outcomes |
 | `docs/LEDGER-AUTHORITY.md` | Protected append history, first boot and independent witness handoff |
 | `docs/MODEL-SPEND.md` | Zero-paid boot policy, journal persistence and trust limits |
+| `docs/WITNESS-PUBLISHER.md` | Optional checkpoint publication, cached/fresh receipts and trust limits |
 | `src/exo_os/profile.py` | The machine profile: fields, checks, apps |
 | `src/exo_os/render/` | Profile to Hyprland Lua and hypridle config |
 | `src/exo_os/changes.py` | The change engine: apply, check, commit or put back, undo |

@@ -3,6 +3,20 @@
 # Source after defining here, out, report, ssh_vm and result.
 set -Eeuo pipefail
 
+accept_shell_quote() {
+  # Quote one argument for the remote shell without evaluating its contents.
+  local value=$1
+  value=${value//\'/\'\\\'\'}
+  printf "'%s'" "$value"
+}
+
+accept_as_exo() {
+  # Callers supply shell command text. Keep the entire body under runuser,
+  # including compound commands, pipelines, substitutions and heredocs.
+  local command=$*
+  ssh_vm "cd /tmp && as-exo /usr/bin/bash -c $(accept_shell_quote "$command")"
+}
+
 accept_error() {
   local rc=$1 line=$2
   trap - ERR
@@ -15,6 +29,10 @@ accept_cleanup() {
   if [[ -n ${qemu:-} ]]; then
     kill "$qemu" 2>/dev/null || true
     wait "$qemu" 2>/dev/null || true
+  fi
+  if [[ ${accept_build_lock:-0} == 1 ]]; then
+    rmdir "$out/.build-lock" 2>/dev/null || true
+    accept_build_lock=0
   fi
 }
 trap accept_cleanup EXIT
@@ -50,6 +68,21 @@ PY_PROFILE
   fi
 }
 
+accept_require_successful_build() {
+  local current
+  current=$(mktemp "$out/.preflight-provenance.XXXXXX")
+  if ! "$here/.venv/bin/python" "$here/tools/build-provenance.py" \
+      --source-root "$here" --pin "$(tr -d '\n' < "$here/exo.pin")" \
+      --profile vmtest --output "$current" \
+      || ! "$here/.venv/bin/python" "$here/tools/build-receipt.py" verify \
+      --out "$out" --current "$current"; then
+    rm -f "$current"
+    result prerequisites 0 'A matching successful-build receipt, raw image and manifest are required before QEMU starts; source or image configuration changed, or build evidence is missing.'
+    exit 1
+  fi
+  rm -f "$current"
+}
+
 accept_system_ready() {
   local state rc=0
   state=$(ssh_vm "timeout $ready_timeout systemctl is-system-running --wait") || rc=$?
@@ -71,7 +104,13 @@ accept_start() {
     result prerequisites 0 'Build the vmtest image and run tools/dev-env.sh first.'
     exit 1
   }
+  mkdir "$out/.build-lock" 2>/dev/null || {
+    result prerequisites 0 'Another build or acceptance run holds image/out/.build-lock.'
+    exit 1
+  }
+  accept_build_lock=1
   accept_require_vmtest_profile
+  accept_require_successful_build
   if [[ ! $boot_timeout =~ ^[1-9][0-9]{0,2}$ ]] || ((boot_timeout > 900)); then
     result prerequisites 0 'EXO_OS_VM_BOOT_TIMEOUT must be a positive integer no greater than 900 seconds.'
     exit 1
@@ -83,15 +122,9 @@ accept_start() {
   export here out
   export -f ssh_vm
   local source_commit
-  if source_commit=$(git -C "$here" rev-parse HEAD 2>/dev/null); then
-    :
-  elif [[ -s $here/.EXO_OS_SOURCE_ID ]]; then
-    source_commit=$(tr -d '\n' < "$here/.EXO_OS_SOURCE_ID")
-  else
-    source_commit=${EXO_OS_SOURCE_COMMIT:-}
-  fi
-  if [[ ! $source_commit =~ ^[0-9a-f]{40}$ ]]; then
-    result prerequisites 0 'Source identity is missing; use a Git checkout or an archive with .EXO_OS_SOURCE_ID.'
+  if ! source_commit=$("$here/.venv/bin/python" "$here/tools/source_identity.py" \
+      --source-root "$here" --require-clean --label 'acceptance harness source'); then
+    result prerequisites 0 'Source identity is missing, malformed or contradictory, or the harness is not a clean committed checkout.'
     exit 1
   fi
   echo "Exo OS phase $phase acceptance, $(date -u +%Y-%m-%dT%H:%M:%SZ), exo $(cut -c1-7 "$here/exo.pin"), exo-os ${source_commit:0:7}" | tee -a "$report"
@@ -211,7 +244,20 @@ print("ok")'
 }
 
 accept_keyring() {
-  ssh_vm 'timeout 120 sh -c '\''until [ -e /etc/pacman.d/gnupg/trustdb.gpg ] && ! systemctl is-active -q exo-os-pacman-init; do sleep 2; done'\'''
+  # exo-os-pacman-init.service is a oneshot: systemd reports it "activating" while it runs, and
+  # "inactive" both after a successful run and when its condition skipped it. Wait for a recorded
+  # successful run on this boot, not for a keyring. Then check the private key itself was made on this
+  # boot: `pacman-key --init` keeps a secret key it finds, so a keyring baked into the image would let
+  # the unit succeed without ever making this machine's own key.
+  local wait fresh_key
+  wait='u=exo-os-pacman-init.service; n=0; until [ "$(systemctl show -p ActiveState --value $u)" = inactive ] && [ "$(systemctl show -p Result --value $u)" = success ] && [ "$(systemctl show -p ExecMainExitTimestampMonotonic --value $u)" != 0 ]; do n=$((n+1)); [ $n -le 60 ] || exit 1; sleep 2; done'
+  fresh_key='b=$(grep ^btime /proc/stat | cut -d" " -f2); c=$(gpg --homedir /etc/pacman.d/gnupg --with-colons -K | grep ^sec: | head -n 1 | cut -d: -f6); [ -n "$c" ] && [ "$c" -ge $((b - 60)) ]'
+  if ! ssh_vm "sh -c '$wait'" || ! ssh_vm 'test -s /etc/pacman.d/gnupg/trustdb.gpg && test -e /etc/pacman.d/gnupg/exo-os-populated' \
+      || ! ssh_vm "sh -c '$fresh_key'"; then
+    ssh_vm 'systemctl show -p ConditionResult,ActiveState,Result,ExecMainExitTimestampMonotonic exo-os-pacman-init.service; ls -ld /etc/pacman.d/gnupg' >&2 || true
+    result keyring 0 'The first-boot keyring unit did not run and finish on this boot, left no populated keyring, or its private key was made before this boot (a keyring baked into the image).'
+    exit 1
+  fi
 }
 
 accept_verify() {

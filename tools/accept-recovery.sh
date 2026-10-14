@@ -2,7 +2,7 @@
 # Actual reboot acceptance, only in the harness-identified disposable vmtest VM.
 # This script never mounts/modifies the host image, home, store or bootloader.
 set -Eeuo pipefail
-here="$(cd "$(dirname "$0")/.." && pwd)"
+here="$(cd "$(dirname "$0")/.." && pwd -P)"
 out="$here/image/out"
 report="$out/accept-recovery.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }
@@ -195,4 +195,6 @@ ssh_vm 'mkdir -p /run/exo-recovery-top; mount -t btrfs -o subvolid=5,ro /dev/gpt
 original_current=$(ssh_vm 'cat /run/exo-recovery-top/@/etc/exo-recovery-proof')
 ssh_vm 'umount /run/exo-recovery-top'
 result original-preserved "$([[ $original_current == broken-system ]] && echo 1 || echo 0)" "original @ still contains $original_current"
+# BANKAI Stage 0 also proves a real return to the original normal boot.
+source "$here/tools/recovery-return-proof.sh"
 accept_finish

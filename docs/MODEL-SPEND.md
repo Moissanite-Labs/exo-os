@@ -31,8 +31,15 @@ starting a model turn or opening an approval card.
 On every later boot the service checks the existing policy, fixed principal and
 journal path, journal UUID, exact owners and modes, and the ledger/store mount
 identity. Missing, partial, symlinked, misowned or inconsistent state refuses
-startup. It does not recreate the journal or restore a default policy. Repair
-requires a deliberate administrator procedure with the daemon stopped and
+startup. A crash after atomic policy publication can leave one `.policy-` file
+with exactly 16 lowercase hexadecimal characters. Boot activation removes it
+only after validating the published policy and original journal, and only if
+it is a root-owned regular `0644` file with the policy's exact device/inode and
+both have link count two. Status may inspect this verified state without removing
+the link. Unrelated entries, other hard links, or a crash before publication
+still require explicit repair. This cleanup does not change policy bytes,
+ceilings or the journal UUID. It does not recreate the journal or restore a
+default policy. Repair requires a deliberate administrator procedure with the daemon stopped and
 preserved evidence. This repository does not expose cap editing, journal reset,
 or resume through an agent tool.
 
@@ -48,8 +55,10 @@ priced check uses a temporary root-owned policy under `/run` with the same
 journal identity and leaves the persistent policy byte-for-byte unchanged.
 Another offline turn verifies the known refusals did not freeze the journal.
 A separate synthetic uncertainty then checks stopped status across a daemon
-restart. The suite makes no paid call and gives no evidence of real provider
-billing accuracy.
+restart. The persistence check re-runs `exo-model-spend-admin ensure-boot` as
+root without restarting its boot-order service, then restarts only `exod` and
+checks the journal UUID and policy hash. The suite makes no paid call and gives
+no evidence of real provider billing accuracy.
 
 This boundary covers Exo's routed model calls in the installed trusted core.
 Installed providers and plugins, plus other processes under the `exo` UID, are
@@ -60,8 +69,21 @@ rollback, but this design cannot detect a coherent rollback of the entire
 persistent store and its journal. Independent billing evidence or a remote
 witness would be needed for that claim.
 
-Verification before enabling paid use: run `tools/accept-model-spend.sh` on an
-image built from the current pin and source, and `tools/accept-isolation.sh` for
+Verification before enabling paid use: run
+`EXO_OS_VM_ACCEPTANCE=1 tools/accept-model-spend.sh --vm-acceptance --image-source <full-built-OS-commit>`
+against a disposable `vmtest` image. The clean committed harness revision is
+recorded separately from the named image revision. For a tools-only harness
+correction, the existing image can be reused only if the installed and local
+build manifests, pinned core, runtime/image digest and throwaway VM identity
+still match; the corrected tools do not replace installed runtime files. Run
+`tools/accept-isolation.sh` for
 tool denial of both policy and journal. Recovery persistence is checked by
 `tools/accept-recovery.sh`. The VM acceptance script changes only its
 disposable overlay and leaves the test journal stopped by its synthetic fixture.
+
+The older `5a86e3b` image with core `cff62d1` passed twelve spending checks using
+the corrected tools-only harness `e26775f`. Its recovery checks preserved the
+post-checkpoint stopped journal through an actual older-root reboot. These are
+offline/mocked-HTTP results. Paid usage, billing accuracy and the new `c2d1ad9`
+image's spending acceptance remain unverified. The original failed attempt is
+retained. See [historical evidence](VALIDATION.md#historical-image-5a86e3b).

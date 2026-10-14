@@ -1,6 +1,6 @@
 # Exo OS roadmap: from a bootable VM image to daily use
 
-Date: 2026-10-13. Status: staged implementation. Read current rulings in `DECISIONS.md`;
+Date: 2026-10-13. Status: fresh-image acceptance incomplete. Read current rulings in `DECISIONS.md`.
 `DESIGN.md` and `DECISIONS-PROPOSED.md` preserve the original design and options.
 
 Rules for every phase:
@@ -25,19 +25,38 @@ is explicit. Acceptance scripts verify the identity of their disposable VM and f
 The pinned core now requires the OS executor. Workspace tools run without host sockets, credentials
 or network; unsupported execution routes are refused. Administrator recovery checkpoints preserve
 a system snapshot with its matching kernel image, while home, store and helper identity/audit persist.
-Host and Linux-container validation are recorded in `docs/VALIDATION.md`. A fresh x86 image is being
-validated; earlier results below apply only to the earlier image. A separate credential service now
-supports exact, one-shot HTTPS actions with full approval previews and durable duplicate suppression.
+Host and Linux-container validation are recorded in `docs/VALIDATION.md`. Image
+results below apply to historical `c2d1ad9`, not the new source composition. A
+separate credential service now supports exact, one-shot HTTPS actions with full approval previews and durable duplicate suppression.
 It withholds upstream payloads and ships with no allowed destinations; general read APIs still need
 reviewed response adapters. The shared-core ledger authority now runs under a separate OS identity,
 with a persistent journal, root-pinned public identity and explicit fresh-image provisioning before login.
 Both normal verification commands detect modified or missing copies without repairing them first.
-Independent witness state and transport are staged in a separate core draft, outside this pin;
-independent deployment and OS delivery remain open.
+The current source composition pins merged core main
+`859fbcc98e3fe9cc3af31cdc9d6b130db718e972`, including witness transport. The
+witness publisher remains disabled until explicit administrator enrollment.
+This source requires its own image and native acceptance evidence. The schema3
+input-probe proposal remains pending peer review.
+
+The historical `c2d1ad9` source and image used core
+`cff62d1e1afbc861e410659f1f26f01afd1ed249` and included the disabled publisher.
+Its Linux ARM host suite passed 1,044 tests with 80 skipped.
+The image built and its read-only audit checked 1,662 protected paths.
+A separate strict postflight passed cleanup. Native acceptance remains held:
+phase 3 first failed boot, then passed six checks and failed two. No complete
+native suite has passed. The other six suites and witness cases are not run.
+The recorded input mismatch and held-F6 repeat failure remain failed evidence.
+Later source fixes and the schema3 proposal require separate review and a new
+candidate image. They do not turn the historical runs into acceptance. Historical
+passes remain limited to their named images. See
+[current image evidence](docs/VALIDATION.md#current-image-evidence).
+Four witness kernel cases, one installed-flow case and receipt persistence remain pending, as do native
+AT-SPI, Orca, loaded browser pages and Urdu pixels. No independent endpoint is deployed.
 P4 now has a zero-paid model-spend implementation and disposable-VM acceptance script. The root
 policy starts with no paid routes; actual paid caps and billing accuracy have not been exercised.
-P4 still needs current-image adversarial VM acceptance and its spend-cap criterion. Recovery also
-needs its actual reboot acceptance. P5–P8 remain unstarted.
+P4 still needs fresh-image adversarial VM acceptance and its paid spend-cap criterion.
+The older image passed an actual recovery reboot. The new image must repeat it.
+P5–P8 remain unstarted.
 `docs/CORE-CONTRACT.md` assigns the shared-core and OS work without introducing a core fork.
 
 ## Earlier VM evidence (2026-10-12, branch `phase-1`)
@@ -69,12 +88,14 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
 ## Phase 1. A bootable VM image
 
 - **Work:** a script that builds a disk image from nothing: Arch base, btrfs with snapper and snap-pac,
-  Limine boot entries for snapshots (Omarchy's pieces used as a reference, not forked; note 01 §9), Hyprland,
+  systemd-boot with a unified kernel image (recovery boot entries are a manual administrator operation, OS-14;
+  Omarchy's pieces are a reference, not forked; note 01 §9), Hyprland,
   Chromium, and Exo installed at a pinned release with `exod` as a systemd user service. The first client is
   Exo's terminal client in a drop-down window (note 02 §10, phase 0 there).
 - **Acceptance:**
   1. A clean build from the script boots in QEMU and reaches a desktop with no manual steps.
-  2. `exod` starts at login, survives being killed (systemd restarts it), and a chat works against one API key.
+  2. `exod` starts at login, survives being killed (systemd restarts it), and a chat completes on Exo's offline model. A chat
+     against a real model needs a test key from A and is still pending (see the table above).
   3. A store created in the VM opens in plain Exo on another machine, and `exo log verify` passes on both.
   4. Memory with Chromium and three web apps open is written down (PSS per process), as the first real
      number to replace the guesses in note 04.
@@ -86,18 +107,21 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
 
 ## Phase 2. Every system change gated, logged, reversible
 
-- **Work:** exo-sysd, the root helper with named actions only (snapshot, apply, check, rollback); the
-  system categories in the gate (DESIGN.md §5.2); the machine profile in the store, rendered to config files
-  and tracked in git; health checks; automatic revert on a failed check.
+- **Work:** exo-sysd, the root helper with named actions only (`status`, `snapshot.create`, `snapshot.list`,
+  `package.install`, `snapshot.undo`; OS-4); the gate placing exo-os tools by its own rules, with the
+  `sys_*` categories of DESIGN.md §5.2 left as a proposal to Exo (OS-7); the machine profile in the store,
+  rendered to config files and tracked in git, changed as the person with git as the undo (OS-5, OS-6);
+  health checks; automatic revert on a failed check.
 - **Acceptance:**
   1. A scripted set of at least 20 changes (text size, keyboard languages, idle times, app keys, a package
-     install, a deliberately broken Hyprland file) runs. Each one leaves a pre snapshot, a signed ledger entry
-     and a diff.
-  2. The broken change reverts by itself, and the person sees one plain line saying so.
+     install) runs. Each profile change leaves a commit with a diff in
+     the machine repo, the package install leaves a pre and a post snapshot, and each leaves signed ledger
+     rows.
+  2. A deliberately broken change (an unknown keyboard layout) reverts by itself, and the person sees one plain line saying so.
   3. Every change can be undone with one command, and the undo is itself logged.
   4. The agent cannot run any root command outside the named list (tested by trying).
-  5. `sys_boot` actions are refused, `sys_reboot` always asks.
-- **Needs from A:** decision D4 (privilege model). Agreement on the list of files exo-sysd may change.
+  5. The plugin offers no bootloader or reboot tool, and exo-sysd refuses any action off its list (OS-4).
+- **Needs from A:** decision D4 (privilege model). Agreement on the list of files the machine repo renders.
 
 ## Phase 3. The one surface as the desktop
 
@@ -106,7 +130,8 @@ Each line says what the acceptance script showed in the QEMU VM, not more.
   Needs Exo's `ui.panel` event and `ui` tool (planned in Exo wave 3, D-014).
 - **Acceptance:**
   1. Everything on Shahid's key card can be reached from the prompt bar by typing a few letters or a question.
-  2. An approval card appears, is answered with Y or N or a click, and the answer reaches the gate.
+  2. A pending request preserves typing; **Review request (F6)** enters keyboard review before Y/N,
+     or a click answers the exact displayed request, and the answer reaches the gate.
   3. Orca reads the approval card and the transcript (note 02 §5 open risk).
   4. Memory of the surface, idle and with one panel open, is within the budget A sets.
   5. With `exod` stopped, the person still has a working desktop and app keys.

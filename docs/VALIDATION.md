@@ -1,6 +1,45 @@
 # Runtime and isolation validation
 
-Source audit on 2026-10-13. The current Exo dependency in `exo.pin` is merged
+Checks recorded on 2026-10-13. The `c2d1ad9` image is built and audited.
+Acceptance is held: no complete native suite has passed on this image.
+Historical results below do not transfer to it.
+
+The next source composition selects merged core `859fbcc98e3fe9cc3af31cdc9d6b130db718e972`.
+No image has been built or accepted from that composition. Recovery retains its
+original ten checks and adds an eleventh return-to-normal reboot proof; this new
+flow is unrun in a VM. Its controlled shell tests are source evidence only.
+
+## Next composition source checks
+
+On 2026-10-14, source `5a40446f628c69ce46fab50cbfdb638549c37e8d`
+with core `859fbcc98e3fe9cc3af31cdc9d6b130db718e972` passed the complete
+Linux ARM host suite: 1,227 passed, 80 skipped, in 57.60 seconds. A separate
+run with the required package tools and shellcheck passed all 60 build-tool
+checks. Real GTK4.14.5 Review-button traversal passed its one targeted check.
+The earlier `2061415` host run remains failed: its two test doubles lacked
+the mapped-state API. The fixture repair changed no runtime behavior or
+consent assertions.
+
+The complete private Broadway probe at `5a40446` failed its five-second
+pending-prompt check. Completion Tab navigation had left a suggestions row
+focused; the next typing scenario had no entry-focus setup. A tools-only
+correction establishes entry focus before each scenario's request or input
+driver starts. The existing pending-request preservation assertion remains.
+One controlled run of that correction passed the complete probe and strict
+schema3 validator. Only the probe changed; core and runtime were unchanged.
+Broadway keyboard records and callback guards remain explicitly synthetic.
+The failed run remains failed. No native Wayland or image acceptance follows.
+
+Evidence directories are `image/out/host-composition-5a40446/`,
+`image/out/gtk-composition-5a40446/` and
+`image/out/gtk-typing-boundary-d1c1d54/`. The corrected probe archive has SHA256
+`ab978deefa8567c49db5c194486b42e74cb5e99614c04e0644152cff85d66d96`.
+The committed typing correction and documentation updates require their own
+exact-head host gate. A fresh build and native checks remain pending.
+
+## Land batch-2 source evidence
+
+Source audit on 2026-10-13. The separate land/batch-2 dependency was merged
 core main `3ea58f46e3d3b38cb7f2fdfe24e1ca8416dd8ff3`. It includes core PRs 91
 and 87. Witness transport PR 88 is outside this pin.
 
@@ -20,19 +59,249 @@ boundaries, not passing kernel or GTK checks. Evidence is retained under
 
 Native image acceptance remains pending. No earlier image is evidence for this batch.
 
-## Historical source and container checks
 
-The counts below apply to the revisions named in each row. The older `cb36a4a`
-pin included the model-spend boundary, required executor/gate binding follow-up
-and CoreRuntime/application composition split. OS `67fe0c7` pinned the protected
-spending policy, `8b02677` added the VM-only boot timing fix, and `a3cdf74` added
-the portable Linux spend-test fixture. Earlier integrated OS `ee327a8` has the
-same source tree as published `8d79fdd`. These checks do not establish a booted
-image or successful recovery reboot for the current pin.
+## Current image evidence
+
+| Identity | SHA256 or commit |
+|---|---|
+| Built OS and acceptance harness | `c2d1ad90d60fbb4f24d1cdd0909bb7a0f864116f` |
+| Pinned core | `cff62d1e1afbc861e410659f1f26f01afd1ed249` |
+| Raw image SHA256 | `7c4d26679fa81c4897533f19a175668b2dc54f2d13451fd9b605661126e7807c` |
+| Runtime/image source digest | `c6254581a3e51844b04ef70254d4900f993b0d6de1dd1b061a681ff40d792553` |
+
+The Linux ARM full host suite passed 1,044 tests with 80 skipped in 47.18 seconds.
+The image build exited `0` after 279 seconds. The read-only audit reports correct
+content and modes on 1,662 protected paths. Its script used global `set +e`, so
+that audit alone is not strict cleanup evidence. A separate strict postflight
+reported `PASS` for cleanup. These records establish build and audit evidence,
+not successful native acceptance or release readiness.
+
+Evidence is retained under `image/out/build-c2d1ad9/`. The host suite, image
+identity and native acceptance have separate result records.
+
+| Native check | Status |
+|---|---|
+| Phase 3, attempt 1 | Failed: SSH not ready within 900 seconds. Guest entered emergency service. Cause unproved |
+| Phase 3, attempt 2 | Failed: 6 checks passed, 2 failed |
+| Ledger, model spending, recovery, phases 1–2 and isolation | Not run |
+| Four witness kernel cases and one installed-flow case | Not run |
+| Native accessibility, receipt reboot persistence, loaded apps and Urdu pixels | Unverified |
+
+Attempt 2 passed provenance, fake-only routes, palette launch, a question answer,
+explicit approval and launch with exod stopped. The drawer check received
+`who are my caalls today` rather than the exact fixture input
+`who are my calls today`. This is an upstream input mismatch. It does not prove
+a drawer transport fault. The strict version-2 probe observed the first F6 review
+of request A but no repeated event during the hold. That failed its native repeat
+assertion. The evidence does not establish the product cause. Successful retry
+boot does not establish boot stability.
+
+A separately labelled diagnostic boot differs from acceptance and cannot close
+its boot failure. Input diagnostic sessions 1 and 2 had invalid setup or logging
+and produced no usable key trace. Their results cannot count as a pass.
+The old wrapper's `surface restored 0` is not proof that the service failed:
+its compound helper queried the root user manager. PR 55 at `d14bb499` repairs
+complete command-body scope. Native restoration with that repair remains pending.
+
+Later review-fix heads for PRs 28, 31, 51, 55 and 90 are outside frozen `c2d1ad9`.
+They require a fresh combined candidate, host validation, rebuild and native
+acceptance. No newer source or diagnostic result changes this image's status.
+
+## Historical image `7170b3d`
+
+This older image built and passed its audit. Its phase-3 attempt passed seven
+checks and failed one. Those records and diagnostics apply only to this artifact.
+
+| Identity | SHA256 or commit |
+|---|---|
+| Built OS | `7170b3d96ec20a335d16a4f683904b9de47f3937` |
+| Pinned core | `cff62d1e1afbc861e410659f1f26f01afd1ed249` |
+| Raw image SHA256 | `8fd413b1a105e500512ba3a8089f9df28043d6bf9fd5db58dc2f7fad140e156f` |
+| Runtime/image source digest | `d5eeb7d65f3c3a77f4339ccf61bad1e0fea9883d9ad57ea55dfe4aba9dce30d9` |
+| Committed acceptance harness | `b5e92912e221fa167312839c073d42efa7da48be` |
+
+Build exit status is `0`. The read-only audit reports `PASS`, including modes on
+1,657 protected paths, the embedded core pin and build manifest. Its service-only
+Cairo override is confined to `vmtest`. Production rendering is unchanged.
+Evidence is retained under `image/out/build-7170b3d/build-provenance/` and
+`image/out/build-7170b3d/audit-7170b3d-cff62d1/`. These establish the built artifact,
+not successful completion of desktop, isolation, spending, recovery or witness acceptance.
+
+| Historical image check | Status |
+|---|---|
+| Phase 3, harness `b5e9291` | Failed: 7 passed, 1 failed, harness exit `1` |
+| Ledger, zero-paid spending, recovery, phases 1–2 and isolation | Pending |
+| Native AT-SPI accessibility and four witness kernel cases and one installed-flow case | Pending |
+| Witness receipts through normal and older-root reboot | Pending |
+| Loaded browser pages, memory and Urdu pixels | Pending |
+
+### Historical phase-3 attempt
+
+The report dated `2026-10-13T14:11:56Z` names the `7170b3d` image and separate
+`b5e9291` harness. Its successful checks cover provenance, fake-only model routes,
+palette app launch, a question answer, explicit F6 review followed by Y for the
+exact pending request, a drawer panel and app launch with exod stopped. The
+installed approval flow resolved allow and installed `htop`.
+
+The GTK probe failed at line 147 after five seconds waiting for a visible
+unsolicited drawer with the bar active and entry focus retained. The attempt did
+not capture actual failing visibility/focus state, so its cause remains unknown.
+The probe stopped before the native held-F6 test. The installed F6/Y result does
+not establish all approval adversarial checks or that unreached repeat coverage.
+
+Retained screenshots show readable palette text, the pending approval card,
+review details/buttons and the answer. Normal and offline launch each recorded
+valid exact `foot` window counts from 0 to 1. A timed-out intermediate IPC
+observation remains invalid evidence. These observations do not measure actual
+app startup latency. Surface PSS was 60 MiB, labelled MB by the script. No
+memory-budget conclusion follows.
+
+The failed report and logs remain in
+`image/out/build-7170b3d/acceptance-7170b3d-cff62d1/06-phase3-attempt1-b5e9291/`.
+Report `accept-phase3.txt` SHA256:
+`332bb956ecd10b6770f24059f27b1592ea04e95f04583177ba1ceb9545a0eec7`.
+Any further state diagnostic is separate evidence and does not replace this run.
+
+### Later focus diagnostics on the same raw image
+
+These tools-only diagnostics used the unchanged `7170b3d` raw image and core
+`cff62d1`. They neither installed a runtime repair nor passed phase-3 acceptance.
+The original seven-pass, one-fail report remains the acceptance result.
+
+Attempt 08 observed a local GTK focus target while `Gtk.Window.is_active()` was
+false. Attempt 10 delivered the full `exo focus marker` through actual keyboard
+input with that GTK flag false. The flag is informational. It cannot establish
+keyboard delivery on its own. Those observations did not test typing across a
+panel update.
+
+Attempt 14 used the shared version-2 observer against the old installed runtime.
+It failed actual typing during an unsolicited panel update. Attempt 16 added
+input-state observation to that stage. All 16 physical keys arrived. The panel
+callback changed the selection from empty to `[0, 4]` over the `exo ` prefix.
+The next key, `f`, replaced that selection. The final entry and model text were
+`focus marker`, rather than `exo focus marker`. This identifies text selection
+loss in that diagnostic. It does not retrospectively identify the original
+attempt's unrecorded state.
+
+The trace is retained at
+`16-panel-update-diagnostic-attempt1-7d7f559/evidence/out/panel-update-input-trace.json`
+under the historical acceptance directory. No runtime or acceptance-probe repair
+was installed for that diagnostic. Full surface restoration was not confirmed
+within 30 seconds. QEMU was then stopped. The raw backing image was unchanged.
+Neither this shutdown nor the diagnostic establishes successful restoration.
+
+### Historical source checks before the current build
+
+The earlier macOS focus candidate at runtime `a048a58`, with later documentation
+head `e41f22c`, recorded 754 passing tests, 21 skipped and five timing failures
+in 455.55 seconds. This is separate from the current Linux host result and does
+not establish native acceptance.
+
+The core pin remains `cff62d1`. OS work tracked in issues 16 and 18 awaits the
+stable shared-core authority/cursor contract tracked in core issue 109.
+Credential issue 71 and sandbox issue 22 require decisions. This record assumes
+no ruling on either issue.
+
+The publisher is disabled by default and requires explicit administrator action.
+No endpoint under independent administration is deployed. Real paid-model chat
+and a deliberate paid cap test need a test key, prices and limits. Orca speech,
+voice/phone clients, accessible keycaps, onboarding, spare-hardware trial,
+phone authentication, weeks of soak and a working-machine trial remain
+unverified. Build or host results do not close those criteria.
+
+## Historical image `5a86e3b`
+
+These reports were produced on 2026-10-13 in x86-64 QEMU/TCG `vmtest` guests.
+They apply only to the identified older artifact. Counts include each suite's
+provenance check. The five successful suites total 47 passing checks.
+
+| Identity | SHA256 or commit |
+|---|---|
+| Built OS | `5a86e3ba39d359e4e747d30cd0f9c50050775c22` |
+| Pinned core | `cff62d1e1afbc861e410659f1f26f01afd1ed249` |
+| Raw image SHA256 | `8564b1e5c2cba0a79e3adba996304139247a9060f76941f6d6e5e028dac83ee1` |
+| Runtime/image source digest | `18929bcb026b4a209755984998c0cf35b32e8c8d8183e12f9163d0c3892795c8` |
+
+| Suite | Report result | Evidence and limit |
+|---|---|---|
+| Protected ledger | 12 passed, 0 failed | Installed signer, projection verification, tamper and outage checks. No off-machine witness |
+| Model spend | 12 passed, 0 failed | Tools-only harness `e26775fefdaecf93936759e31dd52cc930edcdf8`. Offline fake turns, mocked HTTP refusals, persistent UUID/stop and readable transcripts. No paid request |
+| Recovery | 10 passed, 0 failed | Actual older-root reboot. Current home/store, signer, helper, stopped spending journal and synthetic egress reservation retained. Original root preserved |
+| Phase 1 | 6 passed, 0 failed | Wayland desktop, daemon restart, offline chat, portable signed prefix through sequence 7 and live profile change. Three Chromium windows were visually blank |
+| Phase 2 | 7 passed, 0 failed | 20 applied changes, 19 commits with diffs, 39 added ledger rows. Automatic revert, profile/package undo, root refusals and no boot tools. Signed prefix through sequence 49 |
+| Phase 3 | 3 passed, 5 failed. Harness failed | App launch, approval, drawer, offline launch and GTK checks failed |
+| Isolation | 12 passed, 1 failed. Harness failed | Spending-state oracle assumed Bash `is_error` proved access. Raw outcome missing, so neither spending-state denial nor disclosure is confirmed |
+
+Reports remain under `image/out/build-5a86e3b/acceptance-5a86e3b-cff62d1/`.
+Only the result summary and artifact identifiers are recorded here. Raw logs,
+VM overlays, firmware and private state are not published.
+
+| Relative report | SHA256 |
+|---|---|
+| `01-ledger-attempt1/accept-ledger.txt` | `a7747ad2f7ef4f9311330ba4af4c8bafad106f28a2f79fe4daee0f2070560d12` |
+| `02-model-spend-attempt2-e267/accept-model-spend.txt` | `b0c9440a701e7545430787eded33da9dd66f85a3e786e8ae12776ad07a0cc707` |
+| `03-recovery-attempt2/accept-recovery.txt` | `be4cb74a5b2daf05312811440675aafe5e038bcd482bb2ee63e001901e5cca18` |
+| `04-phase1-attempt1/accept-phase1.txt` | `cc91704340d2c0b1c962b2c70aa6a8bff3186ba4e027e18b4b79d59ac21ea0f4` |
+| `05-phase2-attempt1/accept-phase2.txt` | `38366fa24db9c87a8e18bbf44baaae151c5a5868becc8c4f4fe303ac44a56e8a` |
+| `06-phase3-attempt1/accept-phase3.txt` | `5e20cb0d60fe0e2b3366c2d1ab06e4ded10705681abb0375d797e028b80a3010` |
+| `07-isolation-attempt1/accept-isolation.txt` | `37edadab0d83a78f3baef467421d15204f027f502d9648e15128f62fbe2bc677` |
+
+The first spending attempt exited `1`: its probe omitted the required protected
+policy environment, and a boot-order service restart disrupted the desktop.
+Report SHA256: `b761d1bf78fbbbc11f4655c1e1774fe2ef2001ffba1a9749f7937b78b1116ae4`.
+Its corrected tools-only retry retained the installed image identity and digest.
+
+The first recovery attempt exited `255` after host OOM killed QEMU at a forced
+3072 MiB guest allocation. Report SHA256:
+`23f74c1cd361ce02265d9692e369231e70db81f39d591f79f9149c47e2d5908c`.
+The successful retry used recovery's declared 2048 MiB default. Both failed
+attempts remain retained and are excluded from the successful-suite count.
+
+The old phase-3 diagnosis recorded missing surface glyphs and a delayed allow.
+Source review found that ordinary Y/N typing could enter approval. The retained
+VM logs do not establish the exact keystroke that caused the delayed allow.
+
+The phase-1 Chromium figures are launch-only measurements in
+[MEASUREMENTS.md](MEASUREMENTS.md). The phase-3 approval fix is included in the
+new image. The corrected isolation oracle is in the committed harness. Neither
+fix changes the status of its historical failed run.
+
+### Renderer diagnostic on the older image
+
+Attempt 4 compared baseline, a temporary service-only Cairo override and restored
+baseline on the same `5a86e3b` image. At 20 seconds the baseline and restored
+prompt screenshots were visually blank and byte-identical, SHA256
+`f9e4422c74f48d63866cb3e42263baba355a1b4877d1d036e6d6950f2314a9f4`.
+Cairo showed readable placeholder and palette text, including `Termi`,
+`Open Terminal` and `Ask Exo: Termi`.
+
+All three arms observed exact `foot` counts from 0 to 1 through recorded IPC
+queries. This diagnostic does not measure actual launch latency. It justified
+the `vmtest` service override, not a production-renderer or hardware claim.
+Fresh-image prompt, approval details/buttons, drawer, browser and Urdu visual
+review remain required.
+
+| Artifact in `08-rendering-diagnostic-attempt4/` | SHA256 |
+|---|---|
+| `diagnose-rendering.txt` | `eac18c33311cf85e1613e1156cc185c476069ec494deac58012759e69fa352f2` |
+| `files-portable.sha256` | `38d97c0a36de11b16f56d49f437e805126b75b8969e84529794250870d638db9` |
+
+## Host checks and older image evidence
+
+Host tests establish behavior in their stated source/environment. They do not
+establish deployment-kernel enforcement, a booted new image or an independent
+endpoint. The earlier `eb50e7c`/core `cb36a4a` image passed twelve ledger checks,
+then stopped after two spending checks on missing required-plugin packaging.
+That archived attempt is not a seven-suite pass.
 
 | Check | Result | Boundary of evidence |
 |---|---|---|
-| Historical combined Linux arm64 suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 484 passed, 10 skipped | OS `25313dfc2ef1e6c09f46c1c0a1569c70ca23d2c2`, core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5`. Includes private Broadway GTK and actual model-spend child UID/GID checks. Hyprland and nine namespace checks were skipped under the unchanged container policy. Actual Wayland and deployment-kernel acceptance remain pending |
+| Reviewed tools-only readiness draft, macOS arm64, Python 3.13, `python -m pytest -q` | 707 passed, 21 skipped | Draft based on `7170b3d`, core `cff62d1`. Now committed as harness `b5e9291`. Recorded checks cover Python static analysis/compile, shell syntax and whitespace. Runtime/image digest unchanged. Fresh native VM checks remain pending |
+| Earlier witness and required-plugin packaging candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 579 passed, 20 skipped | OS `2a14e31aaaeb3289a75315b85bd820ffd5fc3d99` with the then-pending pin update, clean isolated core `cff62d1e1afbc861e410659f1f26f01afd1ed249`. Includes the installed-layout `application.create()` case and witness regressions. Root ownership is simulated. Linux witness enforcement, new-image boot/acceptance and an independent endpoint remain unverified |
+| Earlier witness and required-plugin packaging candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 579 passed, 20 skipped | OS `085db2e80624bb2a490069894cf35a646de7495c`, core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; includes production plugin-folder staging and a real `application.create()` with the required executor and plugins. Root ownership is simulated; Linux witness enforcement, new-image boot/acceptance and an independent endpoint remain unverified |
+| Earlier witness candidate host suite, macOS arm64, Python 3.13, `.venv/bin/python -m pytest -q` | 576 passed, 20 skipped | OS `b03b79e4802d4f0d77a5b00c39af1b45b164220d` with a then-pending pin update to clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; includes witness alias-separation and malformed-response regressions. Root ownership is simulated; Linux enforcement, image delivery/boot and an independent endpoint remain unverified |
+| Earlier staged witness candidate host suite, macOS arm64, `.venv/bin/pytest -q` | 525 passed, 20 skipped | Staged source tree `a9401a6c7061ca44336fa451d5e911d94e580c15`, based on OS `e9cec25`, core `b060974a514cf08c0765119e2e8d952682102a0c`; includes 53 witness host cases and a real loopback mTLS protocol check. Root-ownership behavior is simulated. Three explicit Linux tests were not run; this does not establish Linux ownership/enforcement, image delivery or boot, or an independent endpoint |
+| Previous combined Linux arm64 suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 484 passed, 10 skipped | OS `25313dfc2ef1e6c09f46c1c0a1569c70ca23d2c2`, core `cb36a4a6d19a5192d8fe92b600efcef8f69062d5`; includes private Broadway GTK and actual model-spend child UID/GID checks. Hyprland and nine namespace checks were skipped under the unchanged container policy; actual Wayland and deployment-kernel acceptance remain pending |
 | macOS arm64, Python 3.14, `.venv/bin/pytest -q` | 465 passed, 17 skipped | OS working tree `3f40ffe` plus updated `exo.pin`, core `cb36a4a`; all host tests pass against the exact published core dependency, including the CoreRuntime compatibility aliases; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
 | macOS arm64, Python 3.14, `.venv/bin/pytest -q` | 464 passed, 16 skipped | OS `67fe0c7`, core `11008a8`; GTK, Hyprland and actual Linux kernel checks are unavailable on this host |
 | Accessibility stack Linux arm64 main suite, Ubuntu 24.04, Python 3.12, `tools/test-linux.sh` | 482 passed, 10 skipped | OS `2b55be925279443163df6f30c022fef0ae00de3b`, core `11008a8bdf6a3c8dee2900434ca0a57054300bc8`; includes a passing private Broadway GTK smoke for focus transitions, bounded reading view, approval details and simulated held-key events. This historical run does not establish AT-SPI, Orca or Wayland behavior, and was not against the new core pin |
@@ -42,12 +311,14 @@ image or successful recovery reboot for the current pin.
 | Historical Linux namespace run, Ubuntu kernel 6.8, unprivileged UID 65534, `tests/test_sandbox_linux.py` | 9 passed | Earlier OS `5773dc4` and core `a915e62`; actual bubblewrap, Landlock and seccomp in a disposable privileged container with no host mounts |
 | Shared core authority, witness and read-only verification | 82 passed | Core `b3149a9`; durable commits, replay, independent receipt validation, canonical CLI corruption checks and concurrent verification |
 | Full core suite and plugins, macOS arm64, Python 3.13 | 1,434 core tests and 749 plugin tests passed | Core `b3149a9`; 65 core skips and one explicitly deselected external legacy-relay integration; all six plugins also passed separately |
-| Historical core suite and plugins, macOS arm64, Python 3.13 | 1,611 core tests and 753 plugin tests passed | Core `cb36a4a`. 65 core skips, no deselection. The core budget test measures 15,989 lines against a 16,000 ceiling. These are source tests, not independent security review or image acceptance |
+| Earlier pinned-core suite and six plugin suites, macOS arm64, Python 3.13 | 1,738 core tests passed, 65 skipped. 753 plugin tests passed | Clean isolated core `cff62d1e1afbc861e410659f1f26f01afd1ed249`, with core and TUI imports verified from that checkout. No deselection. Each plugin ran in its own pytest process. The core budget measures 15,992 lines against the unchanged 16,000 ceiling. These are source tests, not independent review or Linux/image acceptance |
+| Earlier core suite and six plugin suites, macOS arm64, Python 3.13 | 1,691 core tests passed, 65 skipped; 753 plugin tests passed | Clean isolated core `2a2b663919af4dfaa1faa79f28c570fa5bf0808d`; no deselection. Each plugin was run in its own pytest process because their local `conftest` imports collide when collected together. The core budget measured 15,989 lines against the unchanged 16,000 ceiling; these are historical source tests, not Linux/image acceptance |
+| Earlier core suite and plugins, macOS arm64, Python 3.13 | 1,611 core tests and 753 plugin tests passed | Core `cb36a4a`; 65 core skips, no deselection; the core budget test measures 15,989 lines against a 16,000 ceiling; these are source tests, not independent security review or image acceptance |
 | Earlier core suite and plugins, macOS arm64, Python 3.13 | 1,581 core tests and 752 plugin tests passed | Core `11008a8`; 65 core skips, no deselection; all six plugins passed separately and together; the earlier budget test measured 15,982 lines |
 | systemd unit dependency graph | passed | Provision/socket/service/firstboot graph checked in Linux with unavailable image executable paths replaced only in temporary validation copies; actual first boot remains necessary |
-| Ruff `--select F`, `src tests` | passed | Python static checks |
-| `bash -n tools/*.sh` | passed | Shell syntax, not a VM acceptance run |
-| `git diff --check` | passed | Whitespace/conflict-marker check |
+| Earlier Ruff `--select F`, `src tests` | passed | OS `2a14e31`, Python static checks |
+| Earlier `bash -n tools/*.sh` | passed | OS `2a14e31`, shell syntax, not a VM acceptance run |
+| Earlier `git diff --check` | passed | OS `2a14e31` plus the then-pending pin and documentation update. Whitespace/conflict-marker check |
 
 The historical full core run used an isolated checkout and a closed local bus address. The
 earlier `b3149a9` legacy-relay test was deselected because it autodetects an unrelated local
@@ -145,36 +416,133 @@ EXO_OS_MKOSI=/path/to/mkosi tools/build-image.sh \
   --tools-tree-distribution=debian --tools-tree-release=sid
 ```
 
-`tools/build-image.sh` defaults to the production profile when no profile is
-given. For acceptance, select `vmtest` explicitly with `--profile=vmtest` or
-`--profile vmtest`. The installed build manifest records that choice; every
-acceptance suite rejects missing or non-`vmtest` profile evidence before QEMU
-starts. The wrapper rejects duplicate, abbreviated, or unsupported profile
-selections. It also rejects `-C`/`--directory` and `-I`/`--include` overrides,
-which could select configuration outside the tracked image tree or add profiles;
-the documented tools-tree options still pass through.
+`tools/build-image.sh` defaults to production. Acceptance requires an explicit
+`--profile=vmtest` or `--profile vmtest`. The only other wrapper options are
+`--tools-tree`, `--tools-tree-distribution`, `--tools-tree-release`, and
+`--tools-tree-profile`. Each accepts `--option=value` or `--option value`.
+`--tools-tree` accepts only `yes`, which asks mkosi to generate its tools tree.
+Custom paths are refused because their contents have no manifest or receipt digest.
+Unknown options, abbreviations, grouped short flags, duplicate profiles and
+configuration/include overrides are rejected.
+
+The wrapper refuses `image/mkosi.local.conf` and `image/mkosi.local`, including
+dangling symlinks. Those automatic mkosi overrides could change the profile or
+include files outside the checked source tree.
+
+### Successful image publication
+
+Each admitted attempt acquires `image/out/.build-lock`, invalidates the current
+success receipt, and stages raw output and the extra tree under a fresh
+`image/out/.build-attempt.*` directory. A failed build keeps that attempt and the
+previous raw image and extra tree. After mkosi exits zero, publication moves the
+previous pair into `image/out/build-history/` and publishes the new pair.
+The wrapper snapshots the OS runtime, builder and core packaging inputs before
+packaging, then re-hashes them after mkosi exits. Changed inputs refuse publication,
+retain the attempt and previous pair, and leave no eligible success receipt.
+The schema 1 `exo-os-build-success.json` receipt is published last.
+Its file is flushed before the atomic rename, then the output directory is
+flushed. A flush failure removes acceptance eligibility. These flushes do not
+establish that the whole build survives a host power loss.
+
+The receipt records SHA-256 hashes of the raw image and staging manifest, plus
+the manifest's OS commit, source digest, profile and core pin. Acceptance holds
+the same lock and checks this pair against the receipt and current source inputs
+before QEMU starts. Missing, changed or partly published artifacts fail this
+check. The VM UUID and installed-manifest checks still run after boot.
+
+Failed attempts and history need manual retention management. After an interrupted
+process leaves a lock directory, check that no build or acceptance process is
+running before removing that empty lock. A lock alone never establishes a
+successful build.
+
+### Schema 2 source inputs and archive limits
+
+`EXO_OS_BUILD.json` remains schema 2. Its `source_sha256` hashes `pyproject.toml`,
+`src/`, the checked image tree, and these builder files:
+
+- `tools/build-image.sh`, `tools/build-provenance.py`, `tools/build-profile.py`
+- `tools/env.sh`, `tools/source_identity.py`, `tools/build-receipt.py`
+
+Generated `image/out/`, `image/mkosi.tools/`, `image/mkosi.tools.manifest`,
+`image/mkosi.cache/`, `image/mkosi.builddir/`, and runtime Python caches are excluded.
+Bytecode and `__pycache__` in checked image inputs or copied core plugins are refused,
+including files ignored by Git. The provenance helper executes the identity helper's
+source directly, so an ignored import cache cannot replace it. Other acceptance and
+diagnostic tools are outside this digest,
+so their committed revision can be recorded separately from the image revision.
+Changing builder bytes requires a fresh image build. Earlier images, including
+`7170b3d`, cannot acquire this new digest or receipt retroactively.
+
+OS source identity uses Git only when its physical repository root equals the
+source root. It then falls back to `.EXO_OS_SOURCE_ID`, followed by
+`EXO_OS_SOURCE_COMMIT`. Every supplied identity must be a lowercase 40-hex value,
+and supplied identities must agree. An archive nested inside another Git
+checkout keeps its own identity. Symlink paths resolve to the same physical root.
+Git builds require a clean committed checkout before an attempt can invalidate
+the success receipt. Acceptance also requires a clean committed harness checkout.
+Archive marker files must be regular files of at most 64 bytes, with 40 lowercase
+hex characters and an optional newline. Symlinks, dangling links and other file
+types are rejected.
+
+Git-free OS identity markers and core `.EXO_PIN` files are trusted operator
+assertions. Matching `.EXO_PIN` to `exo.pin` does not prove that an Exo archive's
+contents came from that commit. Supply the core archive through a trusted process
+or use the Git fetch/checkout path. That path requires `.deps/exo` to be its own
+clean checkout and confirms that its HEAD equals the pin before wheel building.
+Modified tracked files and untracked files cause refusal. Git worktrees with a
+`.git` file are supported. Dependency paths outside this source tree are refused.
+The receipt binds the resulting raw image and
+manifest bytes. It does not authenticate archive assertions, resolved wheels or
+the host toolchain. Dependency resolution still includes `textual>=1`.
+
+The shared `as_exo` helper passes the complete command body as one quoted
+argument to `/usr/bin/bash -c` inside the VM's `as-exo` wrapper. Compound
+commands, pipelines and heredocs stay under the desktop user's identity.
+The wrapper's session environment and the VM identity gates are unchanged.
+
+Earlier VM diagnostics showed the old helper ran only the first compound stage
+as `exo`. Later stages ran in the outer root shell, so a user-service restoration
+check could query root's user manager. That result does not establish whether
+the Exo surface was restored.
+
+Host regressions execute remote shell parsing with a controlled wrapper stub.
+They check every stage's scope, the unchanged host UID, literal command data,
+standard input and exit status. They do not change UID or prove native service
+restoration or GTK behavior. A fresh VM run is still required.
 
 ## Still required
 
-Build a new x86-64 `vmtest` image and run `tools/accept-phase1.sh`,
-`tools/accept-phase2.sh`, `tools/accept-phase3.sh`, `tools/accept-isolation.sh`,
-`tools/accept-ledger.sh`, `tools/accept-recovery.sh`, and
-`tools/accept-model-spend.sh`. All seven suites are required. Those scripts
-were strengthened here; their historical results do not transfer to this revision.
-Image boot, systemd socket activation, pacman/snapper on btrfs, current Hyprland,
-Orca, real-model chat, and hardware/soak behavior were not exercised in this run.
+Build the selected source candidate, record its identity and audit it, then run
+all seven main suites on that fresh image: phase 1, phase 2,
+the named phase-3 invocation below, isolation, ledger, recovery and model spend.
+The corrected harness records its revision separately from the built image,
+retaining the VM identity, core pin and source-digest gates. Historical passes
+do not transfer. Native AT-SPI, the four witness kernel cases and one installed-flow case and
+receipt persistence need their separate fresh-image checks.
+
+Real-model chat, loaded-web-app memory, Orca, Urdu visual review and hardware/soak
+behavior remain unverified. The historical suites above include actual boot,
+Wayland, service activation, package changes and recovery within their limits.
 
 Kernel tests establish the stated tool-process boundary on the tested Linux
 runner, not consent enforcement inside sysd or separation of all desktop
 processes. The credentialed-action service passes synthetic local TLS tests;
 no live API or credential provisioning was exercised. General response adapters
-and independent witness delivery/deployment remain integration work. The protected
-OS signer is implemented and source-tested; its fresh image has not yet completed
-the runtime acceptance suite.
+and current-image validation of the staged, disabled-by-default witness publisher
+and independent endpoint deployment remain integration work. The protected
+OS signer has historical VM ledger/recovery evidence. The new image has not yet
+completed runtime acceptance.
 See [CORE-CONTRACT.md](CORE-CONTRACT.md).
-No working machine was migrated. Shared core changes are developed separately
-in [Exo PR 70](https://github.com/aska-digital/exo/pull/70); another development
-checkout is not modified by these checks.
+The OS repository has no hosted workflow run or successful CI claim for these
+results. Hosted core checks failed before test steps because of account billing.
+Independent review remains separate from local test results. No working machine
+was migrated. Shared core changes are developed separately
+in [executor binding PR 91](https://github.com/aska-digital/exo/pull/91),
+[model spending PR 87](https://github.com/aska-digital/exo/pull/87),
+[witness transport PR 88](https://github.com/aska-digital/exo/pull/88) and
+[authority-key alias fix PR 95](https://github.com/aska-digital/exo/pull/95),
+all included in the `cff62d1` pin. Another development checkout is not modified
+by these checks.
 
 ## Diagnostic image evidence
 
@@ -241,3 +609,188 @@ the default device timeout at boot, as documented in the
 Production retains `quiet loglevel=3` with no device-timeout override. This
 profile change has source checks only until a newly built image is booted; the
 host acceptance deadline remains separately bounded at 900 seconds.
+
+### VM surface renderer scope
+
+The `vmtest` profile declares `GSK_RENDERER=cairo` in a drop-in for
+`exo-surface.service`. The production profile has no renderer override, and the
+VM setting is not a session-wide GTK or Chromium setting. GTK documents Cairo as
+an incomplete comparison renderer, including unsupported 3D transforms, so this
+setting is limited to the disposable software-rendering VM.
+See [GTK's Cairo renderer](https://docs.gtk.org/gsk4/ctor.CairoRenderer.new.html)
+and [renderer configuration](https://docs.gtk.org/gtk4/running.html#GSK_RENDERER).
+
+Phase 3 checks the service after its deliberate restart. It records the declared
+renderer and the main process's effective renderer value, then propagates the
+validated value to its synthetic GTK fixture. The AT-SPI diagnostic does the
+same before stopping the installed surface. Both evidence contracts require
+actual realized `GskCairoRenderer` instances in addition to the environment value.
+The full environment is never saved in these renderer records.
+
+These source checks do not establish new-image acceptance. Fresh acceptance and
+visual review of the prompt, approval details/buttons, drawer and RTL remain
+required. A pass under Cairo establishes software-renderer VM behavior only;
+production GPU, hardware and low-power claims remain open.
+
+### Current schema3 evidence scope
+
+Technical peer review accepted the schema3 contract on 2026-10-14 UTC. This is
+separate from merge and release validation. The strict validator still requires
+all exact schema3 keys, independent keyboard predicates, realized renderers and
+a zero probe exit before printing its human-readable PASS summary.
+
+Native held-transition records without an observed repeat report
+`repeat not delivered (not tested)`. Absence is not repeat rejection. Only a
+validated delivered and rejected repeat reports `repeat delivered/rejected`.
+Private Broadway's keyboard coverage is `synthetic`. On every backend the
+adversarial Card/SurfaceUI callback guards are explicitly
+`synthetic-actual-methods`, independent of the native event arrays. No success
+summary is printed on any validation failure.
+
+Frozen image `2a5d2cb`, with core `859fbcc`, passed seven Phase 3 product checks
+then failed the shared schema3 native probe at its original five-second
+`generic-answer-return actual prompt key delivery` wait. Surface restoration was
+recorded as `1`. No completed held-transition arrays or schema3 success record
+were retained. Reaching this later stage is not a recorded native held-key proof.
+Image acceptance remains held. The failed v2 records and historical local
+proposal results below retain their original outcomes and scopes.
+
+### Historical Phase 3 v2 image and harness evidence
+
+Set `IMAGE_SOURCE` to the full commit recorded in the selected image's build
+manifest, then run from the clean committed harness checkout:
+
+```sh
+EXO_OS_VM_ACCEPTANCE=1 tools/accept-phase3.sh \
+  --vm-acceptance --image-source "$IMAGE_SOURCE"
+```
+
+Phase 3 records the image source and separate harness source. The disposable VM
+UUID, installed manifest, pinned core and runtime/image digest checks still run.
+A tools-only harness revision can inspect that named image when its installed
+source digest matches; it does not change or relabel the image.
+
+App checks acquire a valid baseline before typing and wait up to 60 monotonic
+seconds for a valid exact `foot` client-count increase. Each local IPC command is
+bounded by the remaining deadline and a five-second command limit. Output has a
+streaming byte cap; timeout or excess output stops and reaps the local process
+group. Invalid JSON or failed IPC remains invalid evidence, never a zero count.
+Baseline and readiness JSON preserve status, output and observation times for
+both normal and offline launches. These times describe IPC observations;
+application startup time remains unmeasured.
+
+The shared GTK result is `exo-surface-gtk-v2`. Native prompt checkpoints require
+the full `exo focus marker` text in both entry and model, a matching sequence of positive physical
+key codes, a mapped local entry target, no response and no keyboard review.
+All seven named checkpoints must appear in order. The panel update during marker
+typing must preserve its prefix. A suffix alone is a failure.
+
+Prompt `Gtk.Window.is_active()` values are recorded as information. An older
+remapped fixture reported false while actual keyboard input reached the entry.
+The v2 contract uses received keys and text to prove prompt delivery. Card
+activation/focus-loss guards and explicit drawer activation checks remain required.
+
+The separate `external_panel_update` record requires a panel update during actual
+`yesterday` typing in another window. Full text, positive physical key codes,
+the external active target, unchanged prompt/model text and no responses sent
+are mandatory. Broadway reports explicit synthetic coverage for this case and
+the prompt checkpoints. Missing evidence, an older v1 result or a nonzero probe
+exit status cannot pass the v2 validator.
+
+The native held-F6 check records calls to the existing key handler without
+changing its decision. A pass requires a delivered repeat while B is pending and
+unreviewed, on the initial nonzero physical key code, already held before the
+call, without blocking modifiers, and rejected by the original method. A's sole
+allow response, no B response, the full `yesterday` text and observed F6 release
+are also required. Missing repeat delivery fails coverage. Private Broadway
+reports its separate synthetic check. Fresh-image native acceptance remains
+required; the earlier failed runs remain failed.
+
+
+Historical local schema3 proposal (before the 2026-10-14 UTC peer ruling)
+------------------------------------------------------------------------
+
+The proposed `exo-surface-gtk-v3` result separates native held-key transitions
+from synthetic callbacks on actual methods. The previous v2 failures stay failed.
+A new validator rejects legacy v2 records as schema3 proof. The local tools draft
+changes no installed runtime, core pin, release criteria or image acceptance result.
+The later mapped-activation source candidate is described separately below.
+
+One persistent `wtype -P F6 - -s 800 -d 150 yesterday -p F6` process waits on
+stdin. The parent supplies one literal `y` plus EOF only after actual A review,
+card activation and `Card.armed()`. Later communication retries send no input.
+The post-answer 800 ms delay is not ARM evidence. Native proof requires exactly
+A's allow response, nine positive delivered text key codes with F6 held and B
+unreviewed, full entry/model text, matching F6 release and latch clearance,
+then fresh native B review, actual ARM and exactly B's deny response. Any actual
+repeat must be rejected. No native timestamp is shifted in this witness.
+
+Separate synthetic checks run on every backend for repeat/remap, five modifier
+masks, held Y and activation loss. They invoke actual Card/SurfaceUI methods
+with a confined virtual clock and activation getter. Their records cannot count
+as native input. Host mutation tests must kill the eleven real guard mutations.
+The six process tests use a controlled executable stub and do not prove GTK or
+compositor behavior. Existing prompt, external-window, readability, direction,
+card activation and drawer checks remain required.
+
+Native arrays have hard limits and overflow fails. Failure snapshots emit FAIL
+before cleanup, retain bounded partial observations and never emit a partial
+PASS. The validator bounds input to 64 KiB. The whole VM probe remains bounded
+at 90 seconds, each wtype delivery at 30 seconds and owned-child cleanup at two.
+
+The guest helper inventory now also needs `phase3_native_held.py`,
+`phase3_stdin.py` and `phase3_callback_guards.py`. The proposed staging loop
+includes them. Linux test staging already copies all tools and tests. Record
+all helper hashes and the exact tools revision with any future diagnostic or
+acceptance result. `build-provenance.py` intentionally excludes acceptance tools
+from the runtime digest, so helper changes require their own recorded identity.
+They do not justify changing the frozen runtime digest or core pin.
+
+
+Historical local mapped-activation candidate (before the 2a image)
+----------------------------------------------------------------
+
+The untouched c2/v2 probe failed on private GTK4.14.5 Broadway at the original
+five-second held-F6 fallback activation check. The compact actual-widget trace
+shows the preceding card hidden and unmapped but still active before F6. F6
+reviews A and presents the card. The next observed inactive notification invokes
+review loss and hides A. This is an inherited c2 failure, before the new schema3
+callback block. The trace does not establish which earlier display request
+produced that notification.
+
+The first local fixture-only boundary candidate also failed. Its new five-second
+wait required the hidden card to become inactive, but the card retained its active
+flag throughout that wait. Both failures remain failed evidence. No getter was
+spoofed, assertion relaxed or deadline extended.
+
+The new local source candidate initializes the review's prior activation flag
+from `get_mapped() and is_active()`. A hidden card's retained flag cannot mark a
+new review as previously active. The activation-loss callback remains unchanged.
+Host actual-method tests reproduce the old initializer, keep a fresh unmapped
+review pending before its first activation, then verify revocation after actual
+mapped/active state is represented. A separate mapped-active control still
+revokes review and preserves held F6 without sending consent. These are explicit
+host widget states, not native event or timing evidence.
+
+The valid Broadway fixture boundary still requires a mapped active prompt target,
+a hidden unmapped card and no review before synthetic F6. The original five-second
+card activation wait remains unchanged. Native helpers, actual ARM requirements,
+delivery records and process limits remain unchanged. One private GTK run used
+the exact source candidate. A fresh image is required for later native validation
+of this runtime change. No current release criteria have been approved
+by this local proposal.
+
+
+That complete GTK4.14.5 Broadway probe and the strict schema3 validator both
+exited zero. All three actual renderers were GskBroadwayRenderer. The run reached
+the held-key fallback and every synthetic callback case. The unchanged actual
+review-active to other-window focus-loss check also completed. No independent
+compact mapped-loss trace was run. The explicit mapped-state negative regression
+is host actual-method evidence, and all keyboard coverage on Broadway remains
+labeled synthetic. The native driver and new runtime image remain unvalidated.
+
+The private evidence archive is `image/out/gtk-schema3-mapped-review/evidence.tar`,
+SHA256 `fd7d4657bcdb5952def1b16eac9c3cc32b2ba1329c3c0fd2ec57402b3b06e1a2`.
+It records source/import identities, GTK version, probe and validator exits and
+owned-process/socket cleanup. No VM or retries were used. The c2 baseline and
+first boundary failures remain failed, separate from this successful private run.

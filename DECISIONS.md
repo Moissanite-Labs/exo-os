@@ -120,6 +120,10 @@ reply or reconnection, read pending approvals before making a card answerable ag
 consent automatically. Probe daemon responsiveness and event progress with bounded calls; retain
 backoff across short failed connections. Details and protocol limitations: `docs/SURFACE-RECOVERY.md`.
 
+Desktop keyboard review uses the dedicated F6 shortcut or a targeted review
+button click. The review button stays outside the launcher's Tab completion
+order, so completion input cannot become a review gesture.
+
 ## OS-13. Acceptance requires current, bounded evidence
 
 **Decision.** VM acceptance first checks the unique identity of the VM started by that run. Failed
@@ -138,8 +142,14 @@ and recovery staging through `exo-os-recovery`. A checkpoint preserves a read-on
 system snapshot together with its matching UKI. Staging creates a separate writable
 clone and a boot-menu entry. The existing `@home`, `@store` and persistent helper `@sysd` remain mounted;
 original `@` is not promoted or replaced. No named root action or agent capability
-is added, and the command does not select a default or reboot. Details and pending
-actual reboot acceptance: `docs/BOOT-RECOVERY.md`.
+is added, and the command does not select a default or reboot. Details:
+`docs/BOOT-RECOVERY.md`.
+
+**Evidence update, 2026-10-13.** The older `5a86e3b` image with core `cff62d1`
+passed ten recovery checks, including an actual older-root reboot with current
+persistent state retained. The built `c2d1ad9` image has not yet repeated recovery
+acceptance. Neither result establishes hardware, soak or power-loss durability.
+Exact identities and retained attempts: `docs/VALIDATION.md`.
 
 **Why.** OS-4 excludes bootloader and reboot operations from the model's root door.
 The EFI partition lies outside the system snapshot, so booting an arbitrary snapper
@@ -210,3 +220,17 @@ rolling back the OS must not erase that uncertainty. A destination label alone
 does not reveal what the person is approving. Arbitrary upstream response text
 can also reflect an injected credential in an encoding a generic redactor
 misses, so read APIs need reviewed response adapters before being enabled.
+
+## OS-18. Witness delivery is explicit and optional
+
+**Decision.** The image stages an administrator-only witness publisher, disabled
+until explicit offline enrollment. A no-network `exo-ledger` exporter emits only
+verified checkpoints; a separate `exo-witness` process sends the bounded prefix.
+The root parent verifies a fresh nonce-bound witness head and durably retains the
+prior verified receipt before publishing new evidence. Details:
+`docs/WITNESS-PUBLISHER.md`.
+
+**Why.** A signed local checkpoint needs an independently retained receipt to
+support outside rollback evidence. This implementation does not establish that
+the witness is independently administered or remotely deployed; Linux/image
+acceptance and an actual independent endpoint remain required.

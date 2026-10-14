@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import pwd
+import re
 import stat
 import sys
 from pathlib import Path
@@ -56,21 +57,33 @@ def _as_exo(uid: int, gid: int, action, *, result: bool = False):
     read_fd, write_fd = os.pipe()
     pid = os.fork()
     if pid == 0:
-        os.close(read_fd)
+        code = 1
         try:
+            os.close(read_fd)
             os.setgroups([])
             os.setgid(gid)
             os.setuid(uid)
             os.umask(0o077)
             value = action()
             if result:
-                os.write(write_fd, json.dumps(value, separators=(",", ":")).encode())
-        except Exception as exc:  # noqa: BLE001 - child reports a fixed failure to root
-            print(f"model-spend journal validation failed: {exc}", file=sys.stderr, flush=True)
-            os._exit(1)
+                data = json.dumps(value, separators=(",", ":")).encode()
+                if len(data) > 65536:
+                    raise AuthorityError("model-spend helper result exceeds limit")
+                while data:
+                    written = os.write(write_fd, data)
+                    if written <= 0:
+                        raise OSError("model-spend helper pipe closed")
+                    data = data[written:]
+            code = 0
+        except BaseException:  # child must never resume inherited root caller frames
+            print("model-spend journal validation failed", file=sys.stderr, flush=True)
         finally:
-            os.close(write_fd)
-        os._exit(0)
+            try:
+                os.close(write_fd)
+            except BaseException:
+                code = 1
+            finally:
+                os._exit(code)
     os.close(write_fd)
     with os.fdopen(read_fd, "rb") as pipe:
         data = pipe.read(65537)
@@ -94,6 +107,32 @@ def _policy(path: Path, journal: Path, principal: str) -> dict:
     return raw
 
 
+def _publication_link(state: Path, principal: str) -> Path | None:
+    """Accept only the one exact hard link left by completed policy publication."""
+    names = {p.name for p in state.iterdir()}
+    expected = {"policy.json", principal}
+    if not expected <= names:
+        raise AuthorityError(f"model-spend state has unexpected entries: {state}")
+    policy = (state / "policy.json").lstat()
+    if names == expected:
+        if policy.st_nlink != 1:
+            raise AuthorityError("model-spend policy has unexpected hard links")
+        return None
+    extras = names - expected
+    if len(extras) != 1:
+        raise AuthorityError(f"model-spend state has unexpected entries: {state}")
+    name = next(iter(extras))
+    if not re.fullmatch(r"\.policy-[0-9a-f]{16}", name):
+        raise AuthorityError("model-spend policy publication link has an invalid name")
+    temporary = state / name
+    _node(temporary, stat.S_IFREG, 0o644, 0, 0)
+    linked = temporary.lstat()
+    if (policy.st_nlink != 2 or linked.st_nlink != 2
+            or (policy.st_dev, policy.st_ino) != (linked.st_dev, linked.st_ino)):
+        raise AuthorityError("model-spend policy publication link does not match the published policy")
+    return temporary
+
+
 def _ledger_ready(principal: str, store: Path, signer: Path) -> None:
     ledger_admin.validate_boot_mounts(signer, store)
     manifest_path = signer / "manifest.json"
@@ -112,7 +151,7 @@ def _ledger_ready(principal: str, store: Path, signer: Path) -> None:
 def _established(state: Path, principal: str, uid: int, gid: int) -> dict:
     policy_path, user_dir, journal = state / "policy.json", state / principal, state / principal / "journal.sqlite"
     _node(state, stat.S_IFDIR, 0o755, 0, 0)
-    _entries(state, {"policy.json", principal})
+    temporary = _publication_link(state, principal)
     _node(user_dir, stat.S_IFDIR, 0o700, uid, gid)
     # A hot SQLite rollback journal may remain after an abrupt power loss.
     names = {p.name for p in user_dir.iterdir()}
@@ -128,6 +167,13 @@ def _established(state: Path, principal: str, uid: int, gid: int) -> dict:
     # allowing SQLite crash recovery. The separate status CLI uses inspect(),
     # whose connections remain read-only.
     _as_exo(uid, gid, lambda: SpendJournal(raw).status())
+    if temporary is not None:
+        # Only boot activation repairs a completed publication, after both the
+        # root policy and its original journal identity have been validated.
+        if _publication_link(state, principal) != temporary:
+            raise AuthorityError("model-spend policy publication link changed during validation")
+        temporary.unlink()
+        _fsync(state)
     return raw
 
 
@@ -174,6 +220,7 @@ def ensure_boot(principal: str = PRINCIPAL, *, store: Path = STORE, signer: Path
     _fsync(user_dir)
     # Publish the root-controlled policy last. A crash before this point leaves
     # partial state which ensure_boot deliberately refuses on the next boot.
+    # After publication, only its verified same-inode temporary hard link is recoverable.
     policy = state / "policy.json"
     temporary = state / (".policy-" + os.urandom(8).hex())
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -202,7 +249,6 @@ def inspect(*, store: Path = STORE, principal: str = PRINCIPAL) -> dict:
     account = pwd.getpwnam(principal)
     uid, gid = account.pw_uid, account.pw_gid
     _node(state, stat.S_IFDIR, 0o755, 0, 0)
-    _entries(state, {"policy.json", principal})
     _node(state / principal, stat.S_IFDIR, 0o700, uid, gid)
     names = {p.name for p in (state / principal).iterdir()}
     if names not in ({"journal.sqlite"}, {"journal.sqlite", "journal.sqlite-journal"}):
@@ -213,6 +259,7 @@ def inspect(*, store: Path = STORE, principal: str = PRINCIPAL) -> dict:
         if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_gid != gid or info.st_mode & 0o077:
             raise AuthorityError("model-spend rollback journal has unsafe ownership or mode")
     raw = _policy(state / "policy.json", state / principal / "journal.sqlite", principal)
+    _publication_link(state, principal)  # inspect never removes the verified leftover
 
     status = _as_exo(uid, gid, lambda: SpendJournal.inspect(raw), result=True)
     return {**status, "journal_id": raw["journal_id"], "journal": raw["journal"],

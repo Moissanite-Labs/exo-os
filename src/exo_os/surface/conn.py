@@ -142,7 +142,9 @@ class Connection:
         if loop is None or self._client is None or (isinstance(body, s.ApprovalRespond) and not self._synced):
             if isinstance(body, s.ApprovalRespond):
                 self.post(self.listener.on_approval_result, body.request_id)
-            if not quiet:
+            if quiet:
+                self._log_dropped(body, "not_connected")
+            else:
                 self.post(self.listener.on_failed, "not_connected", "exod is not reachable")
             return
         client = self._client
@@ -150,7 +152,15 @@ class Connection:
             task = asyncio.create_task(self._send(body, quiet, client=client))
             self._commands.add(task)
             task.add_done_callback(self._commands.discard)
+            if isinstance(body, s.ApprovalRespond):
+                # A task cancelled before its first step never enters _send's try, so _send cannot report
+                # the answer as finished. Without this the card stays hidden in "answering" for good.
+                task.add_done_callback(lambda t: self._answer_cancelled(t, body.request_id))
         loop.call_soon_threadsafe(schedule)
+
+    def _answer_cancelled(self, task: asyncio.Task, request_id: str) -> None:
+        if task.cancelled():
+            self.post(self.listener.on_approval_result, request_id)
 
     def send_turn(self, text: str, mode: str = "send") -> None:
         if self.session is None:
@@ -166,6 +176,13 @@ class Connection:
         self.send(s.UiRespond(panel_id=panel_id, action=action, value=value or {}),  # type: ignore[arg-type]
                   quiet=True)
 
+    @staticmethod
+    def _log_dropped(body: Any, why: str) -> None:
+        """A quiet command the person never asked for is not shown, but a lost panel response (the
+        dismissed/ignored learning signal) must leave a trace. Ids and kinds only, no panel content."""
+        LOG.warning("dropped %s (panel %s, action %s): %s", type(body).__name__,
+                    getattr(body, "panel_id", "?"), getattr(body, "action", "?"), why)
+
     async def _send(self, body: Any, quiet: bool = False, *, client: Any = None) -> None:
         approval = isinstance(body, s.ApprovalRespond)
         try:
@@ -175,13 +192,16 @@ class Connection:
             timeout = max(COMMAND_TIMEOUT, 30.0) if isinstance(body, s.ModelsList) else COMMAND_TIMEOUT
             resp = await asyncio.wait_for(client.send(body), timeout)
         except asyncio.CancelledError:
-            if approval:
-                self.post(self.listener.on_approval_result, body.request_id)
+            # An approval answer's result is posted once, by schedule()'s done callback.
+            if quiet:
+                self._log_dropped(body, "cancelled")
             raise
         except Exception as exc:
             if approval:
                 self.post(self.listener.on_approval_result, body.request_id)
-            if not quiet:
+            if quiet:
+                self._log_dropped(body, type(exc).__name__)
+            else:
                 self.post(self.listener.on_failed, "not_connected", f"{type(exc).__name__}: {exc}")
             # The reply may be lost after exod acted. Rejoin and query pending state; never resend.
             if client is self._client:
@@ -189,7 +209,9 @@ class Connection:
             return
         if approval:
             self.post(self.listener.on_approval_result, body.request_id)
-        if not resp.ok and not quiet:
+        if not resp.ok and quiet:
+            self._log_dropped(body, resp.error.code if resp.error else "unknown")
+        elif not resp.ok:
             err = resp.error
             self.post(self.listener.on_failed, err.code if err else "unknown", err.message if err else "")
         if resp.ok and isinstance(body, s.ModelsList):

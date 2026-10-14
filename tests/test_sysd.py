@@ -17,8 +17,13 @@ KEYRING = str(__import__("pathlib").Path(__file__).parent / "data" / "keyring")
 
 
 class FakeRunner:
-    def __init__(self, snap_pac=True, repo=("htop", "foot")):
+    def __init__(self, snap_pac=True, repo=("htop", "foot"), transaction=True):
         self.calls, self.snap_pac, self.repo, self.n = [], snap_pac, set(repo), 10
+        # snap-pac's hook runs only when pacman runs a transaction; a no-op install makes no snapshots
+        self.transaction = transaction
+        self.rows = [{"number": 0}, {"number": 11, "description": "pre", "type": "pre"},
+                     {"number": 12, "description": "post", "type": "post", "pre-number": 11},
+                     {"number": 13, "type": "single"}]
 
     def __call__(self, argv):
         self.calls.append(argv)
@@ -31,18 +36,67 @@ class FakeRunner:
             self.n += 1
             return ok(f"{self.n}\n")
         if argv[0] == "snapper" and "list" in argv:
-            return ok(json.dumps({"root": [{"number": 0}, {"number": 11, "description": "pre", "type": "pre"},
-                                           {"number": 12, "description": "post", "type": "post", "pre-number": 11},
-                                           {"number": 13, "type": "single"}]}))
+            return ok(json.dumps({"root": self.rows}))
+        if argv[:2] == ["pacman", "-Su"] and self.snap_pac and self.transaction:
+            top = max(r["number"] for r in self.rows)
+            self.rows += [{"number": top + 1, "type": "pre"},
+                          {"number": top + 2, "type": "post", "pre-number": top + 1}]
         return ok()
 
 
 def test_package_install_with_snap_pac():
     r = FakeRunner()
     out = Actions(r, keyring=KEYRING).package_install({"names": ["htop"]})
-    assert out == {"installed": ["htop"], "pre": 11, "post": 12}
+    assert out == {"installed": ["htop"], "pre": 14, "post": 15}
     assert r.calls.index(["pacman", "-Sy", "--noconfirm"]) < r.calls.index(["pacman", "-Su", "--needed", "--noconfirm", "--", "htop"])
     assert not any("create" in c for c in r.calls)
+
+
+def test_package_install_noop_does_not_report_an_older_installs_snapshots():
+    r = FakeRunner(transaction=False)  # already installed: pacman has nothing to do, no hook, no snapshots
+    out = Actions(r, keyring=KEYRING).package_install({"names": ["htop"]})
+    assert out == {"installed": ["htop"], "pre": None, "post": None}
+
+
+def test_package_install_ignores_a_pair_whose_pre_is_older_than_the_install():
+    r = FakeRunner(transaction=False)
+    real = r.__call__
+
+    def runner(argv):  # a post snapshot appears during the run, but its pre was made before it started
+        if argv[:2] == ["pacman", "-Su"]:
+            r.rows.append({"number": 14, "type": "post", "pre-number": 11})
+        return real(argv)
+
+    out = Actions(runner, keyring=KEYRING).package_install({"names": ["htop"]})
+    assert out["pre"] is None and out["post"] is None
+
+
+def test_package_install_reports_nothing_when_the_pair_is_ambiguous():
+    r = FakeRunner()
+    real = r.__call__
+
+    def runner(argv):
+        out = real(argv)
+        if argv[:2] == ["pacman", "-Su"]:
+            r.rows += [{"number": 20, "type": "pre"}, {"number": 21, "type": "post", "pre-number": 20}]
+        return out
+
+    out = Actions(runner, keyring=KEYRING).package_install({"names": ["htop"]})
+    assert out["pre"] is None and out["post"] is None
+
+
+def test_package_install_stops_before_pacman_if_snapshots_cannot_be_read():
+    r = FakeRunner()
+    real = r.__call__
+
+    def runner(argv):
+        if argv[0] == "snapper" and "list" in argv:
+            return subprocess.CompletedProcess(argv, 1, "", "snapper is not running")
+        return real(argv)
+
+    with pytest.raises(ActionError, match="snapper failed"):
+        Actions(runner, keyring=KEYRING).package_install({"names": ["htop"]})
+    assert not any(c[:2] == ["pacman", "-Su"] for c in r.calls)
 
 
 def test_package_install_without_snap_pac_takes_own_snapshots():
@@ -69,6 +123,30 @@ def test_unknown_package_refused_before_pacman_runs():
 def test_snapshot_description_checked():
     with pytest.raises(ActionError):
         Actions(FakeRunner(), keyring=KEYRING).snapshot_create({"description": "x\n--rm"})
+
+
+def test_keyring_is_not_ready_until_populated(tmp_path):
+    # `pacman-key --init` creates trustdb.gpg at once; only the marker written after --populate means ready.
+    (tmp_path / "trustdb.gpg").write_text("")
+    actions = Actions(FakeRunner(), keyring=str(tmp_path))
+    assert not actions.keyring_ready()
+    with pytest.raises(ActionError, match="keyring is still being set up"):
+        actions.package_install({"names": ["htop"]})
+    (tmp_path / "exo-os-populated").write_text("")
+    assert actions.keyring_ready()
+
+
+def test_install_says_so_when_keyring_setup_failed(tmp_path):
+    class FailedUnit(FakeRunner):
+        def __call__(self, argv):
+            if argv[:2] == ["systemctl", "show"]:
+                return subprocess.CompletedProcess(argv, 0, "Result=exit-code\nActiveState=failed\n", "")
+            return super().__call__(argv)
+
+    r = FailedUnit()
+    with pytest.raises(ActionError, match="could not be set up at first start; restarting the machine"):
+        Actions(r, keyring=str(tmp_path)).package_install({"names": ["htop"]})
+    assert not any(c[0] == "pacman" for c in r.calls)
 
 
 def test_install_waits_for_keyring(tmp_path):

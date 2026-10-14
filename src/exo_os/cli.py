@@ -128,8 +128,8 @@ def _run(args: argparse.Namespace) -> int:
         return 0
     if args.cmd == "set":
         value = parse_value(args.path, args.value)
-        return _print_result(eng.apply(eng.profile().set_value(args.path, value), set_summary(args.path, value),
-                                       by=args.by), args.json)
+        return _print_result(eng.change(lambda prof: (prof.set_value(args.path, value),
+                                                      set_summary(args.path, value)), by=args.by), args.json)
     if args.cmd == "history":
         items = eng.history(args.n)
         if args.json:
@@ -186,6 +186,8 @@ def _run(args: argparse.Namespace) -> int:
                 print(f"{snap['number']:>5}  {snap['date'][:16]}  {snap['description']}")
         elif args.sys_cmd == "undo":
             print(f"Put the system back as it was at snapshot {out['undone'][0]}.")
+        elif out.get("pre") is None or out.get("post") is None:
+            print(f"Installed {', '.join(out['installed'])}. No snapshots were taken for this run, so there is nothing to undo.")
         else:
             print(f"Installed {', '.join(out['installed'])}. Snapshots before and after: {out['pre']}, {out['post']}."
                   f" To undo: exo-os system undo {out['pre']} {out['post']}")

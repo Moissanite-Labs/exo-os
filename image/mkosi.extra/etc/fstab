@@ -1,7 +1,14 @@
 # Root (@) is found by systemd-gpt-auto-generator; rootflags=subvol=@ is on the kernel command line.
+# /home, /var/lib/exo and /.snapshots are required, so a missing one stops boot. The account and
+# the Exo store live in the first two, and boot-time services write to them without a mount check.
+# Package installs rely on snap-pac for their pre/post snapshot pair, and snap-pac does not stop
+# pacman when snapper fails, so without @snapshots an install would run with no pair to undo.
 /dev/gpt-auto-root  /home        btrfs  subvol=@home,compress=zstd       0 0
 /dev/gpt-auto-root  /.snapshots  btrfs  subvol=@snapshots,compress=zstd  0 0
 /dev/gpt-auto-root  /var/lib/exo btrfs  subvol=@store,compress=zstd      0 0
-/dev/gpt-auto-root  /var/lib/exo-sysd btrfs subvol=@sysd,compress=zstd 0 0
-/dev/gpt-auto-root  /var/lib/exo-egress btrfs subvol=@egress,compress=zstd 0 0
-/dev/gpt-auto-root  /var/lib/exo-ledger btrfs subvol=@signer,compress=zstd 0 0
+# The helper mounts are nofail so a layout mismatch does not drop boot to the emergency shell. Each
+# is still required by its own service (RequiresMountsFor and AssertPathIsMountPoint), so that
+# service fails closed and nothing writes to the root filesystem in its place.
+/dev/gpt-auto-root  /var/lib/exo-sysd btrfs subvol=@sysd,compress=zstd,nofail 0 0
+/dev/gpt-auto-root  /var/lib/exo-egress btrfs subvol=@egress,compress=zstd,nofail 0 0
+/dev/gpt-auto-root  /var/lib/exo-ledger btrfs subvol=@signer,compress=zstd,nofail 0 0

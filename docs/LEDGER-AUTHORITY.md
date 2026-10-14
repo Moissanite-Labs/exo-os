@@ -126,6 +126,13 @@ in a fresh disposable VM. `tools/accept-phase1.sh` exports a coherent SQLite bac
 and checks it in plain core on the host, using public identity obtained separately
 from the protected root manifest. Neither check constitutes a deployed witness.
 
+The older `5a86e3b` image with core `cff62d1` passed twelve ledger checks and
+preserved post-checkpoint signer identity/history through an actual older-root
+reboot. Phase 1 verified a portable signed prefix through sequence 7. Phase 2
+verified sequence 49. These are historical results. Ledger acceptance on the
+built `c2d1ad9` image, independent witness deployment and four witness kernel cases and one installed-flow case remain pending. See
+[VALIDATION.md](VALIDATION.md#historical-image-5a86e3b).
+
 ## Independent witness handoff
 
 `exo-ledger-admin export-checkpoints` emits genesis even for an empty stream,
@@ -136,11 +143,13 @@ claim an independent witness exists.
 
 An operator transfers the root-pinned public stream `identity` from
 `/var/lib/exo-ledger/manifest.json` and the exported signed genesis through an
-independently authenticated route. The separate core witness draft pins those inputs explicitly
-with `WitnessJournal.provision`; that API is outside the current OS pin. A witness must never adopt identity from an
-append RPC reply. Later checkpoint exports are verified against that pin and
-previous checkpoint. Witness endpoints, delivery/acknowledgment and live
-off-machine acceptance remain unconfigured.
+independently authenticated route. The pinned core witness draft binds those inputs
+explicitly with `WitnessJournal.provision`. A witness must never adopt identity from
+an append RPC reply. Later checkpoint exports are verified against that pin and
+previous checkpoint. Optional [administrator witness delivery](WITNESS-PUBLISHER.md)
+captures and verifies a complete bounded prefix before transmission, and keeps cached
+receipts separate from challenged fresh status. Enrollment is disabled by default;
+independent endpoints and live off-machine acceptance remain unconfigured.
 
 For the core verifier's raw checkpoint JSONL input, use
 `exo-ledger-admin export-checkpoints --stream STREAM_ID --raw`; this requires one

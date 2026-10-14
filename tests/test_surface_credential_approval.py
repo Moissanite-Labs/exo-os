@@ -46,6 +46,8 @@ def test_full_credential_operation_is_visible_and_one_shot(destination, plain):
     assert "<b>literal markup</b>" in card.detail and "مرحبا" in card.detail
     assert "hidden_token" not in card.detail  # policy's credential filename is not a preview field
     assert card.options == ["allow", "deny"] and model.answer("allow_always") is None
+    assert model.answer("allow") is None
+    model.show_approvals()
     assert model.answer("allow") == s.ApprovalRespond(request_id="approval_123", decision="allow",
                                                        client="exo-surface", binding="exact_request_binding")
 
@@ -108,9 +110,12 @@ def test_urdu_is_readable_while_unsafe_controls_are_exact_and_visible(destinatio
 def test_uncertain_answer_recovery_preserves_full_credential_details(destination):
     model = approval(request())
     original = model.approval.detail
+    model.show_approvals()
     model.answer("allow")
     model.approval_result("approval_123")
     model.reconcile_approvals([{"request_id": "approval_123"}], 100)
     assert model.approval.detail == original
     assert model.approval.options == ["allow", "deny"]
+    assert model.answer("allow") is None
+    model.show_approvals()
     assert model.answer("allow").binding == "exact_request_binding"

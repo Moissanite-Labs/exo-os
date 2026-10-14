@@ -1,20 +1,41 @@
 # Surface approval and event recovery
 
-This behavior uses the Exo protocol at `e079a65cbae5377431b7702cddf415e4b92f3510`
-(the tested pin). It needs no changes to the base Exo checkout.
+This behavior uses the core protocol pinned in `exo.pin`. It needs no changes to
+the base Exo checkout. The explicit-review runtime requires a new image and fresh
+acceptance; earlier image results do not validate it.
 
 ## Human answers and dismissal
 
-Y/Yes and N/No send an `ApprovalRespond`, with the binding of the card actually
-shown. A submitted card stays hidden while delivery is in flight, so another tap
+An arriving request is pending and preserves typing focus. **Review request (F6)**
+explicitly opens one exact request for keyboard review; then Y or N sends an
+`ApprovalRespond`. Yes/No buttons capture the full displayed request and can
+answer that exact preview. The local token includes a unique retained generation,
+request identity, binding and displayed content, so an empty binding or a stale
+widget cannot authorize a replacement. A submitted card stays hidden while delivery is in flight, so another tap
 cannot submit the same request. The status says “Checking your answer…”. A
 replacement or reopened card receives a fresh 700 ms anti-misclick window.
 
+The review button is outside the launcher's Tab completion order. Tab followed
+by Space during typing cannot enter review through that button. F6 remains the
+dedicated keyboard gesture, and a targeted mouse click still opens review.
+The GTK navigation test and native Tab/Space/Y/N probe cover this boundary.
+Host decision tests alone do not establish real keyboard navigation behavior.
+
 Escape defers the current card locally. It sends neither allow nor deny. The
-request stays pending; it returns when the surface is explicitly opened again.
+request stays pending; only **Review request (F6)** explicitly reopens it.
+Opening the prompt preserves deferrals and ends keyboard review.
 Incidental rendering and pending-list recovery preserve this deferral. If another
 request is queued, that next card can appear. New decisions are blocked while the
 connection is down.
+
+Once a reviewed card has actually become active, losing activation ends review
+and releases its keyboard grab without presenting or refocusing the prompt.
+Replacement, resolution, pending-list reconciliation and connection changes also
+revoke review. An unchanged repaint is not another consent gesture, and the next
+queued request is pending until separately reviewed.
+F6 press state survives answers and request changes across the prompt, drawer
+and card. Autorepeat cannot review the next request; a fresh unmodified press
+requires an observed release, including after a modified F6 press.
 
 ## Uncertain delivery
 
@@ -22,8 +43,8 @@ Neither a send attempt nor a successful command reply is itself a local pending
 state snapshot. After an approval response finishes, the surface fetches
 `approvals.list`. On transport failure or a lost reply it drops the connection,
 then fetches the list during reconnection. It **never automatically resends** an
-approval answer. If the request remains pending, its card returns for a fresh
-human answer. If absent, it stays closed, including when a resolution event was
+approval answer. If the request remains pending, it requires a fresh review
+gesture before a keyboard answer. If absent, it stays closed, including when a resolution event was
 missed. Even an empty list replaces stale local state.
 
 In-flight sends are cancelled before a replacement connection publishes its

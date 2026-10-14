@@ -15,7 +15,7 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 source "$here/tools/env.sh"
 out="$here/image/out"
 mkdir -p "$out"
-fw_dir="${EXO_OS_TOOLS:-$HOME/.local/opt/exo-os-tools}/root/usr/share/edk2/x64"
+fw_dir="$EXO_OS_TOOLS_ACTIVE/root/usr/share/edk2/x64"
 fw="${EXO_OS_VM_FIRMWARE_CODE:-${EXO_OS_FIRMWARE:-$fw_dir/OVMF_CODE.4m.fd}}"
 fw_vars="${EXO_OS_VM_FIRMWARE_VARS:-${EXO_OS_FIRMWARE_VARS:-$fw_dir/OVMF_VARS.4m.fd}}"
 accel="${EXO_OS_VM_ACCEL:-kvm}"
@@ -24,7 +24,9 @@ smp="${EXO_OS_VM_SMP:-2}"
 gui=0 gl=0 keep=0 mem=2048
 while (($#)); do
   case $1 in
-    --gui) gui=1 ;; --gl) gl=1 ;; --keep) keep=1 ;; --mem) mem=$2; shift ;;
+    --gui) gui=1 ;; --gl) gl=1 ;; --keep) keep=1 ;; --mem)
+      [[ ${2:-} =~ ^[1-9][0-9]*$ ]] || { echo "--mem needs a number of megabytes" >&2; exit 2; }
+      mem=$2; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
   shift

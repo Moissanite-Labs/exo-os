@@ -7,11 +7,11 @@
 # Results: image/out/accept-phase1.txt. Exit code 0 only if checks 1 to 3 pass (4 is a measurement).
 # The ROADMAP's real-provider chat criterion remains pending an authorized test key/spend cap.
 set -Eeuo pipefail
-here="$(cd "$(dirname "$0")/.." && pwd)"
+here="$(cd "$(dirname "$0")/.." && pwd -P)"
 out="$here/image/out"
 report="$out/accept-phase1.txt"
 ssh_vm() { "$here/tools/vm-ssh.sh" "$@"; }
-as_exo() { ssh_vm "cd /tmp && as-exo $*"; }
+as_exo() { accept_as_exo "$@"; }
 pass=0 fail=0
 result() {  # name ok detail
   local line

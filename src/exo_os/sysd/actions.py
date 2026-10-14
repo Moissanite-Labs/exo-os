@@ -93,7 +93,7 @@ class Actions:
             if not isinstance(n, str) or not PKG_RE.fullmatch(n):
                 raise ActionError(f"{n!r} is not a package name")
         if not self.keyring_ready():
-            raise ActionError("the package keyring is still being set up after first start; try again in a minute")
+            raise ActionError(self._keyring_wait_reason())
         self._ok(["pacman", "-Sy", "--noconfirm"])
         missing = [n for n in names if self.runner(["pacman", "-Si", "--", n]).returncode != 0]
         if missing:
@@ -101,12 +101,23 @@ class Actions:
         own = not self._snap_pac()
         desc = f"install {' '.join(names)}"[:120]
         pre = self._snap("pre", desc) if own else None
+        before = 0 if own else self._newest_snapshot()  # read before pacman runs, so a failure here stops the install
         self._ok(["pacman", "-Su", "--needed", "--noconfirm", "--", *names])
         post = self._snap("post", desc, pre) if own else None
-        if not own:  # snap-pac's pair: the newest post snapshot and the pre it points to
-            newest = next((r for r in self.snapshot_list({"limit": 20})["snapshots"] if r["type"] == "post"), None)
-            pre, post = (newest["pre"], newest["number"]) if newest else (None, None)
+        if not own:
+            pre, post = self._pair_after(before)
         return {"installed": names, "pre": pre, "post": post}
+
+    def _newest_snapshot(self) -> int:
+        return max((r["number"] for r in self.snapshot_list({"limit": 100})["snapshots"]), default=0)
+
+    def _pair_after(self, before: int) -> tuple[int | None, int | None]:
+        """snap-pac's pair for this install, or (None, None). snap-pac makes one only when pacman runs a
+        transaction (nothing to do means no hook, so no snapshots). A pair counts as this call's only if both
+        snapshots are newer than the newest one seen before pacman ran, and there is exactly one such pair."""
+        pairs = [r for r in self.snapshot_list({"limit": 100})["snapshots"]
+                 if r["type"] == "post" and r["number"] > before and (r["pre"] or 0) > before]
+        return (pairs[0]["pre"], pairs[0]["number"]) if len(pairs) == 1 else (None, None)
 
     def snapshot_undo(self, args: dict[str, Any]) -> dict[str, Any]:
         """Put the system's files back as they were before one install: snapper undochange PRE..POST.
@@ -125,10 +136,21 @@ class Actions:
         return {"undone": [pre, post]}
 
     def keyring_ready(self) -> bool:
-        """exo-os-pacman-init.service makes this machine's keyring at first boot."""
+        """exo-os-pacman-init.service makes this machine's keyring at first boot.
+
+        trustdb.gpg appears as soon as `pacman-key --init` starts, long before `--populate` has loaded
+        the distribution keys, so it cannot mean ready. The unit writes this marker last."""
         from pathlib import Path
 
-        return Path(self.keyring).joinpath("trustdb.gpg").exists()
+        return Path(self.keyring).joinpath("exo-os-populated").exists()
+
+    def _keyring_wait_reason(self) -> str:
+        """Why the keyring is not ready: still being made, or its first-boot setup failed."""
+        r = self.runner(["systemctl", "show", "-p", "ActiveState", "-p", "Result", "exo-os-pacman-init.service"])
+        state = dict(ln.split("=", 1) for ln in (r.stdout or "").splitlines() if "=" in ln)
+        if state.get("ActiveState") == "failed":
+            return "the package keyring could not be set up at first start; restarting the machine tries again"
+        return "the package keyring is still being set up after first start; try again in a minute"
 
     def _snap_pac(self) -> bool:
         return self.runner(["pacman", "-Q", "snap-pac"]).returncode == 0

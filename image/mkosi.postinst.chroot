@@ -5,12 +5,22 @@
 set -eu
 umask 022
 
+# The offline wheelhouse was resolved for one interpreter version (tools/build-image.sh). If Arch
+# has moved `python` since, stop here with the reason instead of failing inside pip.
+want=$(cat /opt/exo/GUEST_PYTHON)
+have=$(python -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+if [ "$have" != "$want" ]; then
+    echo "guest python is $have but the wheelhouse was built for $want; rebuild with EXO_OS_GUEST_PYTHON=$have" >&2
+    exit 1
+fi
+rm -f /opt/exo/GUEST_PYTHON
+
 # Exo and exo-os in one venv. --system-site-packages: the prompt bar uses the distribution's PyGObject.
 python -m venv --system-site-packages --without-pip /opt/exo
 python -m pip --python /opt/exo/bin/python install --quiet --no-index --no-cache-dir \
     --find-links /opt/exo/wheels exo exo-os
 rm -rf /opt/exo/wheels
-for b in exo exo-os exo-surface exo-os-setup exo-os-recovery exo-ledger-admin exo-model-spend-admin; do ln -sf "/opt/exo/bin/$b" "/usr/local/bin/$b"; done
+for b in exo exo-os exo-surface exo-os-setup exo-os-recovery exo-ledger-admin exo-model-spend-admin exo-witness-admin; do ln -sf "/opt/exo/bin/$b" "/usr/local/bin/$b"; done
 
 # The person. Phase 1 has one account with automatic login; onboarding will create it in later phases.
 getent group exo-sys >/dev/null || groupadd --system exo-sys
@@ -24,6 +34,9 @@ install -d -m 0700 /var/lib/exo-egress
 getent group exo-ledger >/dev/null || groupadd --system exo-ledger
 id exo-ledger >/dev/null 2>&1 || useradd --system --gid exo-ledger --no-create-home \
     --home-dir /var/lib/exo-ledger --shell /usr/bin/nologin exo-ledger
+getent group exo-witness >/dev/null || groupadd --system exo-witness
+id exo-witness >/dev/null 2>&1 || useradd --system --gid exo-witness --no-create-home \
+    --home-dir /nonexistent --shell /usr/bin/nologin exo-witness
 # Root-owned public identity on @signer; provisioning creates the private service-owned subtree.
 install -d -m 0755 /var/lib/exo-ledger
 id exo >/dev/null 2>&1 || useradd --create-home --groups wheel,exo-sys,video,input --shell /bin/bash exo
@@ -50,6 +63,12 @@ sed -e 's/^SUBVOLUME=.*/SUBVOLUME="\/"/' -e 's/^TIMELINE_CREATE=.*/TIMELINE_CREA
 chmod 0640 /etc/snapper/configs/root
 echo 'SNAPPER_CONFIGS="root"' > /etc/conf.d/snapper
 mkdir -p /.snapshots
+
+# The pacman keyring holds a private signing key, so the image must never carry one: each machine makes
+# its own at first boot (exo-os-pacman-init.service; its pacman-key --init would keep a private key found here).
+# mkosi keeps its build keyring outside the image; this makes the guarantee hold whatever the package
+# manager or mkosi version leaves behind.
+rm -rf -- /etc/pacman.d/gnupg
 
 # Extra trees may have been archived from a host filesystem whose default mode is
 # group-writable. Trusted-path checks require root-owned, non-writable ancestors.

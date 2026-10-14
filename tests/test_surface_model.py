@@ -7,7 +7,7 @@ from exo.protocol import schema as s
 
 from exo_os.profile import Profile
 from exo_os.surface.model import (NOT_RUNNING, RECENT_CHARS, RECENT_LINES, WAITING, WORKING, Line, Panel,
-                                  SurfaceModel, markdown_to_plain, match_apps, panel_view)
+                                  SurfaceModel, approval_token, markdown_to_plain, match_apps, panel_view)
 
 SID = "s_0000000000000001"
 
@@ -148,6 +148,8 @@ def test_approval_requested_then_answered_echoes_binding():
     assert json.loads(card.detail.split("\n", 1)[1]) == {
         "approval_request_id": "a1", "tool": "whatsapp_send", "arguments": {"to": "Ahmed"}}
     assert m.status == WAITING
+    assert m.answer("allow") is None  # arrival is only a pending notification
+    m.show_approvals()
     resp = m.answer("allow")
     assert resp == s.ApprovalRespond(request_id="a1", decision="allow", client="exo-surface", binding="h1")
     assert m.approval is None
@@ -180,6 +182,8 @@ def test_approval_resolved_elsewhere_closes_the_card_and_queue_moves_on():
     assert "allow_always" in m.approval.options
     m.apply(ev(s.ApprovalResolved(request_id="a1", decision="deny", by="phone")))
     assert m.approval.request_id == "a2" and m.approval.session == "s_scheduled"
+    assert m.reviewed_approval is None  # the next request needs its own review gesture
+    m.show_approvals()
     assert m.answer("maybe") is None  # not an offered option
     assert m.answer("deny").decision == "deny"
     assert m.status == "Checking your answer…"
@@ -234,6 +238,56 @@ def test_choice_acts_and_sends_the_label():
     assert out[0] == s.UiRespond(panel_id="p4", action="acted", value={"choice": "a"})
     assert out[1] == s.TurnSend(session=SID, text="Short", mode="send")
     assert panel_view(m.panels["p4"])["options"] == [("a", "Short"), ("Long", "Long")]
+
+
+def test_choice_while_disconnected_sends_no_message_and_says_so():
+    m = _model()
+    m.apply(ev(s.UiPanel(panel_id="p4", action="open", kind="choice", text="Which one?",
+                         data={"options": [{"id": "a", "label": "Short"}]})))
+    m.set_connected(False)
+    # Only the learning signal goes out; the label is not sent as a message, and the person is told.
+    assert m.choose("p4", "a") == [s.UiRespond(panel_id="p4", action="acted", value={"choice": "a"})]
+    assert m.lines[-1] == Line("error", NOT_RUNNING)
+    assert not any(line.role == "you" for line in m.lines)
+    m.set_connected(True)
+    m.session = None  # connected but no thread yet: the same
+    m.lines.clear()
+    assert [type(b) for b in m.choose("p4", "a")] == [s.UiRespond]
+    assert m.lines[-1] == Line("error", NOT_RUNNING)
+
+
+def _choice(m, pid="p4"):
+    m.apply(ev(s.UiPanel(panel_id=pid, action="open", kind="choice",
+                         data={"prompt": "Send which?", "options": [{"id": "a", "label": "Short"}, "Long"]})))
+
+
+def test_a_second_click_on_a_choice_panel_does_nothing():
+    m = _model()
+    _choice(m)
+    assert len(m.choose("p4", "a")) == 2
+    assert m.choose("p4", "a") == []
+    assert m.choose("p4", "Long") == []  # another option is no different
+    assert [ln.text for ln in m.lines if ln.role == "you"] == ["Short"]
+    assert panel_view(m.panels["p4"])["chosen"] == "a"
+
+
+def test_a_choice_that_could_not_be_sent_stays_open():
+    m = _model()
+    m.set_connected(False)
+    _choice(m)
+    assert [type(b) for b in m.choose("p4", "a")] == [s.UiRespond]
+    assert panel_view(m.panels["p4"])["chosen"] is None
+    m.set_connected(True)
+    assert [type(b) for b in m.choose("p4", "a")] == [s.UiRespond, s.TurnSend]
+
+
+def test_new_options_on_a_chosen_panel_can_be_chosen_again():
+    m = _model()
+    _choice(m)
+    m.choose("p4", "a")
+    m.apply(ev(s.UiPanel(panel_id="p4", action="update", kind="choice", data={"options": ["Yes", "No"]})))
+    assert panel_view(m.panels["p4"])["chosen"] is None
+    assert len(m.choose("p4", "Yes")) == 2
 
 
 def test_panel_view_shapes():
@@ -384,6 +438,7 @@ def test_transcript_collapses_to_last_exchange_and_clears_when_hidden():
 def test_uncertain_answer_rearms_only_after_pending_snapshot():
     m = _model()
     m.apply(ev(_ask()))
+    m.show_approvals()
     assert m.answer("allow") is not None
     assert m.answer("allow") is None  # duplicate tap never sends the same request twice
     m.apply(ev(_ask()))  # replay while sending stays suppressed
@@ -392,6 +447,8 @@ def test_uncertain_answer_rearms_only_after_pending_snapshot():
     m.approval_result("a1")
     m.reconcile_approvals([{"request_id": "a1"}], 50001)
     assert m.approval.binding == "h1"  # minimal list rows retain the text and binding actually shown
+    assert m.reviewed_approval is None and m.answer("deny") is None
+    m.show_approvals()
     assert m.answer("deny").binding == "h1"  # a fresh human answer, never an automatic resend
 
 
@@ -399,6 +456,7 @@ def test_lost_reply_but_resolved_snapshot_does_not_reopen_request():
     m = _model()
     requested = ev(_ask())
     m.apply(requested)
+    m.show_approvals()
     m.answer("allow")
     m.approval_result("a1")
     m.reconcile_approvals([], requested.seq)
@@ -426,20 +484,185 @@ def test_snapshot_retains_newer_event_until_resolution_replay():
     assert m.approval is None
 
 
-def test_escape_defers_without_answer_and_reopening_returns_card():
+def test_old_snapshot_cannot_replace_newer_same_id_content_or_generation():
+    from exo_os.surface.model import approval_token
+    m = _model(plain=False)
+    requested = ev(s.ApprovalRequested(request_id="a1", summary="NEW", binding="new",
+        options=["deny"], call=ToolCall(id="new_call", name="send_message", arguments={"message": "new body"})))
+    m.apply(requested)
+    m.show_approvals()
+    original = approval_token(m.reviewed_approval)
+    for row in (
+        {"request_id": "a1", "summary": "OLD", "binding": "old", "options": ["allow", "deny"],
+         "call": {"id": "old_call", "name": "send_message", "arguments": {"message": "old body"}}},
+        {"request_id": "a1", "summary": "STALE WITHOUT CALL", "binding": "older"},
+    ):
+        m.reconcile_approvals([row], requested.seq - 1)
+        assert approval_token(m.approval) == original
+        assert m.approval_seq["a1"] == requested.seq
+        assert m.reviewed_approval is None and m.answer("deny") is None
+        assert m.approval.summary == "NEW" and "new body" in m.approval.detail
+        assert m.approval.binding == "new" and m.approval.options == ["deny"]
+
+
+def test_escape_defers_without_answer_and_only_explicit_review_returns_card():
     m = _model()
     m.apply(ev(_ask()))
+    m.show_approvals()
     m.defer_approval()
     assert m.approval is None and len(m.approvals) == 1 and not m.answering
     m.reconcile_approvals([{"request_id": "a1"}], 50000)
     assert m.approval is None  # incidental render or reconnect does not steal focus back
     m.show_approvals()
     assert m.approval.request_id == "a1" and m.approval.binding == "h1"
+    assert m.reviewed_approval is m.approval
     m.set_connected(False)
     assert m.answer("allow") is None
+
+
+def test_stale_displayed_click_cannot_answer_the_next_request():
+    from exo_os.surface.model import approval_token
+    m = _model()
+    m.apply(ev(_ask("a1")))
+    old = approval_token(m.approval)
+    m.apply(ev(_ask("a2")))
+    m.apply(ev(s.ApprovalResolved(request_id="a1", decision="deny")))
+    assert m.answer("allow", old, explicit_click=True) is None
+    current = approval_token(m.approval)
+    assert m.answer("deny", current, explicit_click=True).request_id == "a2"
+    assert m.answering["a2"].binding == "h1"
+
+
+def test_retained_callback_cannot_answer_recreated_request_with_identical_content():
+    from exo_os.surface.model import approval_token
+    m = _model()
+    m.apply(ev(_ask(binding="")))
+    token = approval_token(m.approval)
+    m.apply(ev(s.ApprovalResolved(request_id="a1", decision="deny")))
+    m.apply(ev(_ask(binding="")))
+    assert m.answer("allow", token, explicit_click=True) is None
+    m.show_approvals()
+    assert m.answer("allow", token) is None
+    assert m.answer("deny").request_id == "a1"
+
+
+@pytest.mark.parametrize("change", ["binding", "summary", "detail", "options"])
+def test_replacement_of_unbound_or_bound_request_revokes_review_and_old_click(change):
+    from exo_os.surface.model import approval_token
+    m = _model(plain=False)
+    request = {"request_id": "a1", "binding": "", "summary": "Original", "options": ["allow", "deny"],
+               "call": {"id": "c1", "name": "send_message", "arguments": {"message": "old"}}}
+    m.add_approval(request)
+    m.show_approvals()
+    old = approval_token(m.reviewed_approval)
+    changed = dict(request)
+    if change == "detail":
+        changed["call"] = {"id": "c1", "name": "send_message", "arguments": {"message": "new"}}
+    else:
+        changed[change] = ["deny"] if change == "options" else "new"
+    m.add_approval(changed)
+    assert m.reviewed_approval is None
+    assert m.answer("deny", old, explicit_click=True) is None
+    assert m.answer("deny") is None
+    m.show_approvals()
+    assert m.answer("deny").request_id == "a1"
+
+
+def test_review_content_is_detached_from_mutable_input_and_invalidated_by_live_mutation():
+    from exo_os.surface.model import approval_token
+    m = _model(plain=False)
+    options = ["allow", "deny"]
+    args = {"message": "original"}
+    m.add_approval({"request_id": "a1", "options": options,
+                    "call": {"id": "c", "name": "send_message", "arguments": args}})
+    m.show_approvals()
+    token = approval_token(m.reviewed_approval)
+    options.clear(); args["message"] = "changed"
+    assert m.reviewed_approval is not None and "original" in m.reviewed_approval.detail
+    m.approval.options.remove("allow")
+    assert m.reviewed_approval is None
+    assert m.answer("deny", token, explicit_click=True) is None
+
+
+@pytest.mark.parametrize("reset", ["snapshot", "disconnect", "reconnect", "prompt", "uncertain"])
+def test_review_requires_fresh_gesture_after_state_reset(reset):
+    m = _model()
+    m.apply(ev(_ask()))
+    m.show_approvals()
+    if reset == "snapshot":
+        m.reconcile_approvals([{"request_id": "a1"}], 50000)
+    elif reset == "prompt":
+        m.leave_approval_review()
+    elif reset == "uncertain":
+        m.approval_result("a1")
+    else:
+        m.set_connected(False)
+        if reset == "reconnect":
+            m.set_connected(True)
+    assert m.reviewed_approval is None and m.answer("allow") is None
+    assert len(m.approvals) == 1 and not m.answering
 
 
 @pytest.mark.parametrize("key, action", [("Escape", "defer"), ("y", "allow"), ("N", "deny"), ("Return", None)])
 def test_card_key_mapping_never_turns_escape_into_a_decision(key, action):
     from exo_os.surface.model import approval_key
     assert approval_key(key) == action
+
+
+def _install_row(rid, names):
+    return {"request_id": rid, "summary": "system_package_install (costly, private). Why: x. Default if no reply: skip.",
+            "risk": "high", "options": ["allow", "deny", "allow_always"], "approvers": ["principal"],
+            "binding": f"b_{rid}", "call": {"id": f"c_{rid}", "name": "system_package_install",
+                                            "arguments": {"names": names, "reason": "x"}}}
+
+
+@pytest.mark.parametrize("bad_names", [[1, 2], "git", [], None])
+def test_malformed_arguments_get_a_refuse_only_card(bad_names):
+    m = _model(plain=True)
+    m.add_approval(_install_row("bad", bad_names))
+    card = m.approval
+    assert card.request_id == "bad" and card.options == ["deny"]
+    assert "can only be refused" in card.summary and "Install g, i, t" not in card.summary
+    assert "system_package_install" in card.detail  # the exact request stays inspectable
+    assert m.answer("allow", approval_token(card), explicit_click=True) is None
+    reply = m.answer("deny", approval_token(card), explicit_click=True)
+    assert reply is not None and reply.decision == "deny" and reply.binding == "b_bad"
+
+
+@pytest.mark.parametrize("bad_first", [True, False])
+def test_one_malformed_row_does_not_hide_the_other_approvals(bad_first):
+    m = _model(plain=True)
+    rows = [_install_row("bad", [1, 2]), _install_row("good", ["git"])]
+    m.reconcile_approvals(rows if bad_first else rows[::-1], 5)
+    shown = {a.request_id: a for a in m.approvals}
+    assert set(shown) == {"bad", "good"}
+    assert shown["good"].summary == "Install git on this computer? Reason: x. It can be undone."
+    assert shown["good"].options == ["allow", "deny"]
+    assert shown["bad"].options == ["deny"]
+
+
+def test_a_row_that_fails_for_any_reason_still_shows_a_refuse_only_card(monkeypatch):
+    m = _model(plain=True)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("wording failed")
+
+    monkeypatch.setattr("exo_os.surface.model.plain_wording", boom)
+    m.reconcile_approvals([_install_row("bad", ["git"]), {"request_id": "plain", "summary": "Pay $40?"}], 5)
+    cards = {a.request_id: a for a in m.approvals}
+    assert set(cards) == {"bad", "plain"} and cards["bad"].options == ["deny"]
+    assert cards["bad"].binding == "b_bad"
+    assert cards["plain"].options == ["allow", "deny"]
+
+
+def test_malformed_credential_request_is_refuse_only():
+    m = _model(plain=True)
+    m.add_approval({"request_id": "cred", "summary": "x", "binding": "b", "options": ["allow", "deny"],
+                    "call": {"id": "c", "name": "credential_request", "arguments": ["not", "a", "dict"]}})
+    assert m.approval.options == ["deny"]
+
+
+def test_malformed_arguments_in_full_mode_do_not_crash():
+    m = _model(plain=False)
+    m.add_approval(_install_row("bad", [1, 2]))
+    assert m.approval.request_id == "bad"

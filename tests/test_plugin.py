@@ -158,3 +158,36 @@ def test_credential_request_has_single_exact_one_shot_approval(env, monkeypatch,
     assert all(a.binding and a.options == ["allow", "deny"] for a in approvals)
     assert approvals[0].binding == approvals[1].binding
     assert not eng.approvals.always
+
+
+def test_overlapping_tool_calls_do_not_drop_each_other(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    from exo_os import plugin
+    from exo_os.profile import Profile
+
+    monkeypatch.setenv("EXO_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(make_exo_desktop(tmp_path / "config")))
+    monkeypatch.delenv("EXO_PRINCIPAL_STORE", raising=False)
+    monkeypatch.delenv("EXO_PRINCIPAL", raising=False)
+    monkeypatch.setattr("exo_os.changes.DEFAULT_CHECKS", [])
+    assert plugin._engine().init().ok
+    read, real = threading.Event(), Profile.set_value
+    slow = {"first": True}
+
+    def set_value(self, path, value):  # the first call lingers between reading the profile and applying it
+        out = real(self, path, value)
+        if slow.pop("first", False):
+            read.set()
+            time.sleep(0.4)
+        return out
+
+    monkeypatch.setattr(Profile, "set_value", set_value)
+    a = threading.Thread(target=plugin.machine_set, args=({"setting": "look.theme", "value": "dark"},))
+    a.start()
+    assert read.wait(5)
+    plugin.machine_set({"setting": "keyboard.repeat_rate", "value": 50})
+    a.join(10)
+    prof = plugin._engine().profile()
+    assert prof.get("look.theme") == "dark" and prof.get("keyboard.repeat_rate") == 50

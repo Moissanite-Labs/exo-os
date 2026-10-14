@@ -1,7 +1,9 @@
 """A failed kernel probe retains useful evidence without becoming successful acceptance."""
 import json
+import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -62,3 +64,55 @@ def test_valid_success_can_pass(tmp_path):
     result = parse_probe_report(tmp_path, rows(), 0)
     assert result.returncode == 0, result.stderr
     assert result.stdout.count("PASS ") == 9
+
+
+@pytest.mark.parametrize("args,opt_in", [([], False), (["--vm-acceptance"], True),
+                                       (["--vm-acceptance", "--image-source", "b" * 40], False),
+                                       (["--vm-acceptance", "--image-source", "short"], True)])
+def test_isolation_harness_requires_explicit_image_source(args, opt_in):
+    environment = {name: value for name, value in os.environ.items() if name != "EXO_OS_VM_ACCEPTANCE"}
+    if opt_in:
+        environment["EXO_OS_VM_ACCEPTANCE"] = "1"
+    result = subprocess.run(["bash", str(ROOT / "tools/accept-isolation.sh"), *args], env=environment,
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 2 and "--image-source FULL_40_HEX_HASH" in result.stderr
+
+
+@pytest.mark.parametrize("scenario", ["wrong_image", "dirty_harness", "matching_archive", "matching_git", "matching_git_symlink"])
+def test_isolation_harness_refuses_invalid_provenance_before_vm(tmp_path, scenario):
+    source = ROOT / "tools/accept-isolation.sh"
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    shutil.copyfile(source, tools / source.name)
+    shutil.copyfile(ROOT / "tools/accept-common.sh", tools / "accept-common.sh")
+    shutil.copy2(ROOT / "tools/source_identity.py", tools / "source_identity.py")
+    python = tmp_path / ".venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    selected = "b" * 40
+    manifest = tmp_path / "image/out/extra/opt/exo/EXO_OS_BUILD.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(json.dumps({"schema": 2, "build_profile": "vmtest",
+                                    "exo_os_commit": "c" * 40 if scenario == "wrong_image" else selected}))
+    if scenario in ("dirty_harness", "matching_git", "matching_git_symlink"):
+        (tmp_path / ".gitignore").write_text("image/out/\n")
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                        "commit", "-qm", "fixture"], check=True)
+        if scenario == "dirty_harness":
+            (tools / source.name).write_text(source.read_text() + "\n# changed after commit\n")
+    else:
+        (tmp_path / ".EXO_OS_SOURCE_ID").write_text("a" * 40)
+    invocation = tools / source.name
+    if scenario == "matching_git_symlink":
+        link = tmp_path.parent / (tmp_path.name + "-link")
+        link.symlink_to(tmp_path, target_is_directory=True)
+        invocation = link / "tools" / source.name
+    result = subprocess.run(["bash", str(invocation), "--vm-acceptance", "--image-source", selected],
+                            env={**os.environ, "EXO_OS_VM_ACCEPTANCE": "1"}, text=True, capture_output=True, timeout=5)
+    expected = {"wrong_image": "manifest built from", "dirty_harness": "clean committed checkout",
+                "matching_archive": "Build the vmtest image",
+                "matching_git": "Build the vmtest image", "matching_git_symlink": "Build the vmtest image"}[scenario]
+    assert result.returncode != 0 and expected in result.stdout + result.stderr
+    assert not (tmp_path / "image/out/qemu.log").exists()
