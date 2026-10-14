@@ -11,6 +11,12 @@ commit in `exo.pin`, never modifies a developer's Exo checkout, and never copies
 the core into an OS fork. The current plugin, protocol-client, and ledger tests
 are the compatibility checks before moving that pin.
 
+This source batch pins merged core main
+`3ea58f46e3d3b38cb7f2fdfe24e1ca8416dd8ff3`, including core PRs 91 and 87.
+The OS adapter through PR 41 supplies the required trusted-folder contract.
+Witness transport remains outside this pin. The focused source audit is not a
+full Linux or native-image acceptance result. Both remain pending at the new head.
+
 ## Responsibility and acceptance
 
 | Principle | Exo owns | Exo OS owns | Evidence required before daily use |

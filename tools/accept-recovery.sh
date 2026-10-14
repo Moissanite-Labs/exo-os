@@ -113,7 +113,7 @@ ssh_vm 'printf newer-home > /home/exo/exo-recovery-proof; printf newer-store > /
 # A real helper receipt made AFTER the checkpoint must survive the older boot.
 ssh_vm 'as-exo /opt/exo/bin/exo-os system status >/dev/null'
 helper_key_before=$(ssh_vm 'sha256sum /var/lib/exo-sysd/sysd.key | cut -d " " -f 1')
-helper_pub_before=$(ssh_vm 'sha256sum /run/exo-sysd/receipt.pub | cut -d " " -f 1')
+helper_pub_before=$(ssh_vm '/opt/exo/bin/python -c "import hashlib; from exo_os.sysd.protocol import PUBLIC_KEY; print(hashlib.sha256(PUBLIC_KEY.read_bytes()).hexdigest())"')
 helper_audit_before=$(ssh_vm 'sha256sum /var/lib/exo-sysd/audit.log | cut -d " " -f 1')
 store_before=$(ssh_vm 'find /var/lib/exo/exo -type f -exec sha256sum {} + | LC_ALL=C sort | sha256sum')
 staged=$(ssh_vm "exo-os-recovery stage $id")
@@ -167,7 +167,7 @@ helper_key_after=$(ssh_vm 'sha256sum /var/lib/exo-sysd/sysd.key | cut -d " " -f 
 helper_audit_after=$(ssh_vm 'sha256sum /var/lib/exo-sysd/audit.log | cut -d " " -f 1')
 # Activate the recovered helper and verify its independently published identity.
 ssh_vm 'as-exo /opt/exo/bin/exo-os system status >/dev/null'
-helper_pub_after=$(ssh_vm 'sha256sum /run/exo-sysd/receipt.pub | cut -d " " -f 1')
+helper_pub_after=$(ssh_vm '/opt/exo/bin/python -c "import hashlib; from exo_os.sysd.protocol import PUBLIC_KEY; print(hashlib.sha256(PUBLIC_KEY.read_bytes()).hexdigest())"')
 helper_mode=$(ssh_vm 'stat -c "%a %U %G" /var/lib/exo-sysd')
 result persistent-helper "$([[ $helper_mount == /@sysd && $helper_key_after == "$helper_key_before" && $helper_pub_after == "$helper_pub_before" && $helper_audit_after == "$helper_audit_before" && $helper_mode == '700 root root' ]] && echo 1 || echo 0)" "mounted @sysd; key identity and post-checkpoint root audit preserved; helper starts on recovery root"
 egress_mount=$(ssh_vm 'findmnt -n -o FSROOT /var/lib/exo-egress')
