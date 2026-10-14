@@ -70,21 +70,25 @@ the shared probe on the disposable image's actual Wayland layer
 surfaces, with real `wtype` delivery across request arrival, including initial Y/N
 and the late `tod|ay` boundary, alongside its separate real protocol checks.
 
-The local schema3 proposal reports `exo-surface-gtk-v3`. It separates a native
-held-key transition from synthetic repeat guards. It is pending peer review and
-fresh native validation. It does not change the current release criteria.
+Technical peer review accepted the schema3 contract on 2026-10-14 UTC.
+It reports `exo-surface-gtk-v3` and separates a native held-key transition from
+synthetic repeat guards. Contract acceptance is separate from merge and release
+validation.
 The old v2 failures remain failed. Their duplicate virtual pressed-state requests
 produced one GTK F6 press and a release, without the required delivered repeat.
 
-The proposed native driver holds F6 in one `wtype` invocation, waits for actual
+The schema3 native driver holds F6 in one `wtype` invocation, waits for actual
 A review, card activation and `Card.armed()`, then supplies one stdin `y` plus
 EOF. It never moves the native card's arm timestamp. The native record requires
 exactly A's allow response, all nine `yesterday` key events with positive codes
 while F6 remains latched and B stays unreviewed, full entry/model text, a matching
 F6 release and latch clearance, then a fresh native F6 review and armed denial
-of exact B. Any repeat that actually arrives must still be rejected.
+of exact B. Any repeat that actually arrives must still be rejected. A native
+record without an observed repeat reports `repeat not delivered (not tested)`.
+It cannot claim native repeat rejection. Only a validated delivered and rejected
+repeat reports `repeat delivered/rejected`.
 
-On every backend, separately labeled synthetic callbacks exercise the actual
+On every backend, callbacks labeled `synthetic-actual-methods` exercise the actual
 Card/SurfaceUI methods for repeat rejection, preview remapping, five modifier
 masks, held Y and activation loss. These use a private test clock and an explicit
 activation getter substitution. They do not certify native repeat or modified
@@ -109,12 +113,19 @@ a separate work window. It requires the full text and physical key sequence in
 that window, its active focus target preserved, unchanged prompt/model text and
 no responses sent. The result validator requires all schema3 evidence, rejects
 incomplete or synthetic native records, and checks the probe's exit status.
-Private Broadway reports its keyboard coverage as `synthetic`.
+Only after every schema, keyboard, renderer and exit predicate succeeds does
+the validator print a PASS scope summary. It labels native held-transition
+coverage and observed repeat delivery separately. Private Broadway reports its
+keyboard coverage as `synthetic`, and adversarial guards are always labeled
+`synthetic-actual-methods`. Failure prints no success summary.
 
-These requirements do not establish acceptance of the current runtime. A fresh
-image containing the focus and card lifecycle changes still needs a complete
-native probe and Phase 3 run. Earlier failed fixtures remain failed. A tools-only
-diagnostic against an older image does not validate the new runtime.
+These requirements do not establish acceptance of the current runtime. Frozen
+image `2a5d2cb`, with core `859fbcc`, failed its shared native probe at the original
+five-second `generic-answer-return actual prompt key delivery` check after seven
+product checks passed. No completed native held-transition arrays were retained,
+so this run supplies no recorded held-key proof. Image acceptance remains held.
+Earlier failed fixtures remain failed. A tools-only diagnostic against an older
+image does not validate the new runtime.
 
 The `vmtest` profile sets `GSK_RENDERER=cairo` only for `exo-surface.service`.
 These VM checks therefore run on Wayland with Cairo. Production retains GTK's

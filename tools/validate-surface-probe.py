@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Accept only the complete synthetic GTK probe result expected by phase 3."""
+"""Accept only the complete GTK probe result expected by phase 3."""
 import argparse
 import json
 import re
@@ -63,7 +63,17 @@ def main() -> int:
     elif not all(isinstance(value, str) and re.fullmatch(r"Gsk[A-Za-z0-9]+Renderer", value)
                  for value in renderers.values()):
         return 1
-    return 0 if actual == expected else 1
+    if actual != expected:
+        return 1
+    if args.backend == "wayland-layer":
+        repeat = ("repeat delivered/rejected" if held["repeat_after_b_delivered"]
+                  else "repeat not delivered (not tested)")
+        coverage = f"native held transition; {repeat}"
+    else:
+        coverage = "keyboard coverage: synthetic"
+    print(f"PASS exo-surface-gtk-v3 ({args.backend}): {coverage}; "
+          "adversarial guards: synthetic-actual-methods")
+    return 0
 
 
 if __name__ == "__main__":

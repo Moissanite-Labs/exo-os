@@ -632,7 +632,30 @@ visual review of the prompt, approval details/buttons, drawer and RTL remain
 required. A pass under Cairo establishes software-renderer VM behavior only;
 production GPU, hardware and low-power claims remain open.
 
-### Phase 3 image and harness evidence
+### Current schema3 evidence scope
+
+Technical peer review accepted the schema3 contract on 2026-10-14 UTC. This is
+separate from merge and release validation. The strict validator still requires
+all exact schema3 keys, independent keyboard predicates, realized renderers and
+a zero probe exit before printing its human-readable PASS summary.
+
+Native held-transition records without an observed repeat report
+`repeat not delivered (not tested)`. Absence is not repeat rejection. Only a
+validated delivered and rejected repeat reports `repeat delivered/rejected`.
+Private Broadway's keyboard coverage is `synthetic`. On every backend the
+adversarial Card/SurfaceUI callback guards are explicitly
+`synthetic-actual-methods`, independent of the native event arrays. No success
+summary is printed on any validation failure.
+
+Frozen image `2a5d2cb`, with core `859fbcc`, passed seven Phase 3 product checks
+then failed the shared schema3 native probe at its original five-second
+`generic-answer-return actual prompt key delivery` wait. Surface restoration was
+recorded as `1`. No completed held-transition arrays or schema3 success record
+were retained. Reaching this later stage is not a recorded native held-key proof.
+Image acceptance remains held. The failed v2 records and historical local
+proposal results below retain their original outcomes and scopes.
+
+### Historical Phase 3 v2 image and harness evidence
 
 Set `IMAGE_SOURCE` to the full commit recorded in the selected image's build
 manifest, then run from the clean committed harness checkout:
@@ -684,8 +707,8 @@ reports its separate synthetic check. Fresh-image native acceptance remains
 required; the earlier failed runs remain failed.
 
 
-Local schema3 proposal (pending peer review and fresh native validation)
----------------------------------------------------------------------
+Historical local schema3 proposal (before the 2026-10-14 UTC peer ruling)
+------------------------------------------------------------------------
 
 The proposed `exo-surface-gtk-v3` result separates native held-key transitions
 from synthetic callbacks on actual methods. The previous v2 failures stay failed.
@@ -724,8 +747,8 @@ from the runtime digest, so helper changes require their own recorded identity.
 They do not justify changing the frozen runtime digest or core pin.
 
 
-Local mapped-activation candidate (uninstalled)
----------------------------------------------
+Historical local mapped-activation candidate (before the 2a image)
+----------------------------------------------------------------
 
 The untouched c2/v2 probe failed on private GTK4.14.5 Broadway at the original
 five-second held-F6 fallback activation check. The compact actual-widget trace
