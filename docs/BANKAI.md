@@ -218,8 +218,9 @@ Ten more that the OS must also hold, because the harness already does:
 ## 3. Systems, mapped from harness to OS
 
 For each system: what the harness has today, what Exo OS has today, and what the full release looks like. "Main" means
-merged on `exo-os` main (`c607f8b`). "Draft stack" means the chain gpt-forge has built in draft PRs #26 to #94, which
-is not merged and still needs independent review and fresh VM acceptance on one combined image (OS-13).
+merged on `exo-os` main. The foundation stack covers PRs #26 to #94. PR #26 has landed. Each remaining PR needs an
+independent reviewer's MERGE verdict and a green full Linux host suite at the exact head before merge. Release and
+image-ready claims require native acceptance on the exact combined image (OS-13).
 
 ### 3.1 Core and protocol
 
@@ -510,14 +511,17 @@ pass or fail, and lists what it needs from the harness. No dates; order by depen
 
 ### Stage 0. Land the foundation (finishes P1 to P3, starts P4)
 
-The draft stack (#26 to #94) is most of phase 4's mechanism. It is not yet Exo OS until it is merged.
+The foundation stack (#26 to #94) is most of phase 4's mechanism. PR #26 has landed. The remaining PRs still need
+the merge gates below. Merging them does not establish native image acceptance.
 
-- **Work.** Independent review of the stack (an authentic second seat, not an internal pass); one combined candidate
-  with real merge ancestry; a fresh image; every acceptance script on that exact image; merge in order; README status
-  that says only what the scripts showed.
+- **Work.** Each foundation PR gets an exact-head MERGE verdict from an independent reviewer who did not author it,
+  plus a green full Linux host suite at that head. Merge contiguous batches in order with merge commits. Then build
+  one combined candidate with real merge ancestry, record its source set, and run every acceptance script on that
+  exact fresh image. README status says only what the scripts showed. Main merges do not claim an image is ready.
 - **Exit.** On one image built from one recorded commit set: phases 1 to 3 pass in full (including the GTK probe), the
   isolation probe proves protected-state denial (#48), the ledger authority provisions and verifies, spend starts at
-  zero, and boot recovery actually reboots into a checkpoint and back. `main` equals what was tested.
+  zero, and boot recovery actually reboots into a checkpoint and back. Release and image-ready claims name the exact
+  tested source set and image. Later main commits do not inherit that acceptance.
 - **Harness needs.** When the pin moves past Exo `ea71960`, use `eng.approvals` (bus #297). Whatever core `cff62d1`
   carries in draft (witness transport) must land in Exo before the OS depends on it on main.
 
@@ -599,8 +603,11 @@ The draft stack (#26 to #94) is most of phase 4's mechanism. It is not yet Exo O
   then build a fresh image and run the acceptance scripts on that exact image (OS-13). Several ready changes may be
   combined into one candidate with real merge ancestry for image evidence; each PR keeps its own owner. Never claim a
   pass you did not see on the image you name.
-- **Merges.** saga-divan merges the harness (`aska-digital/exo`) pull requests and reviews and merges exo-os ones. A
-  draft stays draft until an independent review and the image evidence exist.
+- **Merges.** The maintainer merges the harness (`aska-digital/exo`) pull requests. For exo-os, an independent reviewer
+  who did not author the PR reviews each exact head, records real defects as inline comments, and sends MERGE or FIX
+  with the comment IDs on the bus. A draft requests that review. The maintainer marks it ready and merges after MERGE
+  and a green full Linux host suite at the same head. Use merge commits for contiguous batches, with every blocking
+  comment resolved or named. Native VM acceptance is required before release and image-ready claims.
 - **Decisions.** Anything that needs A's call gets the `needs decision` label, with the options and the trade written
   plainly in the issue. Remove the label once A rules. A technical choice inside the builders' remit is made by the
   builders and recorded as an `OS-NN` entry in `DECISIONS.md` (next free number across all branches).
