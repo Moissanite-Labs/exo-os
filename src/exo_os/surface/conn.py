@@ -87,6 +87,7 @@ class Connection:
         self.up: bool | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._client: Any = None
+        self._synced = False  # the pending approvals are reconciled; only then may an answer go out
         self._connected_at = 0.0
         self._task: asyncio.Task | None = None
         self._thread: threading.Thread | None = None
@@ -135,7 +136,9 @@ class Connection:
         """Send one command; a refusal or a dead link reaches the listener as on_failed(code, message).
         quiet drops failures, for signals such as ui.respond that the person never asked for."""
         loop = self._loop
-        if loop is None or self._client is None:
+        # A turn may go out as soon as the session is known (`_client` is set before the approval snapshot).
+        # An approval answer waits for the snapshot: sent earlier, a stale row could reopen its card.
+        if loop is None or self._client is None or (isinstance(body, s.ApprovalRespond) and not self._synced):
             if isinstance(body, s.ApprovalRespond):
                 self.post(self.listener.on_approval_result, body.request_id)
             if not quiet:
@@ -224,6 +227,7 @@ class Connection:
                 was_stable = (self._client is not None
                               and time.monotonic() - self._connected_at >= BACKOFF_RESET_AFTER)
                 self._client = None
+                self._synced = False
                 self._set_up(False)
                 # An old answer must finish/cancel before the new pending snapshot rearms its card.
                 commands = list(self._commands)
@@ -266,9 +270,12 @@ class Connection:
         since = self._since(head)
         self.seq = since  # an idle stream is caught up at its subscription cursor
         self._reconnect.clear()
-        await self._snapshot(client, head)
+        # Take commands as soon as the session is known: the UI shows it at once, and the snapshot below
+        # takes two round trips. Turns need no snapshot (the feed replays from `since`); answers still do.
         self._client = client
         self._connected_at = time.monotonic()
+        await self._snapshot(client, head)
+        self._synced = True
         self._set_up(True)
         feed = asyncio.create_task(self._events(client, since))
         probe = asyncio.create_task(self._probe(client))
