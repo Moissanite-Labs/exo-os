@@ -9,6 +9,34 @@ No image has been built or accepted from that composition. Recovery retains its
 original ten checks and adds an eleventh return-to-normal reboot proof; this new
 flow is unrun in a VM. Its controlled shell tests are source evidence only.
 
+## Next composition source checks
+
+On 2026-10-14, source `5a40446f628c69ce46fab50cbfdb638549c37e8d`
+with core `859fbcc98e3fe9cc3af31cdc9d6b130db718e972` passed the complete
+Linux ARM host suite: 1,227 passed, 80 skipped, in 57.60 seconds. A separate
+run with the required package tools and shellcheck passed all 60 build-tool
+checks. Real GTK4.14.5 Review-button traversal passed its one targeted check.
+The earlier `2061415` host run remains failed: its two test doubles lacked
+the mapped-state API. The fixture repair changed no runtime behavior or
+consent assertions.
+
+The complete private Broadway probe at `5a40446` failed its five-second
+pending-prompt check. Completion Tab navigation had left a suggestions row
+focused; the next typing scenario had no entry-focus setup. A tools-only
+correction establishes entry focus before each scenario's request or input
+driver starts. The existing pending-request preservation assertion remains.
+One controlled run of that correction passed the complete probe and strict
+schema3 validator. Only the probe changed; core and runtime were unchanged.
+Broadway keyboard records and callback guards remain explicitly synthetic.
+The failed run remains failed. No native Wayland or image acceptance follows.
+
+Evidence directories are `image/out/host-composition-5a40446/`,
+`image/out/gtk-composition-5a40446/` and
+`image/out/gtk-typing-boundary-d1c1d54/`. The corrected probe archive has SHA256
+`ab978deefa8567c49db5c194486b42e74cb5e99614c04e0644152cff85d66d96`.
+The committed typing correction and documentation updates require their own
+exact-head host gate. A fresh build and native checks remain pending.
+
 ## Land batch-2 source evidence
 
 Source audit on 2026-10-13. The separate land/batch-2 dependency was merged

@@ -67,9 +67,11 @@ The other six suites and witness cases are not run. Built:
 Still required: fresh-image acceptance, real-model chat, loaded-web-app memory,
 native accessibility and Urdu visual checks, general API response adapters, independent
 witness deployment, voice and phone clients, and the hardware trials in `ROADMAP.md`.
-This branch pins the draft witness transport and adds optional explicit administrator
-[witness delivery](docs/WITNESS-PUBLISHER.md). Enrollment remains disabled by default;
-an independently administered endpoint remains unconfigured. Installed witness Linux acceptance is pending.
+The current source pins merged core main `859fbcc`, including witness transport
+and the challenged-head API, and adds optional explicit administrator
+[witness delivery](docs/WITNESS-PUBLISHER.md). Enrollment remains disabled by default.
+An independently administered endpoint remains unconfigured. Installed witness
+Linux acceptance is pending.
 Isolation covers model tool processes. Installed providers/plugins and the person's other desktop
 applications remain trusted; this is not a claim of separation between every same-user process.
 See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL-ISOLATION.md).

@@ -11,12 +11,18 @@ commit in `exo.pin`, never modifies a developer's Exo checkout, and never copies
 the core into an OS fork. The current plugin, protocol-client, and ledger tests
 are the compatibility checks before moving that pin.
 
-This source batch pins merged core main
+The current source composition pins merged core main
+`859fbcc98e3fe9cc3af31cdc9d6b130db718e972`, including witness transport PR 88,
+the required executor and model-spend boundary. It requires its own image and
+native acceptance evidence. The schema3 input-probe proposal remains pending
+peer review. Host and private GTK checks do not establish image acceptance.
+
+The separate foundation batch source `4aec0b9` used merged core
 `3ea58f46e3d3b38cb7f2fdfe24e1ca8416dd8ff3`, including core PRs 91 and 87.
-The OS adapter through PR 41 supplies the required trusted-folder contract.
-Witness transport remains outside this pin. Source `4aec0b9` passed the full
-Linux ARM host suite: 545 passed, 12 skipped. Privileged kernel and native GTK
-checks remain unverified, as does acceptance of a fresh image built from this source.
+That OS adapter through PR 41 supplied the required trusted-folder contract.
+Witness transport was outside that earlier pin. Its Linux ARM host suite passed
+545 tests with 12 skipped. Its privileged kernel and native GTK checks were
+unverified. Those results do not transfer to the current source.
 
 ## Responsibility and acceptance
 

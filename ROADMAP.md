@@ -25,22 +25,30 @@ is explicit. Acceptance scripts verify the identity of their disposable VM and f
 The pinned core now requires the OS executor. Workspace tools run without host sockets, credentials
 or network; unsupported execution routes are refused. Administrator recovery checkpoints preserve
 a system snapshot with its matching kernel image, while home, store and helper identity/audit persist.
-Host and Linux-container validation are recorded in `docs/VALIDATION.md`. A fresh x86 image is being
-validated; earlier results below apply only to the earlier image. A separate credential service now
-supports exact, one-shot HTTPS actions with full approval previews and durable duplicate suppression.
+Host and Linux-container validation are recorded in `docs/VALIDATION.md`. Image
+results below apply to historical `c2d1ad9`, not the new source composition. A
+separate credential service now supports exact, one-shot HTTPS actions with full approval previews and durable duplicate suppression.
 It withholds upstream payloads and ships with no allowed destinations; general read APIs still need
 reviewed response adapters. The shared-core ledger authority now runs under a separate OS identity,
 with a persistent journal, root-pinned public identity and explicit fresh-image provisioning before login.
 Both normal verification commands detect modified or missing copies without repairing them first.
-The staged OS candidate pins core `cff62d1e1afbc861e410659f1f26f01afd1ed249` and adds a
-default-disabled witness publisher that requires explicit administrator action. The `c2d1ad9` Linux ARM host suite passed 1,044 tests with 80 skipped.
+The current source composition pins merged core main
+`859fbcc98e3fe9cc3af31cdc9d6b130db718e972`, including witness transport. The
+witness publisher remains disabled until explicit administrator enrollment.
+This source requires its own image and native acceptance evidence. The schema3
+input-probe proposal remains pending peer review.
+
+The historical `c2d1ad9` source and image used core
+`cff62d1e1afbc861e410659f1f26f01afd1ed249` and included the disabled publisher.
+Its Linux ARM host suite passed 1,044 tests with 80 skipped.
 The image built and its read-only audit checked 1,662 protected paths.
 A separate strict postflight passed cleanup. Native acceptance remains held:
 phase 3 first failed boot, then passed six checks and failed two. No complete
 native suite has passed. The other six suites and witness cases are not run.
-The input mismatch and held-F6 repeat failure need diagnosis. Neither establishes
-a drawer transport or product cause. Later review fixes require a new candidate
-and rebuild. Historical passes remain limited to their named images. See
+The recorded input mismatch and held-F6 repeat failure remain failed evidence.
+Later source fixes and the schema3 proposal require separate review and a new
+candidate image. They do not turn the historical runs into acceptance. Historical
+passes remain limited to their named images. See
 [current image evidence](docs/VALIDATION.md#current-image-evidence).
 Four witness kernel cases, one installed-flow case and receipt persistence remain pending, as do native
 AT-SPI, Orca, loaded browser pages and Urdu pixels. No independent endpoint is deployed.

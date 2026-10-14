@@ -1,10 +1,10 @@
 # Optional administrator witness delivery
 
 `exo-witness-admin` exports a protected authority's checkpoint history to one
-explicitly enrolled witness. It is disabled by default. This branch pins core
-`cff62d1e1afbc861e410659f1f26f01afd1ed249`, including the draft witness transport
-and its public challenged-head API. It does not activate a witness in an existing
-image, deploy a remote service, or establish independent administration.
+explicitly enrolled witness. It is disabled by default. The current source pins
+merged core main `859fbcc98e3fe9cc3af31cdc9d6b130db718e972`, which includes witness
+transport and its public challenged-head API. It does not activate a witness in
+an existing image, deploy a remote service, or establish independent administration.
 
 There are no timers, services, boot/login dependencies, generated credentials,
 discovery, or model-callable configuration actions. The image installs a static
@@ -258,8 +258,9 @@ discard with the overlay. Run it last on a fresh disposable VM. Its single JSON
 evidence record is printed with `-s`; retain it with the outer raw-image hash and
 boot UUID proof. This synthetic loopback test establishes no independent endpoint.
 
-The `c2d1ad9` image has build and read-only audit evidence. Installed witness
-acceptance remains pending. The four kernel cases and one installed-flow case, receipt persistence through
+The historical `c2d1ad9` image, with core `cff62d1`, has build and read-only audit
+evidence. Those results do not validate the current source composition. Installed
+witness acceptance remains pending. The four kernel cases and one installed-flow case, receipt persistence through
 normal and older-root reboots, full worker Landlock execution, power-loss behavior
 and independent remote deployment remain separate checks. Unrelated historical
 VM suites do not establish witness behavior. See

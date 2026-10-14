@@ -420,6 +420,10 @@ for index, (text, offset) in enumerate((("who are my calls today", 20), ("yester
     rid = f"typing_{index}"
     ui.bar.entry.set_text("")
     before = len(sent)
+    # A new typing scenario starts at the entry, after completion Tab navigation.
+    # Establish this before request arrival; the event must preserve that target.
+    ui.bar.entry.grab_focus()
+    wait_until("typing fixture starts at mapped prompt target", prompt_target_ready)
     proc, injected, handler = None, [], None
     request = s.ApprovalRequested(request_id=rid, summary="Read this request", binding=rid)
     if backend == "wayland-layer" and offset:
