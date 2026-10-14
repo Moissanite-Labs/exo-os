@@ -8,14 +8,20 @@ the person, and one calm surface.
 Exo OS stays one with Exo: same core, same protocol, no fork. Exo is a dependency pinned by commit
 (`exo.pin`), not a copy. Anything the OS needs from the core goes to Exo first.
 
+**Start here: [`docs/BANKAI.md`](docs/BANKAI.md).** A's direction for Exo OS. If the Exo harness is the first
+release of Exo's spirit, Exo OS is the full release: the same principles, enforced by the whole machine instead of by
+one process. It lists the invariants the OS must hold, maps each system from harness to OS, names the seams only the
+OS can close, and lays out the build path. Read it before planning a stage.
+
 ## Status
 
 The initial phases 1–3 passed their earlier VM checks, with the gaps in `ROADMAP.md`.
 The current runtime adds recoverable approvals, authenticated root receipts, compulsory isolated tool
-execution and administrator boot recovery. The `7170b3d` image with core `cff62d1` has
-built successfully and passed its read-only image audit. Fresh VM acceptance is incomplete:
-phase 3 passed seven checks and failed its GTK probe. Results from the earlier `5a86e3b` image do not transfer to it. See
-[current validation](docs/VALIDATION.md#current-image-evidence). Built:
+execution and administrator boot recovery. This new source composition pins merged core
+main `859fbcc`; no image build or native acceptance is claimed for it. The separate
+land/batch-2 source `4aec0b9` with core `3ea58f4` passed 545 Linux host tests with
+12 skipped. Earlier image results do not transfer. Historical image evidence is
+recorded in [validation](docs/VALIDATION.md#current-image-evidence). Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
   home, snapshots, the Exo store, protected ledger, helper audit and egress history; Hyprland; Chromium; Exo and exo-os installed at the pinned commit;
@@ -45,6 +51,8 @@ phase 3 passed seven checks and failed its GTK probe. Results from the earlier `
 - **Protected history.** A separate service owns ledger keys and committed history. Fresh provisioning
   precedes login; missing established state refuses startup. Normal verification detects an altered or
   shortened desktop copy without repairing it. Explicit synchronization recovers committed rows.
+  Writer attribution trusts the desktop account: processes running as `exo` can request signatures
+  for any configured writer within its allowed author list. Separate writer keys do not isolate them.
 - **Model spend.** A root policy and persistent exo-owned journal start with zero daily/monthly paid
   ceilings and no priced routes. The offline fake model remains usable. Missing or altered spend state
   blocks login; status stays readable after an accounting stop. See [model spend](docs/MODEL-SPEND.md).
@@ -92,6 +100,7 @@ mentioning Exo is not an ownership marker.
 
 | Path | What it is |
 |---|---|
+| `docs/BANKAI.md` | The guiding document: why Exo OS is the full release of Exo, its invariants, systems, seams and build path |
 | `DESIGN.md` | The architecture, each idea explained from first principles |
 | `DECISIONS.md` | Decisions made, why, and what was rejected (OS-1 onward) |
 | `ROADMAP.md` | Phases from a bootable VM image to daily use, each with an acceptance check |

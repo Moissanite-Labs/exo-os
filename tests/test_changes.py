@@ -137,6 +137,16 @@ def test_unknown_keyboard_layout_is_put_back(tmp_path, monkeypatch):
     assert eng.apply(eng.profile().set_value("keyboard.layouts", ["us", "ara", "pk"]), "Good layouts").ok
 
 
+def test_a_desktop_without_the_owner_marker_is_refused_with_both_conditions_named(tmp_path):
+    config = make_exo_desktop(tmp_path / "config")
+    (config / "hypr/exo/desktop-owner").unlink()  # a machine built before the marker: the include is present
+    result = ChangeEngine(tmp_path / "store" / "machine", config, ledger=MemorySink()).init()
+    assert not result.ok and result.message == NOT_OURS
+    text = " ".join(result.checks)
+    assert "hypr/exo/desktop-owner" in text and "exo-os-v1" in text and "dofile(generated)" in text
+    assert "does not load" not in text
+
+
 def test_a_desktop_that_is_not_exo_os_is_left_alone(tmp_path):
     config = tmp_path / "config"
     (config / "hypr").mkdir(parents=True)

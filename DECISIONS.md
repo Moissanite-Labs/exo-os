@@ -184,6 +184,17 @@ image acceptance remains a separate gate. Checkpoint export includes genesis and
 an independently pinned witness; no remote endpoint or automatic delivery is
 configured. See `docs/LEDGER-AUTHORITY.md`.
 
+Every provisioned writer permits the desktop account `exo` as its caller.
+Separate writer keys do not isolate processes within that UID (Unix user ID).
+Writer attribution therefore trusts that desktop UID. The service still checks
+the caller UID for each stream/writer and enforces each writer's allowed authors.
+Signer keys and journal ownership remain separate from desktop processes.
+
+Trusted providers, plugins and desktop applications under `exo` can request
+signatures for any configured writer. Sandboxed tools have no authority socket
+in their box by design, with current native proof pending. Planned principal
+credentials and authenticated core-peer binding are not implemented.
+
 ## OS-16. Credentialed actions preserve both consent and uncertainty
 
 **Decision.** A separate unprivileged `exo-egress` service injects named systemd

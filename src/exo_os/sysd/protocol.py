@@ -7,7 +7,8 @@ import struct
 import time
 from pathlib import Path
 
-PUBLIC_KEY = Path('/run/exo-sysd/receipt.pub')
+# Persistent and root-owned (created at boot by tmpfiles.d), so reconcile works before the helper starts.
+PUBLIC_KEY = Path('/var/lib/exo-sysd-public/receipt.pub')
 MAX_REQUEST = 64 * 1024
 MAX_REPLY = 256 * 1024
 VERSION = 1

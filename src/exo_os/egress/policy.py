@@ -41,6 +41,8 @@ class Profile:
     credential: str
 
     def __post_init__(self):
+        if not isinstance(self.origin, str):
+            raise EgressError("invalid HTTPS origin")
         try:
             parsed = urlsplit(self.origin)
             port = parsed.port

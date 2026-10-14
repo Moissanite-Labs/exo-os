@@ -60,7 +60,7 @@ async def _turn(d, eng, sid, text, answer=None):
     asked = []
     while eng._tasks:
         for ev in eng.hub.since(start):
-            if isinstance(ev.body, s.ApprovalRequested) and ev.body.request_id in eng._approvals:
+            if isinstance(ev.body, s.ApprovalRequested) and ev.body.request_id in eng.approvals.open:
                 asked.append(ev.body.summary)
                 if answer:
                     r = await d.run(s.Command.of(s.ApprovalRespond(request_id=ev.body.request_id, decision=answer,
@@ -157,7 +157,7 @@ def test_credential_request_has_single_exact_one_shot_approval(env, monkeypatch,
     approvals = [ev.body for ev in eng.hub.since(0) if isinstance(ev.body, s.ApprovalRequested)]
     assert all(a.binding and a.options == ["allow", "deny"] for a in approvals)
     assert approvals[0].binding == approvals[1].binding
-    assert not eng._always
+    assert not eng.approvals.always
 
 
 def test_overlapping_tool_calls_do_not_drop_each_other(tmp_path, monkeypatch):

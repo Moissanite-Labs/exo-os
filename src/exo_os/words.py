@@ -163,7 +163,12 @@ def credential_request_preview(args: dict[str, Any], approval_id: str) -> tuple[
     This reads only the root-owned policy through the egress policy API. It never imports the broker
     or reads a credential file. JSON escaping makes controls and markup literal and inspectable.
     """
-    request = {"body": "", **args}
+    # Put the destination and operation ahead of even a maximum-sized body.
+    # Unknown metadata remains visible and is still rejected by validation below.
+    metadata = ("profile", "request_id", "expected_origin", "method", "path")
+    request = {key: args[key] for key in metadata if key in args}
+    request.update((key, value) for key, value in args.items() if key not in metadata and key != "body")
+    request["body"] = args.get("body", "")
     literal = json.dumps({"approval_request_id": approval_id, "request": request}, indent=2, ensure_ascii=False)
     # Keep normal Unicode readable; expose direction/format controls and Unicode line separators as
     # JSON escapes so a payload cannot visually overwrite its destination or hide a suffix.
@@ -193,7 +198,7 @@ def credential_request_preview(args: dict[str, Any], approval_id: str) -> tuple[
         return blocked + "The destination does not match operator policy.", details, False
     if not profile.permits(args["method"], args["path"]):
         return blocked + "This method or path is not allowed by operator policy.", details, False
-    return f"Send this HTTPS request to {profile.origin} using your saved credential?", details, True
+    return f"Send {args['method']} {args['path']} to {profile.origin} using your saved credential?", details, True
 
 
 def approval_request_details(name: str, args: dict[str, Any], approval_id: str) -> str:

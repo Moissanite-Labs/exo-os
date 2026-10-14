@@ -1,5 +1,27 @@
 # Runtime and isolation validation
 
+## Land batch-2 source evidence
+
+Source audit on 2026-10-13. The separate land/batch-2 dependency was merged
+core main `3ea58f46e3d3b38cb7f2fdfe24e1ca8416dd8ff3`. It includes core PRs 91
+and 87. Witness transport PR 88 is outside this pin.
+
+The OS source composition through PR 41 includes the required trusted-folder
+adapter. Pin alignment also updates tests to the public approval desk API and
+recovery checks to the public receipt-key path after OS main PR 102.
+Before merging the egress review delta, the focused through-41 contract audit
+recorded 66 passing tests and three skipped. This is source-only evidence.
+The full Linux ARM host suite at source `4aec0b9342b5eba9019b43d598e9e4ab8335ebcd`
+with that exact core pin passed 545 tests, with 12 skipped, in 17.80 seconds.
+This run used committed archives, isolated declared dependencies and private
+executable scratch space. Archive hashes, import origins, JUnit and the copied
+evidence bundle were verified. Nine namespace tests, one privileged trust test,
+one Hyprland check and native GTK collection were skipped. These are unverified
+boundaries, not passing kernel or GTK checks. Evidence is retained under
+`image/out/host-batch2-4aec0b9/`.
+
+Native image acceptance remains pending. No earlier image is evidence for this batch.
+
 Checks recorded on 2026-10-13. The `7170b3d` `vmtest` image built successfully
 and passed a read-only image audit. Fresh VM acceptance is incomplete: phase 3
 passed seven checks and failed one. Its core pin
@@ -226,7 +248,7 @@ That archived attempt is not a seven-suite pass.
 | Earlier `bash -n tools/*.sh` | passed | OS `2a14e31`, shell syntax, not a VM acceptance run |
 | Earlier `git diff --check` | passed | OS `2a14e31` plus the then-pending pin and documentation update. Whitespace/conflict-marker check |
 
-The full core run used an isolated checkout and a closed local bus address. The
+The historical full core run used an isolated checkout and a closed local bus address. The
 earlier `b3149a9` legacy-relay test was deselected because it autodetects an unrelated local
 checkout. The inherited `NO_COLOR=1` setting initially caused four TUI tests to
 fail by selecting the accessible plain theme. All 31 tests in that UI file and
@@ -235,15 +257,14 @@ test process. No application setting was changed. GitHub Actions jobs for core
 PR 80 did not start because of an account billing restriction; these are local
 results, not a CI pass.
 
-The exact-pin OS run initially exposed a connection-test race: the test sent a
+The historical exact-pin OS run initially exposed a connection-test race: the test sent a
 turn on the session callback before the connection finished its pending-approval
 snapshot. A controlled delay reproduced `not_connected` before the connected
 callback. The test now waits for both readiness and a session; all 21 connection
 tests and the full OS suite passed. Runtime connection behavior was unchanged.
-The pinned core now contains the required-executor argument-binding and gate-loading
-follow-up (`52b4418`) and passes its source tests. Independent security review of
-that follow-up remains separate from image acceptance. These host counts alone
-do not establish OS activation.
+The tested historical core contained the required-executor argument-binding and gate-loading
+follow-up (`52b4418`) and passed its source tests. These historical host counts do not establish
+independent review or current-pin OS activation.
 
 The combined Linux log is retained at
 `image/out/validation-25313df-cb36a4a/linux.log`, SHA256
@@ -268,7 +289,7 @@ The historical nine-pass isolation run used no supplementary groups. The
 dedicated Colima VM's AppArmor restriction on unprivileged user namespaces had
 caused bubblewrap to refuse startup; for that historical disposable test only,
 the restriction was disabled and then restored, and refusal was checked again
-after restoration. In the recorded namespace rerun the restored value remained `1`: root
+after restoration. In the historical namespace rerun the restored value remained `1`: root
 bubblewrap setup succeeded, while UID 65534 could neither write the nested UID
 map nor configure loopback. The rerun therefore recorded one pass and eight
 environment-blocked checks. No system setting or image policy was changed. The
