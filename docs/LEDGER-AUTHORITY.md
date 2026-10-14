@@ -54,6 +54,27 @@ import labels `chatgpt`, `claude.ai`, `claude-code` and `grok`. Custom memory ag
 Hermes profiles, seats and extra authors are intentionally unprovisioned until an
 administrator reviews a migration. There are no wildcard authors or paths.
 
+## Caller trust boundary
+
+Provisioning sets every writer's caller list to `["exo"]`. The service checks
+the kernel UID (Unix user ID) against the selected stream/writer's caller list,
+and the journal enforces that writer's allowed author attributions. Distinct
+writer keys do not identify or isolate individual processes within the desktop
+UID. Writer attribution is only as strong as trust in that UID.
+
+Trusted providers, plugins and desktop applications running as `exo` can request
+signatures for any configured writer, subject to its allowed authors and append
+rules. They cannot read the signer's private keys or journal through these
+permissions. Those files remain owned by the separate `exo-ledger` account.
+
+The tool sandbox creates an empty `/run` and does not expose the authority
+socket. This is the configured box boundary, with current native proof pending.
+Planned principal credentials and authenticated binding to a specific core
+process are not implemented. The current protocol authenticates a caller UID,
+not a particular provider, plugin, desktop application or human principal.
+
+## Runtime binding
+
 The image ships the required core/user-unit environment:
 
 ```text

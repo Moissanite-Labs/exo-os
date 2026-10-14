@@ -41,6 +41,8 @@ not evidence for this revision. Built:
 - **Protected history.** A separate service owns ledger keys and committed history. Fresh provisioning
   precedes login; missing established state refuses startup. Normal verification detects an altered or
   shortened desktop copy without repairing it. Explicit synchronization recovers committed rows.
+  Writer attribution trusts the desktop account: processes running as `exo` can request signatures
+  for any configured writer within its allowed author list. Separate writer keys do not isolate them.
 
 Still required: current-image boot/recovery acceptance, general API response adapters, independent
 witness deployment, voice and phone clients, and the hardware trials in `ROADMAP.md`.
