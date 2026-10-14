@@ -12,9 +12,10 @@ Exo OS stays one with Exo: same core, same protocol, no fork. Exo is a dependenc
 
 The initial phases 1–3 passed their earlier VM checks, with the gaps in `ROADMAP.md`.
 The current runtime adds recoverable approvals, authenticated root receipts, compulsory isolated tool
-execution and administrator boot recovery. The `7170b3d` image with core `cff62d1` has
-built successfully and passed its read-only image audit. Fresh VM acceptance is incomplete:
-phase 3 passed seven checks and failed its GTK probe. Results from the earlier `5a86e3b` image do not transfer to it. See
+execution and administrator boot recovery. Image `c2d1ad9` with core `cff62d1`
+is built and audited. Acceptance is held: phase 3 failed both attempts, and no
+complete native suite has passed. The other six suites and witness cases are not
+run. Historical image results do not transfer. See
 [current validation](docs/VALIDATION.md#current-image-evidence). Built:
 
 - **Image.** `image/` builds an Arch disk image with mkosi, unprivileged: btrfs subvolumes for the system,
