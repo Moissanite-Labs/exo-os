@@ -22,6 +22,8 @@ main `859fbcc`; no image build or native acceptance is claimed for it. The separ
 land/batch-2 source `4aec0b9` with core `3ea58f4` passed 545 Linux host tests with
 12 skipped. Earlier image results do not transfer. Historical image evidence is
 recorded in [validation](docs/VALIDATION.md#current-image-evidence).
+The next composition's recovery flow has eleven checks, including a second reboot
+back to normal. That flow is unrun in a VM. Earlier ten-check evidence is historical only.
 
 Frozen image `c2d1ad9` with core `cff62d1` is built and audited. Its acceptance
 is held: phase 3 failed both attempts and no complete native suite has passed.
@@ -87,7 +89,7 @@ See [the core/OS contract](docs/CORE-CONTRACT.md) and [tool isolation](docs/TOOL
     tools/accept-ledger.sh                 # protected signer, tamper detection and signer outage
     EXO_OS_VM_ACCEPTANCE=1 tools/accept-model-spend.sh --vm-acceptance --image-source <full-built-OS-commit>
                                             # zero-paid offline model and journal checks
-    tools/accept-recovery.sh               # checkpoint, reboot into recovery and verify persistence
+    tools/accept-recovery.sh               # recovery and return-to-normal reboots; eleven checks
 
 On a machine running Exo OS. On any other desktop, `exo-os` changes nothing there and says so; the Exo store
 still works. The image explicitly marks its desktop with

@@ -132,7 +132,16 @@ Any missing prerequisite, malformed output, wrong VM or missed reboot fails.
 A successful host fixture test is not evidence of an actual boot. The report is
 `image/out/accept-recovery.txt` when this script is run.
 
-On 2026-10-13, the older `5a86e3b` image with core `cff62d1` passed all ten checks
+The new source flow retains those ten checks and adds an eleventh, named
+`return-to-normal`. It selects the normal boot entry, reboots again, and requires
+a new boot ID, the same VM UUID, original `@` and its marker, and unchanged
+home/store, signer, helper, spend and egress state. Protected service-directory
+modes are checked again without repair. Separate return evidence records the
+original ten-check count. This eleven-check flow has not run in a VM; controlled
+shell fixtures do not establish a real reboot. Source using core `859fbcc` needs
+a fresh image before native acceptance.
+
+On 2026-10-13, the older `5a86e3b` image with core `cff62d1` passed the historical ten checks
 through an actual older-root reboot. Current home/store, signer history, helper
 audit, model-spend stop and synthetic egress reservation survived. The first
 attempt ended in host OOM and remains retained separately.

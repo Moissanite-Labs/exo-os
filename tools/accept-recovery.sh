@@ -195,4 +195,6 @@ ssh_vm 'mkdir -p /run/exo-recovery-top; mount -t btrfs -o subvolid=5,ro /dev/gpt
 original_current=$(ssh_vm 'cat /run/exo-recovery-top/@/etc/exo-recovery-proof')
 ssh_vm 'umount /run/exo-recovery-top'
 result original-preserved "$([[ $original_current == broken-system ]] && echo 1 || echo 0)" "original @ still contains $original_current"
+# BANKAI Stage 0 also proves a real return to the original normal boot.
+source "$here/tools/recovery-return-proof.sh"
 accept_finish
