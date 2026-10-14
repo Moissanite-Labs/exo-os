@@ -55,20 +55,44 @@ request and review state. An unchanged visible repaint does not restart it.
 Resetting the guard leaves observed held Y/N/F6 keys intact. A remap cannot turn
 a held key into a fresh consent gesture.
 
+The local mapped-activation candidate initializes prior review activation only
+when the card is already mapped and active. GTK4.14.5 Broadway retained an active
+flag on a hidden, unmapped card in the failed c2 fixture. That stale flag must not
+count as activation of a new review. The candidate retains revocation after a
+mapped review actually gains and loses activation. Actual native validation of
+this runtime change remains pending.
+
 Pure model tests cover request text and reading limits. The private GTK display
 smoke test checks focus, text selection, modifier and held-key behavior, and
 direction changes when an Arabic or Urdu profile is applied. Private Broadway
 checks widget focus and simulated text only. Phase 3 runs
-the shared `exo-surface-gtk-v2` probe on the disposable image's actual Wayland layer
+the shared probe on the disposable image's actual Wayland layer
 surfaces, with real `wtype` delivery across request arrival, including initial Y/N
 and the late `tod|ay` boundary, alongside its separate real protocol checks.
-Its held-F6 evidence must show actual repeated delivery to the original handler
-while the next request is pending. A duplicate discarded before delivery cannot
-pass that coverage check. The temporary observer is removed afterward.
+
+The local schema3 proposal reports `exo-surface-gtk-v3`. It separates a native
+held-key transition from synthetic repeat guards. It is pending peer review and
+fresh native validation. It does not change the current release criteria.
+The old v2 failures remain failed. Their duplicate virtual pressed-state requests
+produced one GTK F6 press and a release, without the required delivered repeat.
+
+The proposed native driver holds F6 in one `wtype` invocation, waits for actual
+A review, card activation and `Card.armed()`, then supplies one stdin `y` plus
+EOF. It never moves the native card's arm timestamp. The native record requires
+exactly A's allow response, all nine `yesterday` key events with positive codes
+while F6 remains latched and B stays unreviewed, full entry/model text, a matching
+F6 release and latch clearance, then a fresh native F6 review and armed denial
+of exact B. Any repeat that actually arrives must still be rejected.
+
+On every backend, separately labeled synthetic callbacks exercise the actual
+Card/SurfaceUI methods for repeat rejection, preview remapping, five modifier
+masks, held Y and activation loss. These use a private test clock and an explicit
+activation getter substitution. They do not certify native repeat or modified
+key delivery. They run after native observers are removed.
 The timing-only unarmed assertions use a frozen clock so compositor latency cannot
 turn a pre-arm assertion into an assertion after the guard has already expired.
 
-The v2 prompt checks require a mapped entry target and actual `wtype` delivery.
+The retained prompt checks require a mapped entry target and actual `wtype` delivery.
 The `exo focus marker` text must arrive in full in both entry and model, with the matching
 sequence of positive physical key codes, no response sent and no review entered.
 The checks cover unsolicited panels, drawer closure, approval deferral and
@@ -83,7 +107,7 @@ guards, and explicit drawer activation checks, retain their separate requirement
 Another native check injects a panel update while `yesterday` is being typed in
 a separate work window. It requires the full text and physical key sequence in
 that window, its active focus target preserved, unchanged prompt/model text and
-no responses sent. The result validator requires all v2 evidence, rejects
+no responses sent. The result validator requires all schema3 evidence, rejects
 incomplete or synthetic native records, and checks the probe's exit status.
 Private Broadway reports its keyboard coverage as `synthetic`.
 

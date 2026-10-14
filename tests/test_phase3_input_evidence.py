@@ -35,7 +35,7 @@ def test_wrong_input_context_or_original_outcome_cannot_pass(index, change):
 
 def test_standalone_probe_staging_includes_its_observer_module():
     root = Path(__file__).resolve().parents[1]
-    assert "for file in probe-surface-gtk.py phase3_input_evidence.py" in root.joinpath("tools/accept-phase3.sh").read_text()
+    assert "for file in probe-surface-gtk.py phase3_input_evidence.py phase3_native_held.py phase3_stdin.py phase3_callback_guards.py" in root.joinpath("tools/accept-phase3.sh").read_text()
     assert "image/mkosi.postinst.chroot tools pyproject.toml" in root.joinpath("tools/test-linux.sh").read_text()
 
 

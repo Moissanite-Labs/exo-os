@@ -1,6 +1,7 @@
 """The phase 3 harness must refuse incomplete or unlayered GTK evidence."""
 import json
 import copy
+from phase3_records import held_record, guard_record
 import os
 import subprocess
 import sys
@@ -12,7 +13,7 @@ PROBE = TOOLS / "probe-surface-gtk.py"
 STAGES = ("unsolicited-panels", "panels-close", "updated-panels-close", "unsolicited-panel-update",
           "approval-defer", "external-work-return", "generic-answer-return")
 MARKER = "exo focus marker"
-PASS = {"probe": "exo-surface-gtk-v2", "backend": "wayland-layer", "layered": True, "status": "PASS",
+PASS = {"probe": "exo-surface-gtk-v3", "backend": "wayland-layer", "layered": True, "status": "PASS",
         "gsk_renderer": "cairo", "renderers": {name: "GskCairoRenderer" for name in ("bar", "drawer", "card")},
         "external_panel_update": {"mode": "native", "text": "yesterday", "events": [
             {"keyval": ord(char), "code": 8 + index} for index, char in enumerate("yesterday")],
@@ -22,12 +23,7 @@ PASS = {"probe": "exo-surface-gtk-v2", "backend": "wayland-layer", "layered": Tr
             "model_text": MARKER, "events": [{"keyval": ord(char), "code": 8 + index} for index, char in enumerate(MARKER)],
             "sent_delta": 0, "review_unchanged": True, "reviewed": False, "entry_target": True, "mapped": True,
             "gtk_active": False, "panel_update_injected": stage == "unsolicited-panel-update"} for stage in STAGES]},
-        "held_f6": {"mode": "native", "released": True, "a_allowed": 1, "b_responses": 0,
-                    "reviewed": False, "prompt_text": "yesterday", "events": [
-                        {"pending_id": "held_f6_a", "reviewed_id": None, "code": 77,
-                         "held_before": False, "blocked": False, "accepted": True},
-                        {"pending_id": "held_f6_b", "reviewed_id": None, "code": 77,
-                         "held_before": True, "blocked": False, "accepted": False}]}}
+        "held_f6": held_record(), "adversarial_guards": guard_record()}
 
 
 def validate(payload, exit_code=0):
@@ -40,7 +36,7 @@ def validate(payload, exit_code=0):
 def test_phase3_accepts_only_complete_layered_probe_evidence():
     assert validate(PASS) == 0
     for bad in ("", "SMOKE OK layer-shell", "{}", {**PASS, "status": "FAIL"},
-                {**PASS, "layered": False}, {**PASS, "backend": "broadway-private"},
+                {**PASS, "layered": False}, {**PASS, "layered": 1}, {**PASS, "backend": "broadway-private"},
                 {"probe": PASS["probe"], "status": "PASS", "layered": True},
                 {**PASS, "gsk_renderer": "gl"},
                 {**PASS, "renderers": {**PASS["renderers"], "card": "GskGLRenderer"}},
@@ -50,7 +46,8 @@ def test_phase3_accepts_only_complete_layered_probe_evidence():
                 {**PASS, "held_f6": {**PASS["held_f6"], "events": PASS["held_f6"]["events"][:1]}},
                 {**PASS, "held_f6": {**PASS["held_f6"], "b_responses": 1}},
                 {**PASS, "held_f6": {**PASS["held_f6"], "released": False}},
-                {**PASS, "probe": "exo-surface-gtk-v1"},
+                {**PASS, "probe": "exo-surface-gtk-v1"}, {**PASS, "probe": "exo-surface-gtk-v2"},
+                {**PASS, "adversarial_guards": {"mode": "native"}},
                 {**PASS, "prompt_delivery": {"mode": "synthetic"}},
                 {**PASS, "prompt_delivery": {"mode": "native", "checks": PASS["prompt_delivery"]["checks"][:-1]}},
                 {**PASS, "prompt_delivery": {"mode": "native", "checks": list(reversed(PASS["prompt_delivery"]["checks"]))}},
@@ -94,3 +91,12 @@ def test_shared_probe_refuses_an_inherited_desktop_or_missing_vm_opt_in():
                                 capture_output=True, text=True, timeout=10)
         assert result.returncode != 0 and "disposable" in result.stderr
         assert result.stdout == ""
+
+
+def test_schema3_rejects_old_results_missing_guards_and_oversized_output():
+    for version in ('exo-surface-gtk-v1', 'exo-surface-gtk-v2'):
+        assert validate({**PASS, 'probe': version}) != 0
+    old = copy.deepcopy(PASS)
+    old.pop('adversarial_guards')
+    assert validate(old) != 0
+    assert validate(json.dumps(PASS) + ' ' * 65536) != 0

@@ -6,7 +6,7 @@ import re
 import sys
 
 from phase3_input_evidence import (PROMPT_STAGES, native_external_panel_delivered, native_prompt_delivered,
-                                 native_repeat_delivered)
+                                 native_held_transition_delivered, adversarial_guards_checked)
 
 
 def main() -> int:
@@ -17,14 +17,21 @@ def main() -> int:
     if args.exit_code != 0:
         return 1
     try:
-        actual = json.load(sys.stdin)
+        payload = sys.stdin.read(65537)
+        if len(payload.encode()) > 65536:
+            return 1
+        actual = json.loads(payload)
     except (json.JSONDecodeError, UnicodeError):
         return 1
-    expected = {"probe": "exo-surface-gtk-v2", "backend": args.backend,
+    expected = {"probe": "exo-surface-gtk-v3", "backend": args.backend,
                 "layered": args.backend == "wayland-layer", "status": "PASS",
                 "gsk_renderer": "cairo" if args.backend == "wayland-layer" else "default"}
     if not isinstance(actual, dict) or set(actual) != {*expected, "renderers", "held_f6", "prompt_delivery",
-                                                    "external_panel_update"}:
+                                                    "external_panel_update", "adversarial_guards"}:
+        return 1
+    if not adversarial_guards_checked(actual.pop("adversarial_guards")):
+        return 1
+    if actual["layered"] is not (args.backend == "wayland-layer"):
         return 1
     external = actual.pop("external_panel_update")
     if args.backend == "wayland-layer":
@@ -43,13 +50,7 @@ def main() -> int:
         return 1
     held = actual.pop("held_f6")
     if args.backend == "wayland-layer":
-        if (not isinstance(held, dict) or set(held) != {"mode", "events", "released", "a_allowed",
-                                                     "b_responses", "reviewed", "prompt_text"}
-                or held["mode"] != "native"
-                or type(held["a_allowed"]) is not int or held["a_allowed"] != 1
-                or type(held["b_responses"]) is not int or held["b_responses"] != 0
-                or held["reviewed"] is not False or held["prompt_text"] != "yesterday"
-                or not native_repeat_delivered(held["events"], released=held["released"])):
+        if not native_held_transition_delivered(held):
             return 1
     elif held != {"mode": "synthetic"}:
         return 1

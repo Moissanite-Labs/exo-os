@@ -185,7 +185,7 @@ echo "      surface PSS: ${pss:-?} MB; background: $(as_exo hyprctl getoption mi
 # creates its own widgets on the same compositor without calling a model or
 # replacing installed runtime files. Stop the actual instance first to avoid
 # its layer windows competing for focus, then restore it even if the probe fails.
-for file in probe-surface-gtk.py phase3_input_evidence.py; do
+for file in probe-surface-gtk.py phase3_input_evidence.py phase3_native_held.py phase3_stdin.py phase3_callback_guards.py; do
   ssh_vm "cat > /tmp/$file && chmod 0644 /tmp/$file" < "$here/tools/$file"
 done
 as_exo 'systemctl --user stop exo-surface.service'

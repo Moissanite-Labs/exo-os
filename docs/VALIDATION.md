@@ -654,3 +654,92 @@ allow response, no B response, the full `yesterday` text and observed F6 release
 are also required. Missing repeat delivery fails coverage. Private Broadway
 reports its separate synthetic check. Fresh-image native acceptance remains
 required; the earlier failed runs remain failed.
+
+
+Local schema3 proposal (pending peer review and fresh native validation)
+---------------------------------------------------------------------
+
+The proposed `exo-surface-gtk-v3` result separates native held-key transitions
+from synthetic callbacks on actual methods. The previous v2 failures stay failed.
+A new validator rejects legacy v2 records as schema3 proof. The local tools draft
+changes no installed runtime, core pin, release criteria or image acceptance result.
+The later mapped-activation source candidate is described separately below.
+
+One persistent `wtype -P F6 - -s 800 -d 150 yesterday -p F6` process waits on
+stdin. The parent supplies one literal `y` plus EOF only after actual A review,
+card activation and `Card.armed()`. Later communication retries send no input.
+The post-answer 800 ms delay is not ARM evidence. Native proof requires exactly
+A's allow response, nine positive delivered text key codes with F6 held and B
+unreviewed, full entry/model text, matching F6 release and latch clearance,
+then fresh native B review, actual ARM and exactly B's deny response. Any actual
+repeat must be rejected. No native timestamp is shifted in this witness.
+
+Separate synthetic checks run on every backend for repeat/remap, five modifier
+masks, held Y and activation loss. They invoke actual Card/SurfaceUI methods
+with a confined virtual clock and activation getter. Their records cannot count
+as native input. Host mutation tests must kill the eleven real guard mutations.
+The six process tests use a controlled executable stub and do not prove GTK or
+compositor behavior. Existing prompt, external-window, readability, direction,
+card activation and drawer checks remain required.
+
+Native arrays have hard limits and overflow fails. Failure snapshots emit FAIL
+before cleanup, retain bounded partial observations and never emit a partial
+PASS. The validator bounds input to 64 KiB. The whole VM probe remains bounded
+at 90 seconds, each wtype delivery at 30 seconds and owned-child cleanup at two.
+
+The guest helper inventory now also needs `phase3_native_held.py`,
+`phase3_stdin.py` and `phase3_callback_guards.py`. The proposed staging loop
+includes them. Linux test staging already copies all tools and tests. Record
+all helper hashes and the exact tools revision with any future diagnostic or
+acceptance result. `build-provenance.py` intentionally excludes acceptance tools
+from the runtime digest, so helper changes require their own recorded identity.
+They do not justify changing the frozen runtime digest or core pin.
+
+
+Local mapped-activation candidate (uninstalled)
+---------------------------------------------
+
+The untouched c2/v2 probe failed on private GTK4.14.5 Broadway at the original
+five-second held-F6 fallback activation check. The compact actual-widget trace
+shows the preceding card hidden and unmapped but still active before F6. F6
+reviews A and presents the card. The next observed inactive notification invokes
+review loss and hides A. This is an inherited c2 failure, before the new schema3
+callback block. The trace does not establish which earlier display request
+produced that notification.
+
+The first local fixture-only boundary candidate also failed. Its new five-second
+wait required the hidden card to become inactive, but the card retained its active
+flag throughout that wait. Both failures remain failed evidence. No getter was
+spoofed, assertion relaxed or deadline extended.
+
+The new local source candidate initializes the review's prior activation flag
+from `get_mapped() and is_active()`. A hidden card's retained flag cannot mark a
+new review as previously active. The activation-loss callback remains unchanged.
+Host actual-method tests reproduce the old initializer, keep a fresh unmapped
+review pending before its first activation, then verify revocation after actual
+mapped/active state is represented. A separate mapped-active control still
+revokes review and preserves held F6 without sending consent. These are explicit
+host widget states, not native event or timing evidence.
+
+The valid Broadway fixture boundary still requires a mapped active prompt target,
+a hidden unmapped card and no review before synthetic F6. The original five-second
+card activation wait remains unchanged. Native helpers, actual ARM requirements,
+delivery records and process limits remain unchanged. One private GTK run used
+the exact source candidate. A fresh image is required for later native validation
+of this runtime change. No current release criteria have been approved
+by this local proposal.
+
+
+That complete GTK4.14.5 Broadway probe and the strict schema3 validator both
+exited zero. All three actual renderers were GskBroadwayRenderer. The run reached
+the held-key fallback and every synthetic callback case. The unchanged actual
+review-active to other-window focus-loss check also completed. No independent
+compact mapped-loss trace was run. The explicit mapped-state negative regression
+is host actual-method evidence, and all keyboard coverage on Broadway remains
+labeled synthetic. The native driver and new runtime image remain unvalidated.
+
+The private evidence archive is `image/out/gtk-schema3-mapped-review/evidence.tar`,
+SHA256 `fd7d4657bcdb5952def1b16eac9c3cc32b2ba1329c3c0fd2ec57402b3b06e1a2`.
+It records source/import identities, GTK version, probe and validator exits and
+owned-process/socket cleanup. No VM or retries were used. The c2 baseline and
+first boundary failures remain failed, separate from this successful private run.

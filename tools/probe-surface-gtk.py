@@ -14,7 +14,10 @@ import time
 from pathlib import Path
 
 from phase3_input_evidence import (PROMPT_MARKER, native_external_panel_delivered, native_prompt_delivered,
-                                  native_repeat_delivered)
+                                  native_held_transition_delivered)
+from phase3_native_held import native_held_transition
+from phase3_callback_guards import callback_guards
+from phase3_stdin import finish_keys_with_input
 
 
 def probe_backend() -> str:
@@ -102,17 +105,17 @@ def timeout_snapshot(label):
                     "interactive": surface.drawer.interactive if name == "drawer" else None}
             except Exception as exc:
                 windows[name] = {"error": type(exc).__name__}
-    record = {"probe": "exo-surface-gtk-v2", "diagnostic": "timeout-snapshot", "status": "FAIL",
+    record = {"probe": "exo-surface-gtk-v3", "diagnostic": "timeout-snapshot", "status": "FAIL",
               "label": label, "windows": windows}
     payload = json.dumps(record, sort_keys=True)
     if len(payload.encode()) > 16384:
-        payload = json.dumps({"probe": "exo-surface-gtk-v2", "status": "FAIL", "label": label,
+        payload = json.dumps({"probe": "exo-surface-gtk-v3", "status": "FAIL", "label": label,
                               "diagnostic": "timeout-snapshot-oversized"})
     print(payload, file=sys.stderr, flush=True)
 
 
-def start_keys(*args):
-    return subprocess.Popen(["wtype", *args], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+def start_keys(*args, stdin=None):
+    return subprocess.Popen(["wtype", *args], stdin=stdin, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
 
 
 def finish_keys(proc):
@@ -512,49 +515,15 @@ ui.on_event(ev(s.ApprovalRequested(request_id="held_f6_b", summary="Second held-
 n = len(sent)
 held_f6_evidence = {"mode": "synthetic"}
 if backend == "wayland-layer":
-    # One virtual keyboard retains F6 while Y is pressed/released and a repeat is delivered.
-    # Exiting wtype itself releases held keys, so this must remain one invocation.
-    native_events, overflow = [], []
-    original_review_key = ui.card.fresh_review_key
+    held_f6_evidence = native_held_transition(
+        ui, A, s, sent, start_keys, finish_keys, wait_until, review_with_f6,
+        lambda proc, payload: finish_keys_with_input(proc, payload, pump, timeout_snapshot))
+    assert native_held_transition_delivered(held_f6_evidence), held_f6_evidence
 
-    def observe_review_key(keyval, code, state):
-        pending, reviewed = model.approval, model.reviewed_approval
-        blocked = (A.Gdk.ModifierType.SHIFT_MASK | A.Gdk.ModifierType.CONTROL_MASK |
-                   A.Gdk.ModifierType.ALT_MASK | A.Gdk.ModifierType.SUPER_MASK | A.Gdk.ModifierType.META_MASK)
-        row = {"pending_id": pending.request_id if pending else None,
-               "reviewed_id": reviewed.request_id if reviewed else None, "code": code,
-               "held_before": code in ui.card.review_keys, "blocked": bool(state and state & blocked)}
-        row["accepted"] = None
-        if len(native_events) < 128:
-            native_events.append(row)
-        else:
-            overflow[:] = [True]
-        accepted = original_review_key(keyval, code, state)  # call the original after recording input
-        row["accepted"] = accepted
-        return accepted
-
-    ui.card.fresh_review_key = observe_review_key
-    proc = None
-    try:
-        proc = start_keys("-P", "F6", "-s", "1200", "-k", "y", "-s", "800",
-                          "-P", "F6", "-s", "800", "-d", "150", "yesterday", "-p", "F6")
-        wait_until("held F6 enters only first review", lambda: model.reviewed_approval is not None
-                   and model.reviewed_approval.request_id == "held_f6_a" and ui.card.is_active())
-        ui.card.shown_at -= (A.ARM_MS + 50) * 1000
-        finish_keys(proc)
-        initial = next((row for row in native_events if row["pending_id"] == "held_f6_a"
-                        and row["accepted"] and row["code"] > 0), None)
-        assert initial is not None, native_events
-        wait_until("observed F6 release", lambda: initial["code"] not in ui.card.review_keys)
-        held_f6_evidence = {"mode": "native", "events": native_events,
-                            "released": initial["code"] not in ui.card.review_keys}
-        assert not overflow and native_repeat_delivered(native_events, released=held_f6_evidence["released"]), native_events
-    finally:
-        ui.card.fresh_review_key = original_review_key
-        if proc is not None and proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=2)
 else:
+    wait_until("held F6 fallback pending prompt settled", lambda: prompt_target_ready()
+               and not ui.card.get_visible() and not ui.card.get_mapped()
+               and not ui.card.reviewing and model.reviewed_approval is None)
     assert ui._bar_key(None, A.Gdk.KEY_F6, 77, None)
     wait_until("held F6 enters first fallback review", lambda: ui.card.reviewing and ui.card.is_active())
     armed_at = ui.card.shown_at
@@ -567,27 +536,18 @@ else:
     assert model.reviewed_approval is None
     ui.bar.entry.set_text("yesterday")  # fallback covers widgets; Wayland above supplies real keys
     ui.card._key_released(None, A.Gdk.KEY_F6, 77, None)
-assert len(sent) == n + 1 and sent[-1] == s.ApprovalRespond(
-    request_id="held_f6_a", decision="allow", client="exo-surface", binding="fa")
-assert model.reviewed_approval is None and model.approval.request_id == "held_f6_b"
-assert ui.bar.entry.get_text() == "yesterday" and model.text == "yesterday"
-if backend == "wayland-layer":
-    held_f6_evidence.update({
-        "a_allowed": sum(isinstance(body, s.ApprovalRespond) and body.request_id == "held_f6_a"
-                         and body.decision == "allow" for body in sent[n:]),
-        "b_responses": sum(isinstance(body, s.ApprovalRespond) and body.request_id == "held_f6_b"
-                           for body in sent[n:]),
-        "reviewed": model.reviewed_approval is not None, "prompt_text": ui.bar.entry.get_text()})
-ui.bar.entry.set_text("")
-review_with_f6()  # only the observed release permits a new gesture for B
-ui.card.shown_at -= (A.ARM_MS + 50) * 1000
-if backend == "wayland-layer":
-    finish_keys(start_keys("-k", "n"))
-else:
+if backend == "broadway-private":
+    assert len(sent) == n + 1 and sent[-1] == s.ApprovalRespond(
+        request_id="held_f6_a", decision="allow", client="exo-surface", binding="fa")
+    assert model.reviewed_approval is None and model.approval.request_id == "held_f6_b"
+    assert ui.bar.entry.get_text() == "yesterday" and model.text == "yesterday"
+    ui.bar.entry.set_text("")
+    review_with_f6()  # only the observed release permits a new gesture for B
+    ui.card.shown_at -= (A.ARM_MS + 50) * 1000
     ui.card._key(None, A.Gdk.KEY_n, 0, None)
     ui.card._key_released(None, A.Gdk.KEY_n, 0, None)
-assert len(sent) == n + 2 and sent[-1] == s.ApprovalRespond(
-    request_id="held_f6_b", decision="deny", client="exo-surface", binding="fb")
+    assert len(sent) == n + 2 and sent[-1] == s.ApprovalRespond(
+        request_id="held_f6_b", decision="deny", client="exo-surface", binding="fb")
 ui.on_event(ev(s.ApprovalResolved(request_id="held_f6_a", decision="allow")))
 ui.on_event(ev(s.ApprovalResolved(request_id="held_f6_b", decision="deny")))
 
@@ -760,12 +720,13 @@ ui.show(prof)
 wait_until("LTR profile refresh", lambda: all(w.get_direction() == Gtk.TextDirection.LTR
            for w in (ui.bar, ui.drawer, ui.card)))
 assert all(w.get_direction() == Gtk.TextDirection.LTR for w in (ui.bar, ui.drawer, ui.card))
+adversarial_evidence = callback_guards(ui, A, s, ev, sent)
 ui.hide()
 wait_until("surface hides", lambda: not ui.bar.get_visible() and not ui.drawer.get_visible())
 assert not ui.bar.get_visible() and not ui.drawer.get_visible()
-print(json.dumps({"probe": "exo-surface-gtk-v2", "backend": backend,
+print(json.dumps({"probe": "exo-surface-gtk-v3", "backend": backend,
                   "layered": all(w.layered for w in (ui.bar, ui.drawer, ui.card)),
                   "gsk_renderer": os.environ.get("GSK_RENDERER", "default"), "renderers": renderer_types,
-                  "held_f6": held_f6_evidence, "prompt_delivery": prompt_delivery,
+                  "held_f6": held_f6_evidence, "adversarial_guards": adversarial_evidence, "prompt_delivery": prompt_delivery,
                   "external_panel_update": external_panel_update,
                   "status": "PASS"}, sort_keys=True))

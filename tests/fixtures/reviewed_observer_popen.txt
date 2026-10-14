@@ -1,0 +1,93 @@
+"""Exact reviewed observer v2 class, process compatibility fixture only.
+
+Injected names are supplied by test_phase3_stdin; this is not an observer deploy.
+"""
+class ObservedPopen(original_popen):
+    STDERR_LIMIT = 256 * 1024
+
+    def __init__(self, args, *positional, **keywords):
+        self.observed_wtype = bool(isinstance(args, (list, tuple)) and args and args[0] == 'wtype')
+        self.observer_capture = self.observed_wtype and keywords.get('stderr') == subprocess.PIPE
+        self._stderr_prefix = bytearray()
+        self._stderr_total = 0
+        self._stderr_error = None
+        self._stderr_thread = None
+        if self.observed_wtype:
+            observer.record('wtype-launch', argv=list(args), debug_enabled=self.observer_capture)
+        if self.observer_capture:
+            environment = keywords.get('env')
+            keywords['env'] = {**(os.environ if environment is None else environment), 'WAYLAND_DEBUG': 'client'}
+        try:
+            super().__init__(args, *positional, **keywords)
+        except BaseException as exc:
+            if self.observed_wtype:
+                observer.record('wtype-launch-failure', error=repr(exc))
+            raise
+        if self.observer_capture:
+            # Drain immediately. The original probe waits for observable input
+            # before communicate(), so waiting to read this pipe can block wtype.
+            self._stderr_pipe = self.stderr
+            self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+            self._stderr_thread.start()
+
+    def _drain_stderr(self):
+        pipe = self._stderr_pipe.buffer if self.text_mode else self._stderr_pipe
+        read = getattr(pipe, 'read1', pipe.read)
+        try:
+            while True:
+                chunk = read(16384)
+                if not chunk:
+                    break
+                self._stderr_total += len(chunk)
+                remaining = self.STDERR_LIMIT - len(self._stderr_prefix)
+                if remaining > 0:
+                    self._stderr_prefix.extend(chunk[:remaining])
+        except Exception as exc:
+            self._stderr_error = repr(exc)
+            observer.record('wtype-stderr-drain-error', argv=self.args, error=self._stderr_error)
+        finally:
+            self._stderr_pipe.close()
+            captured = bytes(self._stderr_prefix)
+            overflow = max(0, self._stderr_total - len(captured))
+            if overflow:
+                observer.record('wtype-stderr-overflow', argv=self.args, bytes_read=self._stderr_total,
+                                retained_bytes=len(captured), dropped_bytes=overflow)
+            # Persist the drained prefix even if the original probe fails before
+            # it reaches communicate(). Return values are still handled there.
+            observer.record('wtype-stderr-drained', argv=self.args, bytes_read=self._stderr_total,
+                            retained_bytes=len(captured), overflow_bytes=overflow,
+                            wayland_stderr=captured)
+
+    def communicate(self, *args, **kwargs):
+        saved_stderr = self.stderr
+        if self.observer_capture:
+            # Only the drainer reads stderr. stdin/stdout, waiting and timeout
+            # behavior remain delegated to the original Popen implementation.
+            self.stderr = None
+        try:
+            result = super().communicate(*args, **kwargs)
+        except BaseException as exc:
+            if self.observed_wtype:
+                observer.record('wtype-communicate-failure', error=repr(exc))
+            if self.observer_capture and isinstance(exc, subprocess.TimeoutExpired):
+                exc.stderr = bytes(self._stderr_prefix)
+            raise
+        finally:
+            self.stderr = saved_stderr
+        if self.observer_capture:
+            self._stderr_thread.join(timeout=2)
+            if self._stderr_thread.is_alive():
+                observer.record('wtype-stderr-incomplete', argv=self.args, bytes_read=self._stderr_total)
+            captured = bytes(self._stderr_prefix)
+            overflow = max(0, self._stderr_total - len(captured))
+            returned = captured
+            if self.text_mode:
+                returned = captured.decode(self.encoding, self.errors or 'strict').replace('\r\n', '\n').replace('\r', '\n')
+            result = (result[0], returned)
+            observer.record('wtype-completed', argv=self.args, exit=self.returncode,
+                            wayland_stderr_bytes=self._stderr_total, retained_bytes=len(captured),
+                            overflow_bytes=overflow, wayland_stderr=captured)
+        elif self.observed_wtype:
+            observer.record('wtype-completed', argv=self.args, exit=self.returncode,
+                            diagnostic_capture=False)
+        return result

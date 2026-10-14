@@ -382,7 +382,9 @@ class Card(Gtk.Window):
         _keyboard(self, "EXCLUSIVE" if reviewing else "NONE")
         if reviewing:
             if changed:
-                self._review_was_active = self.is_active()
+                # A hidden GTK window can retain the preceding active flag.
+                # Only an already mapped card can carry activation into this review.
+                self._review_was_active = self.get_mapped() and self.is_active()
                 self.present()
                 self.summary.grab_focus()
         else:
