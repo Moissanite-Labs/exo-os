@@ -26,11 +26,15 @@ PASS = {"probe": "exo-surface-gtk-v3", "backend": "wayland-layer", "layered": Tr
         "held_f6": held_record(), "adversarial_guards": guard_record()}
 
 
-def validate(payload, exit_code=0):
+def validate_result(payload, exit_code=0, backend="wayland-layer"):
     text = payload if isinstance(payload, str) else json.dumps(payload)
-    return subprocess.run([sys.executable, str(VALIDATOR), "--backend", "wayland-layer",
+    return subprocess.run([sys.executable, str(VALIDATOR), "--backend", backend,
                            "--exit-code", str(exit_code)], input=text, text=True,
-                          capture_output=True, timeout=10).returncode
+                          capture_output=True, timeout=10)
+
+
+def validate(payload, exit_code=0):
+    return validate_result(payload, exit_code).returncode
 
 
 def test_phase3_accepts_only_complete_layered_probe_evidence():
@@ -53,8 +57,36 @@ def test_phase3_accepts_only_complete_layered_probe_evidence():
                 {**PASS, "prompt_delivery": {"mode": "native", "checks": list(reversed(PASS["prompt_delivery"]["checks"]))}},
                 {**PASS, "external_panel_update": {"mode": "synthetic"}},
                 {**PASS, "unchecked": True}):
-        assert validate(bad) != 0, bad
-    assert validate(PASS, exit_code=1) != 0  # a printed success cannot mask a failed process
+        run = validate_result(bad)
+        assert run.returncode != 0 and run.stdout == "", bad
+    run = validate_result(PASS, exit_code=1)
+    assert run.returncode != 0 and run.stdout == ""  # printed success cannot mask a failed process
+
+
+def test_native_output_does_not_claim_undelivered_repeat_was_rejected():
+    run = validate_result(PASS)
+    assert run.returncode == 0
+    assert "native held transition" in run.stdout
+    assert "repeat not delivered (not tested)" in run.stdout
+    assert "repeat delivered/rejected" not in run.stdout
+    assert "adversarial guards: synthetic-actual-methods" in run.stdout
+
+
+def test_delivered_repeat_is_reported_only_when_rejection_validates():
+    payload = copy.deepcopy(PASS)
+    held = payload["held_f6"]
+    held["events"].insert(1, {"pending_id": "held_f6_b", "reviewed_id": None, "code": 9,
+                             "held_before": True, "blocked": False, "accepted": False})
+    held["fresh_b_start_index"] = 2
+    held["repeat_after_b_delivered"] = True
+    run = validate_result(payload)
+    assert run.returncode == 0
+    assert "repeat delivered/rejected" in run.stdout
+    assert "repeat not delivered" not in run.stdout
+    assert "adversarial guards: synthetic-actual-methods" in run.stdout
+    held["events"][1]["accepted"] = True
+    run = validate_result(payload)
+    assert run.returncode != 0 and run.stdout == ""
 
 
 def test_native_keyboard_evidence_rejects_local_focus_without_real_keys_or_unintended_actions():
@@ -70,9 +102,11 @@ def test_private_broadway_result_explicitly_reports_synthetic_keyboard_coverage(
     payload = {**PASS, "backend": "broadway-private", "layered": False, "gsk_renderer": "default",
                "held_f6": {"mode": "synthetic"}, "prompt_delivery": {"mode": "synthetic"},
                "external_panel_update": {"mode": "synthetic"}}
-    run = subprocess.run([sys.executable, str(VALIDATOR), "--backend", "broadway-private", "--exit-code", "0"],
-                         input=json.dumps(payload), capture_output=True, text=True, timeout=10)
+    run = validate_result(payload, backend="broadway-private")
     assert run.returncode == 0
+    assert "keyboard coverage: synthetic" in run.stdout
+    assert "adversarial guards: synthetic-actual-methods" in run.stdout
+    assert "native held transition" not in run.stdout and "repeat delivered/rejected" not in run.stdout
 
 
 def test_external_panel_update_requires_observed_typing_without_stealing_focus_or_answering():
