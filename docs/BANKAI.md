@@ -512,12 +512,14 @@ pass or fail, and lists what it needs from the harness. No dates; order by depen
 
 The draft stack (#26 to #94) is most of phase 4's mechanism. It is not yet Exo OS until it is merged.
 
-- **Work.** Independent review of the stack (an authentic second seat, not an internal pass); one combined candidate
-  with real merge ancestry; a fresh image; every acceptance script on that exact image; merge in order; README status
-  that says only what the scripts showed.
+- **Work.** Each foundation PR gets the other half's exact-head MERGE verdict and a green full Linux host suite at
+  that head. Merge contiguous batches in order with merge commits. Then build one combined candidate with real
+  merge ancestry, record its source set, and run every acceptance script on that exact fresh image. README status
+  says only what the scripts showed. Main merges do not claim an image is ready.
 - **Exit.** On one image built from one recorded commit set: phases 1 to 3 pass in full (including the GTK probe), the
   isolation probe proves protected-state denial (#48), the ledger authority provisions and verifies, spend starts at
-  zero, and boot recovery actually reboots into a checkpoint and back. `main` equals what was tested.
+  zero, and boot recovery actually reboots into a checkpoint and back. Release and image-ready claims name the exact
+  tested source set and image. Later main commits do not inherit that acceptance.
 - **Harness needs.** When the pin moves past Exo `ea71960`, use `eng.approvals` (bus #297). Whatever core `cff62d1`
   carries in draft (witness transport) must land in Exo before the OS depends on it on main.
 
@@ -599,8 +601,11 @@ The draft stack (#26 to #94) is most of phase 4's mechanism. It is not yet Exo O
   then build a fresh image and run the acceptance scripts on that exact image (OS-13). Several ready changes may be
   combined into one candidate with real merge ancestry for image evidence; each PR keeps its own owner. Never claim a
   pass you did not see on the image you name.
-- **Merges.** saga-divan merges the harness (`aska-digital/exo`) pull requests and reviews and merges exo-os ones. A
-  draft stays draft until an independent review and the image evidence exist.
+- **Merges.** saga-divan merges the harness (`aska-digital/exo`) pull requests. For exo-os, the other half reviews each
+  exact head, records real defects as inline comments, and sends MERGE or FIX with the comment IDs on the bus.
+  A draft requests that review. Saga-divan marks it ready and merges after MERGE and a green full Linux host suite at
+  the same head. Use merge commits for contiguous batches, with every blocking comment resolved or named. Native VM
+  acceptance is required before release and image-ready claims.
 - **Decisions.** Anything that needs A's call gets the `needs decision` label, with the options and the trade written
   plainly in the issue. Remove the label once A rules. A technical choice inside the builders' remit is made by the
   builders and recorded as an `OS-NN` entry in `DECISIONS.md` (next free number across all branches).
