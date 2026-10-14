@@ -16,8 +16,10 @@ change the expected peer uid or receipt trust anchor. Unsupported peer-credentia
 platforms fail closed.
 
 The helper publishes only its Ed25519 **public** key, atomically and with mode
-0644, at `/run/exo-sysd/receipt.pub`. Its directory is root-owned mode 0755. The
-private seed remains at `/var/lib/exo-sysd/sysd.key`, mode 0600, in the helper's
+0644, at `/var/lib/exo-sysd-public/receipt.pub`. Its directory is root-owned mode
+0755, created at boot by `tmpfiles.d/exo-sysd.conf`, and it is not a service runtime
+directory, so the key survives a reboot and a stopped service. The helper rewrites
+it on every start. The private seed remains at `/var/lib/exo-sysd/sysd.key`, mode 0600, in the helper's
 private state directory. The client rejects symlinked, non-root-owned, or
 user/group-writable public-key files and ancestors; it verifies receipts against
 this independent local anchor, never the key supplied by the reply. The key is
@@ -85,10 +87,17 @@ No design can guarantee a user outbox write on a failed/full filesystem.
 public key, matches caller uid and filename/request id, and appends only missing
 `system.action` rows. It returns lists named `recorded`, `already_recorded`,
 `rejected`, `errors`, and `root_audit_errors`. It never connects to the helper or
-reruns an operation. Deduplication accepts only a matching, root-verified receipt
+reruns an operation. If the helper has never published a key and nothing is saved,
+there is nothing to verify and reconcile succeeds; with saved receipts and no key it
+fails closed. Any error, including a database error, becomes an `errors` entry and
+exit 1, never a traceback. Deduplication accepts only a matching, root-verified receipt
 already in a system-action ledger row. Normal append and reconciliation share an
-outbox file lock, preventing duplicate appends between these clients. Files are
-retained so reconciliation is repeatable after a crash. Reconciling the user
+outbox file lock, preventing duplicate appends between these clients. A receipt
+confirmed in the ledger moves, unchanged, to `sysd-outbox/recorded/` (0700) and is
+never deleted; a crash between the append and the move only means the next run
+dedupes it and moves it. `root_audit_errors` lists a signed root-log fault only
+when that run recorded the receipt, so a handled fault stops failing reconcile.
+Reconciling the user
 ledger cannot repair a failed root log append; that remains explicit in the
 summary and receipt.
 
@@ -132,5 +141,5 @@ activation and real pacman/snapper operations still require a fresh VM build and
 
 The CLI preserves a completed audit fault in JSON and exits 3, distinct from an ordinary failure.
 `exo-os system reconcile` (or `exo-os --json system reconcile`) records saved receipts only; it exits
-nonzero while rejected receipts or unresolved audit faults remain. The plugin returns the structured
+nonzero while rejected receipts, errors, or audit faults found in that run remain. The plugin returns the structured
 completed outcome, including the message to show the person, rather than a retryable tool error.
