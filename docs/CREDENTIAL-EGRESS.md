@@ -6,6 +6,11 @@ mandatory exact argument binding, one-shot consent, no standing grants, and
 approval even in observe mode. Gate decisions and tool outcomes use Exo's normal
 principal ledger and events. A denied call never reaches the egress client.
 
+The approval summary names the HTTP method, path and destination. Its literal JSON
+preview shows all request metadata before the complete body, so a large body cannot
+hide the operation. Control characters remain escaped without changing the bound
+request. Unknown or malformed fields stay visible and prevent approval.
+
 The action service does not give tool children network access. Bubblewrap,
 Landlock and seccomp still deny sockets and expose neither broker sockets nor
 credential paths. Unknown network tools remain refused. Human browser and
