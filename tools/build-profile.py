@@ -34,6 +34,8 @@ def selected_profile(args: list[str]) -> str:
                 option_value = args[index]
             if not option_value or option_value.startswith("-"):
                 raise ValueError(f"{arg.split('=', 1)[0]} requires a value")
+            if arg.split("=", 1)[0] == "--tools-tree" and option_value != "yes":
+                raise ValueError("only --tools-tree=yes is supported; custom tools trees lack a recorded digest")
             index += 1
             continue
         else:
