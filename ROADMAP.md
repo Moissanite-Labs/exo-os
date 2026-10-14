@@ -1,6 +1,6 @@
 # Exo OS roadmap: from a bootable VM image to daily use
 
-Date: 2026-10-13. Status: fresh-image acceptance incomplete. Read current rulings in `DECISIONS.md`.
+Date: 2026-10-14. Status: fresh-image acceptance incomplete. Read current rulings in `DECISIONS.md`.
 `DESIGN.md` and `DECISIONS-PROPOSED.md` preserve the original design and options.
 
 Rules for every phase:
@@ -36,7 +36,7 @@ The current source composition pins merged core main
 `5f434b15d53603d6a3f5461f4e858944e62c1128`, including witness transport. The
 witness publisher remains disabled until explicit administrator enrollment.
 This source requires its own image and native acceptance evidence. The schema3
-input-probe proposal remains pending peer review.
+input-probe proposal passed technical peer review on 2026-10-14 UTC.
 
 The historical `c2d1ad9` source and image used core
 `cff62d1e1afbc861e410659f1f26f01afd1ed249` and included the disabled publisher.

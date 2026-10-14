@@ -13,8 +13,11 @@ host_avail() { awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo; }
 "$here/tools/run-vm.sh" --mem "${EXO_OS_VM_MEM:-2560}" ${EXO_OS_VM_ARGS:-} > "$out/qemu.log" 2>&1 &
 qemu=$!
 trap 'kill $qemu 2>/dev/null' EXIT
-for _ in $(seq 1 60); do ssh_vm true 2>/dev/null && break; sleep 3; done
-ssh_vm 'systemctl is-system-running --wait >/dev/null'
+export -f ssh_vm  # accept-wait-ssh.py runs its probe through a fresh bash
+"$here/.venv/bin/python" "$here/tools/accept-wait-ssh.py" 300 - true \
+  || { echo "VM never came up for SSH within 300s; see $out/qemu.log" >&2; exit 1; }
+ssh_vm 'timeout 300 systemctl is-system-running --wait >/dev/null' \
+  || { echo "systemd never reached running within 300s; see $out/qemu.log" >&2; exit 1; }
 for _ in $(seq 1 30); do ssh_vm 'cd /tmp && as-exo systemctl --user is-active -q exo-surface' && break; sleep 2; done
 for url in https://web.whatsapp.com/ https://mail.google.com/ https://drive.google.com/; do
   ssh_vm "cd /tmp && as-exo sh -c 'setsid -f chromium --app=$url </dev/null >/dev/null 2>&1'"

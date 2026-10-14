@@ -20,8 +20,9 @@ the policy.
 File reads, writes, edits, patches, search and foreground shell commands run
 in a new bubblewrap user, mount, process, network, IPC and UTS namespace. The
 runtime is read-only; the home, store, SSH credentials, browser profile,
-compositor, bus and root-helper sockets are absent. Temporary home and runtime
-directories are new for every call. No host environment or file descriptors
+compositor, bus and root-helper sockets are absent. The temporary home directory
+is new for every call; the runtime is the host's read-only bind, identical each
+time. No host environment or file descriptors
 are passed through.
 
 Before dispatch, the child applies Landlock ABI 3 filesystem restrictions and

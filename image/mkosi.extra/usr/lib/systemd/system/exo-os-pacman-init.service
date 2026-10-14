@@ -10,6 +10,9 @@ After=time-sync.target
 
 [Service]
 Type=oneshot
+# Key generation blocks on entropy; the default 90s start timeout would kill a
+# slow first boot mid-generation and leave a half-initialized keyring.
+TimeoutStartSec=10min
 ExecStart=/usr/bin/pacman-key --init
 ExecStart=/usr/bin/pacman-key --populate archlinux
 ExecStartPost=/usr/bin/touch /etc/pacman.d/gnupg/exo-os-populated

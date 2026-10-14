@@ -109,7 +109,6 @@ site="${site:-$best}"
 [[ -f $generation/root/usr/bin/ukify ]] || die "systemd-ukify was not among the packages fetched"
 mkdir -p "$generation/bin"
 cp "$generation/root/usr/bin/ukify" "$generation/bin/ukify"
-rm -rf "$generation/bin/ordlookup"
 cp -r "$site/pefile.py" "$site/peutils.py" "$site/ordlookup" "$generation/bin/"
 # mkosi also runs `python3 -c "import pefile"` in that sandbox. When mkosi itself runs from an interpreter
 # outside /usr it looks python3 up on its search path, so give it a venv whose .pth adds our modules.
