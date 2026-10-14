@@ -415,6 +415,21 @@ The receipt binds the resulting raw image and
 manifest bytes. It does not authenticate archive assertions, resolved wheels or
 the host toolchain. Dependency resolution still includes `textual>=1`.
 
+The shared `as_exo` helper passes the complete command body as one quoted
+argument to `/usr/bin/bash -c` inside the VM's `as-exo` wrapper. Compound
+commands, pipelines and heredocs stay under the desktop user's identity.
+The wrapper's session environment and the VM identity gates are unchanged.
+
+Earlier VM diagnostics showed the old helper ran only the first compound stage
+as `exo`. Later stages ran in the outer root shell, so a user-service restoration
+check could query root's user manager. That result does not establish whether
+the Exo surface was restored.
+
+Host regressions execute remote shell parsing with a controlled wrapper stub.
+They check every stage's scope, the unchanged host UID, literal command data,
+standard input and exit status. They do not change UID or prove native service
+restoration or GTK behavior. A fresh VM run is still required.
+
 ## Still required
 
 Build the selected source candidate, record its identity and audit it, then run

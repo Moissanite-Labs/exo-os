@@ -3,6 +3,20 @@
 # Source after defining here, out, report, ssh_vm and result.
 set -Eeuo pipefail
 
+accept_shell_quote() {
+  # Quote one argument for the remote shell without evaluating its contents.
+  local value=$1
+  value=${value//\'/\'\\\'\'}
+  printf "'%s'" "$value"
+}
+
+accept_as_exo() {
+  # Callers supply shell command text. Keep the entire body under runuser,
+  # including compound commands, pipelines, substitutions and heredocs.
+  local command=$*
+  ssh_vm "cd /tmp && as-exo /usr/bin/bash -c $(accept_shell_quote "$command")"
+}
+
 accept_error() {
   local rc=$1 line=$2
   trap - ERR
