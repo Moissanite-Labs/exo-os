@@ -395,6 +395,17 @@ tools/test-linux.sh
 EXO_OS_DOCKER_CONTEXT=your-context tools/test-linux.sh
 ```
 
+`tools/test-linux.sh` runs pytest with a private `0700` base temporary directory
+(`/root/pt`, and `TMPDIR=/root/tmp`) because the witness and model-spend path
+checks refuse ancestors that others can write, and the container `/tmp` is
+world-writable. Pass your own `--basetemp` to override it. With
+`EXO_OS_SANDBOX_TESTS=1` the namespace pass always runs and reports, even if the
+main pass failed. On a Docker host whose kernel sets
+`kernel.apparmor_restrict_unprivileged_userns=1` (Colima's default VM), 8 of the 9
+namespace tests fail with `bwrap: loopback: Failed RTM_NEWADDR`. No container
+flag fixes this and the script does not change host settings, so run that pass on
+a host that allows unprivileged user namespaces.
+
 For an x86-64 guest on a host without KVM, QEMU can use TCG explicitly. The
 acceptance scripts keep a 180-second SSH deadline by default; set a larger
 positive value up to 900 seconds when emulation is slow. Firmware paths can be
