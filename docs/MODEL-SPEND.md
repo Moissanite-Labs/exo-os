@@ -130,7 +130,8 @@ policy. A stopped journal passes, so repair never clears a stop on valid state.
 Otherwise it acts only when the refused state shows the same lack of use as a
 cut-off first boot. `.owned` and `policy.json` are absent. The store holds only
 `model-spend`, the empty `exo` skeleton and any earlier repair directory, which must
-be `root:root 0700`. Every entry is a kind first boot writes, and a rollback journal
+be `root:root 0700`. Repair checks only that directory's own owner and mode. It does
+not read its contents. Every entry is a kind first boot writes, and a rollback journal
 never stands without its database. A journal, if present, has no call, no stop and
 an observed clock of zero under the `exo` UID. A temporary policy needs a journal
 with a committed identity beside it. Owners, modes, link counts and the number of
@@ -144,7 +145,8 @@ It then renames the `model-spend` entry into a new
 root-only, mode 0700, on the same subvolume. Nothing is deleted. The command then
 provisions a new journal with the zero-cap policy and prints JSON with the preserved
 path, the refusal and the new policy. Reboot afterwards. A cut during repair leaves
-`/var/lib/exo/model-spend-repair` in the store, which boot does not accept. Run
+`/var/lib/exo/model-spend-repair` in the store, which boot does not accept until the
+new policy is published. Run
 repair again. If the cut came after the old state was set aside, no `model-spend`
 is left. The store then holds only the empty skeleton and the repair directory: no
 policy and no journal, as at a fresh first boot. Repair provisions from there as
