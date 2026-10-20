@@ -20,6 +20,9 @@ KEY = Path('/var/lib/exo-sysd/sysd.key')
 LOG = Path('/var/lib/exo-sysd/audit.log')
 MAX_CONNECTIONS = 8
 IO_TIMEOUT = 5.0
+# Actions that only read system state. Everything else, including any action added later, is treated
+# as a mutation and serialized, so a new action is safe by default.
+READ_ONLY_ACTIONS = frozenset({'status', 'snapshot.list'})
 
 
 class Server:
@@ -27,7 +30,8 @@ class Server:
                  allowed_gid: int | None = None, *, public_key_path: Path = PUBLIC_KEY,
                  max_connections: int = MAX_CONNECTIONS, io_timeout: float = IO_TIMEOUT) -> None:
         self.actions, self.table = actions, actions.table()
-        self.lock = threading.Lock()
+        self.lock = threading.Lock()  # audit-log open, append and close only; never held while an action runs
+        self.mutation_lock = threading.Lock()  # mutating actions run one at a time
         self.slots = threading.BoundedSemaphore(max_connections)
         self.io_timeout = io_timeout
         self.log_path, self.allowed_gid = log_path, allowed_gid
@@ -53,12 +57,17 @@ class Server:
         if fn is None:
             return {'ok': False, 'error': f'exo-sysd does not do {action!r}'}
         started = time.monotonic()
-        # Execution, signature and root log append share one order. Open the log first:
-        # a known audit outage must never cause a mutation to run.
-        with self.lock:
+        # Mutations run one at a time, in the order they take the mutation lock. The audit log is opened
+        # first: a known audit outage must never cause a mutation to run. The action itself runs outside
+        # the log lock, so a slow action cannot block other requests.
+        mutation = None if action in READ_ONLY_ACTIONS else self.mutation_lock
+        if mutation is not None:
+            mutation.acquire()
+        try:
             log = None
             try:
-                log = self._open_log()
+                with self.lock:
+                    log = self._open_log()
             except OSError:
                 result, ok, err = None, False, 'root audit log unavailable; action was not run'
                 execution = 'not_started'
@@ -75,9 +84,10 @@ class Server:
             receipt = self._receipt(req, ok, result, err, uid, pid, started, execution)
             try:
                 if log is not None:
-                    log.write(encode(receipt))
-                    log.flush()
-                    os.fsync(log.fileno())
+                    with self.lock:
+                        log.write(encode(receipt))
+                        log.flush()
+                        os.fsync(log.fileno())
             except OSError:
                 # Preserve success and the actual result. Sign the audit failure too.
                 receipt = self._receipt(req, ok, result, err, uid, pid, started, execution,
@@ -88,6 +98,9 @@ class Server:
                         log.close()
                     except OSError:
                         pass
+        finally:
+            if mutation is not None:
+                mutation.release()
         return {key: receipt[key] for key in ('ok', 'result', 'error', 'audit_error', 'execution')} | {'receipt': receipt}
 
     def _open_log(self):
