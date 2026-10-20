@@ -61,6 +61,9 @@ The other six suites and witness cases are not run. Built:
   shortened desktop copy without repairing it. Explicit synchronization recovers committed rows.
   Writer attribution trusts the desktop account: processes running as `exo` can request signatures
   for any configured writer within its allowed author list. Separate writer keys do not isolate them.
+  The one exception is the `principal` writer, which signs only for the process the core's launch record
+  names (OS-21), though same-user code outside the tool box can make a record name itself. Other writers
+  may still attribute events to the principal (proposed OS-22).
 - **Model spend.** A root policy and persistent exo-owned journal start with zero daily/monthly paid
   ceilings and no priced routes. The offline fake model remains usable. Missing or altered spend state
   blocks login; status stays readable after an accounting stop. See [model spend](docs/MODEL-SPEND.md).

@@ -403,7 +403,9 @@ EXO_OS_DOCKER_CONTEXT=your-context tools/test-linux.sh
 (`/root/pt`, and `TMPDIR=/root/tmp`) because the witness and model-spend path
 checks refuse ancestors that others can write, and the container `/tmp` is
 world-writable. Pass your own `--basetemp` to override it. With
-`EXO_OS_SANDBOX_TESTS=1` the namespace pass always runs and reports, even if the
+`EXO_OS_SANDBOX_TESTS=1` the container is privileged, so the main pass also
+runs the principal binding's mount-namespace test, which is skipped otherwise.
+The namespace pass always runs and reports, even if the
 main pass failed. On a Docker host whose kernel sets
 `kernel.apparmor_restrict_unprivileged_userns=1` (Colima's default VM), 8 of the 9
 namespace tests fail with `bwrap: loopback: Failed RTM_NEWADDR`. No container

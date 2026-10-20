@@ -55,7 +55,9 @@ replaced by a fresh genesis, at boot or by root repair. This is the OS-17 rule i
 The shipped single-user inventory binds `/var/lib/exo/exo/principals/exo/ledger.sqlite`.
 Each writer uses its own event key: `exo-gate`, `exo-memory`, `exo-learn`, `exo-os`,
 `exo-onboard`, `exo-consolidate`, `ingest`, `agent`, `principal`, and the configured
-principal name. Memory defaults to agent attribution `exo-memory`; memory and
+principal name. A separate key does not separate callers. Only the `principal`
+writer is bound to one process, the core ([caller trust boundary](#caller-trust-boundary)).
+Memory defaults to agent attribution `exo-memory`; memory and
 learning permit the configured principal and literal `principal` attribution.
 Ingest permits its own attribution, these principal attributions and the fixed
 import labels `chatgpt`, `claude.ai`, `claude-code` and `grok`. Custom memory agents,
@@ -131,18 +133,110 @@ Provisioning sets every writer's caller list to `["exo"]`. The service checks
 the kernel UID (Unix user ID) against the selected stream/writer's caller list,
 and the journal enforces that writer's allowed author attributions. Distinct
 writer keys do not identify or isolate individual processes within the desktop
-UID. Writer attribution is only as strong as trust in that UID.
+UID. For every writer except `principal`, writer attribution is only as strong
+as trust in that UID.
+
+### The principal writer and the core's launch record
+
+An append as the `principal` writer is signed only for the core process that
+its launch record names (OS-21, issue #106). The core (`exo serve`) writes that
+record before its socket accepts, beside the socket:
+`/var/lib/exo/exo/run/exod.principal.key`, owner-only in an owner-only folder
+(Exo D-060). It binds the core's pid, user ID and process start identity for
+that launch.
+
+The signer runs as `exo-ledger` and cannot open that file. The exo-os client
+opens it and sends the open file with the append, as `SCM_RIGHTS` on the
+request's first bytes. The JSON request is unchanged. Before it touches the
+journal, the signer checks all of these:
+
+- One descriptor came, and no other ancillary data.
+- It is a regular file with one link, owned by the caller UID, with no group or
+  other access, at most 4 KiB, on the same filesystem as the core's home.
+- The kernel names it at the record's exact path, so a copy elsewhere does not
+  count, and an older record that a new launch replaced has no link left. The
+  kernel names the file through the sender's mounts. A store-filesystem file
+  that the sender mounted at that path in its own mount namespace does count
+  (see the first limit below).
+- It is a v1 record that names the connection's kernel peer: the same pid, the
+  caller UID, and the process start identity the signer read at accept.
+- That pid is still the same process.
+
+Any failure is a known refusal (`refused`), never an uncertain append, so the
+caller has nothing to look up. An append from any other process is refused,
+including one that holds the real record. Reads of the stream (`head`,
+`read_since`, `lookup`) keep the caller-UID rule, so any `exo` process can still
+verify and synchronize a projection that holds principal events. A descriptor on
+any other request refuses.
+
+The record also holds the core's principal token, and the signer reads the
+whole record into memory to check it. It uses only the version, pid, user ID
+and start identity, and it neither logs nor keeps the record. The token gives
+the signer nothing: the core grants principal standing only to a peer of its
+own user ID, `exo`, and its socket is in the same owner-only folder.
+
+In the shipped image nothing appends as `principal`. Exod writes as `exo-gate`,
+`exo-memory`, `exo-learn` and `exo-os`, and the OS commands and setup as
+`exo-os`. Command-line requests for the
+`principal` writer, such as `exo log append --author principal` or
+`exo ask answer --author principal`, now refuse on the image.
+
+What the binding does not cover:
+
+- Same-user code outside the tool box can still pass for the core, and need
+  leave no trace in the record. The signer cannot tell either route below from
+  the core:
+  - It rewrites the record to name itself, as D-060 says, appends, and puts the
+    original back. The real core's principal clients are refused only while
+    the rewritten record is in place.
+  - It makes an unprivileged user namespace, as the image allows outside the
+    box. In its own mount namespace it mounts a directory of the store
+    filesystem, such as one under `/var/lib/exo/exo`, over `run/`, and sends a
+    record there that names itself. The kernel names that file at the
+    record's path, and it is on the store filesystem, so the signer accepts
+    it. The real record is never touched. A file on another filesystem, such
+    as a tmpfs, is refused.
+
+  Tools in the box can do neither. Bubblewrap starts them with
+  `--disable-userns`, and the box's seccomp filter refuses `mount`, `unshare`,
+  `connect` and `sendmsg`. A check of the descriptor's mount against the
+  core's was not added: the first route would stay open to the same processes.
+- The configured principal's writer (`exo`, whose author is the store id), and
+  `exo-memory`, `exo-learn` and `ingest`, which may attribute an event to the
+  principal, still trust the desktop UID. So does `exo-gate`. Proposed OS-22 in
+  `DECISIONS-PROPOSED.md` sets out the choices.
+- A pid reused between connect and accept is not detected (D-060's limit).
+- The check reads `/proc` entries of the core's processes. `hidepid` or
+  `ProtectProc` for the signer would make it refuse every principal append.
+- The signer checks the descriptor's name before it asks the file's filesystem
+  anything. A process of the desktop user can already keep the signer's four
+  workers busy. A file at the record's path on a filesystem that never answers,
+  mounted in another mount namespace, would hold a worker past the request
+  deadline.
+- Native proof on a booted image is pending: that the kernel names exod's
+  descriptor at the record's path inside the signer's own mount namespace
+  (`ProtectSystem=strict`, `ProtectHome=yes`), so exod's append is accepted,
+  and a refusal for another `exo` process. The
+  host suites run the real signer `Server` on a real Unix socket with a real
+  launch record written by the core's own code
+  (`tests/test_ledger_principal_core.py`). Where the tests may mount (a
+  privileged container, `EXO_OS_SANDBOX_TESTS=1 tools/test-linux.sh`), another
+  process also mounts over `run/` in its own mount namespace: a tmpfs is
+  refused and a store-filesystem folder is accepted, as the first limit says.
+  Elsewhere that test is skipped.
+
+### Other writers
 
 Trusted providers, plugins and desktop applications running as `exo` can request
-signatures for any configured writer, subject to its allowed authors and append
-rules. They cannot read the signer's private keys or journal through these
-permissions. Those files remain owned by the separate `exo-ledger` account.
+signatures for any other configured writer, subject to its allowed authors and
+append rules. They cannot read the signer's private keys or journal through
+these permissions. Those files remain owned by the separate `exo-ledger` account.
 
 The tool sandbox creates an empty `/run` and does not expose the authority
 socket. This is the configured box boundary, with current native proof pending.
-Planned principal credentials and authenticated binding to a specific core
-process are not implemented. The current protocol authenticates a caller UID,
-not a particular provider, plugin, desktop application or human principal.
+The protocol authenticates a caller UID, and for the `principal` writer the core
+process. It does not identify a particular provider, plugin, desktop application
+or human principal.
 
 ## Runtime binding
 
@@ -167,7 +261,10 @@ verifies root-controlled ancestors, socket owner/mode/group, the listener's
 an intent. A root-created inherited listener alone does not prove the worker UID.
 Unexpected ancillary data and received descriptors are rejected and closed.
 The service authenticates the caller's kernel UID before reading payload, then
-checks the stream/writer against that account's exact manifest permissions.
+checks the stream/writer against that account's exact manifest permissions. A
+`principal` append must also carry the core's launch record as a descriptor
+([above](#the-principal-writer-and-the-cores-launch-record)). The service closes
+every descriptor it receives and refuses more than one.
 
 One strict finite JSON document, at most 1 MiB, travels per connection. Duplicate
 keys, unknown fields, caller-selected filesystem/key paths and excessive replay

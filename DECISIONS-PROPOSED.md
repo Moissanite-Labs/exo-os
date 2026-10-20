@@ -2,6 +2,8 @@
 
 **Ruled on 2026-10-12: see `DECISIONS.md` (OS-1 to OS-9). This file is kept as the record of the options.**
 
+Later proposals that need A's ruling follow D8, under their OS number, until A rules ([open proposals](#open-proposals)).
+
 Date: 2026-10-12. Status: ruled on 2026-10-12 (see `DECISIONS.md`). The text below is the proposal as it
 was put, with options, the trade and a recommendation. Numbering here (D1 to D8) is local to Exo OS. The
 rulings are recorded in this repository's `DECISIONS.md`, not in Exo's, since Exo OS is its own repository.
@@ -108,3 +110,36 @@ contents when helping, or only system state and logs?
 **Recommendation: (a).** Keep the image's component names visible (Arch, Hyprland, Chromium) and check each
 component's licence before any public image (not checked in this phase). Commit messages and public text
 carry no agent or team names (local `~/Work/CLAUDE.md`, rule 6).
+
+---
+
+## Open proposals
+
+### OS-22 (proposed, needs A). Which other ledger writers only a core may use
+
+Status: proposed 2026-10-20 with OS-21 (issue #106). Not decided. OS-21 binds the
+`principal` writer to the core process its launch record names. Other writers can
+still put an event in the principal's voice, or record a gate decision, from any
+process running as `exo` that reaches the signer's socket:
+
+- The configured principal's writer (`exo` in the image). Its author is the
+  principal's store id, which D-040 counts as the principal. `exo interview`
+  uses it from the command line.
+- `exo-memory`, `exo-learn` and `ingest`, which may attribute an event to
+  `principal` or the store id. Memory and learning run inside exod. `exo ingest`
+  runs from the command line.
+- `exo-gate`, which records gate decisions. The gate runs inside exod, and inside
+  a terminal window's own core when exod is not running. That core writes its own
+  launch record, beside `run/agent-<seat>.sock`.
+
+| Option | Trade |
+|---|---|
+| a. Bind all of them to exod, as OS-21 does for `principal` | Only exod can write in the principal's voice or record a gate decision. `exo interview`, `exo ingest` and `exo log append` lose those writes until the core takes them as commands from a principal caller (a core change). A terminal window's own core would fail its gate audit and, under the required executor, run no tools. |
+| b. Bind `exo-gate`, `exo-memory` and `exo-learn` to any core launch record in the home's `run/` folder, exod's or a terminal window's. Leave the command-line writers on the UID rule | Closes the in-core writers to tool processes and to every other process, and a terminal window's core keeps working. The principal's voice from `exo interview`, `exo ingest` and the principal-name writer stays as strong as the desktop UID. The signer must accept a small set of record paths. |
+| c. Keep the UID rule for all of them, as today | No change. Any process running as `exo` that reaches the socket can sign the principal's voice through these writers, or a gate decision. |
+
+**Recommendation: (b) now,** as a technical follow-up of OS-21, then (a) for the
+principal's voice once the core can take onboarding answers and imports as commands
+from a principal caller. **A must rule:** until then, may the command line keep
+writing in the principal's voice (`exo interview`, `exo ingest`, `exo log append`
+with the principal's id), trusting the desktop UID?
