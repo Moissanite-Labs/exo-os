@@ -1,0 +1,5 @@
+# Every pull request asks both repository admins for a review.
+# An author cannot approve their own pull request, so the other admin is
+# always the reviewer. This file is the review gate while the organization
+# plan does not offer branch protection for private repositories.
+* @ahrazzle @orda-aska
