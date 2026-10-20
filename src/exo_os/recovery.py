@@ -341,6 +341,25 @@ def process_start(pid: int, proc: Path = PROC) -> str | None:
         return None
 
 
+def holder_start(pid: int, proc: Path = PROC) -> str | None:
+    """Start time of a lock holder; None only when the process is provably gone.
+
+    Raises OSError or ValueError when the holder cannot be inspected or its stat is malformed.
+    Lack of evidence about a holder is never evidence that it is gone.
+    """
+    entry = proc / str(pid)
+    try:
+        stat_line = (entry / "stat").read_text()
+    except (FileNotFoundError, ProcessLookupError) as error:
+        if isinstance(error, ProcessLookupError) or not entry.exists():
+            return None  # no /proc entry, or ESRCH because it exited while being read
+        raise
+    start = stat_line[stat_line.rindex(")") + 2:].split()[19]
+    if not start.isdigit() or int(start) == 0:
+        raise ValueError(f"malformed start time for process {pid}")
+    return start
+
+
 def parse_holder(text: str) -> tuple[int, str] | None:
     """Parse "<pid> <start>"; a bare pid or a start of 0 means the start time is unknown ("0")."""
     parts = text.split()
@@ -404,7 +423,10 @@ def stale_lock_reason(package_lock: Path, proc: Path = PROC) -> str | None:
     holder = parse_holder(text)
     if holder is not None:
         pid, start = holder
-        current = process_start(pid, proc)
+        try:
+            current = holder_start(pid, proc)
+        except (OSError, ValueError, IndexError):
+            return None  # holder exists but cannot be read or validated: respect the lock
         if current is None:
             return f"holder process {pid} is gone"
         if start == "0":
