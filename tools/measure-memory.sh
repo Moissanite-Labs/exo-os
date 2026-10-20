@@ -13,6 +13,7 @@ host_avail() { awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo; }
 "$here/tools/run-vm.sh" --mem "${EXO_OS_VM_MEM:-2560}" ${EXO_OS_VM_ARGS:-} > "$out/qemu.log" 2>&1 &
 qemu=$!
 trap 'kill $qemu 2>/dev/null' EXIT
+export here  # the fresh bash gets the function from the environment; it needs the path it uses too
 export -f ssh_vm  # accept-wait-ssh.py runs its probe through a fresh bash
 "$here/.venv/bin/python" "$here/tools/accept-wait-ssh.py" 300 - true \
   || { echo "VM never came up for SSH within 300s; see $out/qemu.log" >&2; exit 1; }
