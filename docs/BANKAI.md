@@ -145,14 +145,15 @@ can read the record (`exo/principal.py`, `stamp`, checks the token, the uid, a l
 caller is not a descendant of the core). Nothing in this repo closes that gap; the proposed fix is P-5 (desktop apps in
 their own boxes, section 4; see also `docs/TOOL-ISOLATION.md`). Issue #16 (a replaced socket) is closed and is covered by
 D-060 `verify_daemon`. OS-21 (issue #106) binds only the ledger's `principal` writer to the core process, and the
-record it relies on can be rewritten by the same desktop code, so it does not close this gap either; the writers
-that may still attribute events to the principal from any `exo` process are proposed OS-22. The authority of the principal
-(approvals, learning signals, settings, model choice, policy acceptance) rests on the core's stamp, so on the OS the
-invariant holds for the surface and the root helper, not yet against a hostile same-user application. Check: a tool
-child, a detached grandchild and a replaced socket each try to act as the principal through the surface path, and
-each fails; another desktop app trying the same is a known gap until P-5 is built. Any process but the core that asks
-the ledger to sign as `principal` is refused, also with the real launch record in hand
-(`tests/test_ledger_principal_core.py`; on a booted image, pending).
+same desktop code can rewrite the record it relies on, or shadow it in a private mount namespace, so it does not
+close this gap either; the writers that may still attribute events to the principal from any `exo` process are
+proposed OS-22. The authority of the principal (approvals, learning signals, settings, model choice, policy
+acceptance) rests on the core's stamp, so on the OS the invariant holds for the surface and the root helper, not yet
+against a hostile same-user application. Check: a tool child, a detached grandchild and a replaced socket each try to
+act as the principal through the surface path, and each fails; another desktop app trying the same is a known gap
+until P-5 is built. Any process but the one the record names that asks the ledger to sign as `principal` is refused,
+also with the real launch record in hand (`tests/test_ledger_principal_core.py`; on a booted image, pending); a
+desktop app that makes a record name itself is the same known gap.
 
 **I-2. Provenance: every message and every record says who wrote it, stamped by the way it came in.**
 Source: D-040 (authors), D-010 (`PROVENANCE.toml` for lifted code), exo-os #88 and #90 (build inputs). Authors are

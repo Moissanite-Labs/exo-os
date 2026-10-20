@@ -153,9 +153,11 @@ journal, the signer checks all of these:
 - One descriptor came, and no other ancillary data.
 - It is a regular file with one link, owned by the caller UID, with no group or
   other access, at most 4 KiB, on the same filesystem as the core's home.
-- The kernel names it at the record's exact path. A copy, or a file in another
-  mount namespace, does not count. An older record that a new launch replaced
-  has no link left.
+- The kernel names it at the record's exact path, so a copy elsewhere does not
+  count, and an older record that a new launch replaced has no link left. The
+  kernel names the file through the sender's mounts. A store-filesystem file
+  that the sender mounted at that path in its own mount namespace does count
+  (see the first limit below).
 - It is a v1 record that names the connection's kernel peer: the same pid, the
   caller UID, and the process start identity the signer read at accept.
 - That pid is still the same process.
@@ -175,9 +177,24 @@ In the shipped image nothing appends as `principal`. Exod writes as `exo-gate`,
 
 What the binding does not cover:
 
-- Same-user code outside the tool box can rewrite the record to name itself, as
-  D-060 says. Doing so also stops the real core's principal clients until the
-  core restarts.
+- Same-user code outside the tool box can still pass for the core, and need
+  leave no trace in the record. The signer cannot tell either route below from
+  the core:
+  - It rewrites the record to name itself, as D-060 says, appends, and puts the
+    original back. The real core's principal clients are refused only while
+    the rewritten record is in place.
+  - It makes an unprivileged user namespace, as the image allows outside the
+    box. In its own mount namespace it mounts a directory of the store
+    filesystem, such as one under `/var/lib/exo/exo`, over `run/`, and sends a
+    record there that names itself. The kernel names that file at the
+    record's path, and it is on the store filesystem, so the signer accepts
+    it. The real record is never touched. A file on another filesystem, such
+    as a tmpfs, is refused.
+
+  Tools in the box can do neither. Bubblewrap starts them with
+  `--disable-userns`, and the box's seccomp filter refuses `mount`, `unshare`,
+  `connect` and `sendmsg`. A check of the descriptor's mount against the
+  core's was not added: the first route would stay open to the same processes.
 - The configured principal's writer (`exo`, whose author is the store id), and
   `exo-memory`, `exo-learn` and `ingest`, which may attribute an event to the
   principal, still trust the desktop UID. So does `exo-gate`. Proposed OS-22 in
@@ -190,8 +207,10 @@ What the binding does not cover:
   workers busy. A file at the record's path on a filesystem that never answers,
   mounted in another mount namespace, would hold a worker past the request
   deadline.
-- Native proof on a booted image is pending: an exod append through the
-  signer's own mount namespace, and a refusal for another `exo` process. The
+- Native proof on a booted image is pending: that the kernel names exod's
+  descriptor at the record's path inside the signer's own mount namespace
+  (`ProtectSystem=strict`, `ProtectHome=yes`), so exod's append is accepted,
+  and a refusal for another `exo` process. The
   host suites run the real signer `Server` on a real Unix socket with a real
   launch record written by the core's own code
   (`tests/test_ledger_principal_core.py`).

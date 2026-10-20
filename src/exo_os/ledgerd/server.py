@@ -45,8 +45,10 @@ def core_record(fd, expected: Path, uid: int) -> dict:
 
     The signer cannot open the record: it is private to the desktop user, in an owner-only folder. The caller
     opened it and passed the open file. It must be the private single-link file, owned by the caller, that the
-    kernel names at the record's place on the store filesystem, so a copy, a replaced record or a file in another
-    mount namespace does not count. The name is checked first, since it needs no call into the file's filesystem."""
+    kernel names at the record's place on the store filesystem, so a copy or a replaced record does not count.
+    The kernel names the file through the sender's mounts: a store-filesystem file mounted at the record's place
+    in the sender's own mount namespace passes, and a file on another filesystem refuses (docs/LEDGER-AUTHORITY.md).
+    The name is checked first, since it needs no call into the file's filesystem."""
     if fd_path(fd) != str(expected):
         raise AuthorityError("descriptor is not the core's current launch record")
     info = os.fstat(fd)

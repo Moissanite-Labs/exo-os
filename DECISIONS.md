@@ -273,10 +273,11 @@ unchanged. Details: `docs/LEDGER-AUTHORITY.md`.
 **Why.** Issue #106: every writer accepted any process running as `exo`, so a
 tool process that reached the socket could sign as `principal`. D-060 already
 names one process per launch, by pid and a start identity that a reused pid does
-not share. Binding to it closes the principal writer to every other process,
-including one that holds a copy of the record. No core change is needed, and
-nothing in the image appends as `principal`: exod writes as `exo-gate`,
-`exo-memory`, `exo-learn` and `exo-os`, and the OS commands as `exo-os`.
+not share. Binding to it closes the principal writer to every process the record
+does not name, including one that holds a copy of the record. No core change is
+needed, and nothing in the image appends as `principal`: exod writes as
+`exo-gate`, `exo-memory`, `exo-learn` and `exo-os`, and the OS commands as
+`exo-os`.
 
 **Rejected.** Letting the signer read the record: an ACL shows in the record's
 group bits, which the core's own reader refuses, and `CAP_DAC_READ_SEARCH` would
@@ -284,15 +285,22 @@ let the signer read every desktop file. A record sent as data: any process can
 write one that names itself. Exod's cgroup or parent: any process of the user can
 join that cgroup or be started by the user manager. A root service that copies the
 record for the signer: a new root component for the same strength, since the
-record's folder is the user's.
+record's folder is the user's. Checking the descriptor's mount against the
+core's mount namespace: the same processes can still rewrite the record and put
+it back, so it would not narrow who can sign, and it would tie the signer to
+the namespace the core runs in.
 
-**Limits.** Same-user code outside the tool box can rewrite the record to name
-itself, as D-060 says. That also stops the real core's principal clients until
-the core restarts. A pid reused between connect and accept is not detected. The
-check needs the core's `/proc` entries readable by the signer. Command-line
-requests for the `principal` writer (`exo log append --author principal`) now
-refuse on the image. The principal-name writer, `exo-memory`, `exo-learn` and
-`ingest` can still attribute events to the principal from any `exo` process, and
-`exo-gate` is unbound: proposed OS-22. Native proof on a booted image is pending:
-an exod append through the signer's mount namespace, and a refusal for another
-`exo` process.
+**Limits.** Same-user code outside the tool box can pass for the core without a
+trace in the record. It can rewrite the record to name itself (D-060), append,
+and put the original back; the real core's principal clients are refused only in
+between. Or, in an unprivileged user namespace, it can mount a directory of the
+store filesystem over `run/` in its own mount namespace and send a record there
+that names itself, leaving the real record untouched. The tool box can do
+neither. A pid reused between connect and accept is not detected. The check
+needs the core's `/proc` entries readable by the signer. Command-line requests
+for the `principal` writer (`exo log append --author principal`) now refuse on
+the image. The principal-name writer, `exo-memory`, `exo-learn` and `ingest` can
+still attribute events to the principal from any `exo` process, and `exo-gate`
+is unbound: proposed OS-22. Native proof on a booted image is pending: an exod
+append through the signer's mount namespace, and a refusal for another `exo`
+process.
