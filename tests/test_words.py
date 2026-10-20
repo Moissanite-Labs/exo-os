@@ -3,7 +3,8 @@ from exo_os.words import describe_call, plain_summary, plain_wording
 
 def test_describe_exo_os_calls():
     assert describe_call("system_package_install", {"names": ["htop"], "reason": "so you can see memory use"}) == \
-        "Install htop on this computer? Reason: so you can see memory use. It can be undone."
+        "Install htop on this computer? Reason: so you can see memory use. " \
+        "This refreshes the package lists and upgrades all system packages first. It can be undone."
     assert describe_call("machine_set", {"setting": "display.scale", "value": 1.25}) == "Change screen size to 125%?"
     assert describe_call("send_message", {"target": "Ahmed", "message": "Good morning"}) == \
         "Send this message to Ahmed? “Good morning”"
@@ -64,3 +65,18 @@ def test_unknown_tools_and_settings_are_not_malformed():
     assert plain_wording("machine_set", {"setting": "not.a.setting", "value": 1}) == (None, False)
     assert plain_wording("machine_set", {"setting": "idle.lock_seconds", "value": 0})[0] == \
         "Change lock the screen after to never?"
+
+
+def test_install_card_always_discloses_the_system_upgrade():
+    # sysd runs pacman -Sy then -Su, so an install upgrades every out-of-date package. The card must say so.
+    from exo_os import plugin, setup
+    from exo_os.sysd import actions
+
+    card = describe_call("system_package_install", {"names": ["htop"]}).lower()
+    assert "upgrades all system packages" in card and "refreshes the package lists" in card
+    assert "undone" in card
+    schema = {row[0]: row[3] for row in plugin.TOOLS}["system_package_install"]["description"].lower()
+    assert "upgrades all system packages" in schema
+    assert "upgrades all system packages" in setup.GATE_RULES
+    import inspect
+    assert '"-Su"' in inspect.getsource(actions.Actions.package_install)  # the claim above is still true

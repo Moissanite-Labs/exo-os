@@ -94,6 +94,11 @@ def _setting_words(setting: str, value: Any) -> str:
     return value_words(setting, value)
 
 
+# Every install runs a full system upgrade first (sysd package_install: pacman -Sy, then -Su). Every
+# place that describes package.install to a person says so, in these words.
+INSTALL_UPGRADE_NOTE = "This refreshes the package lists and upgrades all system packages first."
+
+
 def _describe(name: str, args: dict[str, Any] | None) -> str | None:
     a = {} if args is None else args
     if not isinstance(a, dict):
@@ -103,7 +108,7 @@ def _describe(name: str, args: dict[str, Any] | None) -> str | None:
         if not isinstance(names, list) or not names or not all(isinstance(n, str) and n.strip() for n in names):
             raise _Malformed("names")  # a bare string would otherwise read as one letter per package
         reason = f" Reason: {_q(_text(a, 'reason'))}." if _text(a, "reason") else ""
-        return f"Install {', '.join(names)} on this computer?{reason} It can be undone."
+        return f"Install {', '.join(names)} on this computer?{reason} {INSTALL_UPGRADE_NOTE} It can be undone."
     if name == "system_snapshot_undo":
         post = a.get("post")
         if not isinstance(post, str) or not post.strip():

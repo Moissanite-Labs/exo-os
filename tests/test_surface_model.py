@@ -636,7 +636,8 @@ def test_one_malformed_row_does_not_hide_the_other_approvals(bad_first):
     m.reconcile_approvals(rows if bad_first else rows[::-1], 5)
     shown = {a.request_id: a for a in m.approvals}
     assert set(shown) == {"bad", "good"}
-    assert shown["good"].summary == "Install git on this computer? Reason: x. It can be undone."
+    assert shown["good"].summary == ("Install git on this computer? Reason: x. This refreshes the package lists and upgrades "
+                                         "all system packages first. It can be undone.")
     assert shown["good"].options == ["allow", "deny"]
     assert shown["bad"].options == ["deny"]
 
