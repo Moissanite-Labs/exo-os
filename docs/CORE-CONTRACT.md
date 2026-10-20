@@ -12,7 +12,7 @@ the core into an OS fork. The current plugin, protocol-client, and ledger tests
 are the compatibility checks before moving that pin.
 
 The current source composition pins merged core main
-`859fbcc98e3fe9cc3af31cdc9d6b130db718e972`, including witness transport PR 88,
+`5f434b15d53603d6a3f5461f4e858944e62c1128`, including witness transport PR 88,
 the required executor and model-spend boundary. It requires its own image and
 native acceptance evidence. The schema3 input-probe proposal remains pending
 peer review. Host and private GTK checks do not establish image acceptance.
