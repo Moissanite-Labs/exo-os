@@ -374,7 +374,7 @@ def can_mount():
     """Root with CAP_SYS_ADMIN, as in tools/test-linux.sh with EXO_OS_SANDBOX_TESTS=1 (a privileged container)."""
     try:
         return subprocess.run(["unshare", "--mount", "--propagation", "private", "true"],
-                              capture_output=True, timeout=10).returncode == 0
+                              capture_output=True, timeout=10, check=False).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -402,7 +402,7 @@ def test_a_record_mounted_over_run_in_another_mount_namespace(authority, reasons
     raw = append_request("principal", "mounted-" + mounted, head)
     result = subprocess.run(["unshare", "--mount", "--propagation", "private", sys.executable, "-c", MOUNTED,
                              json.dumps(how), authority.path, json.dumps(raw), str(authority.record),
-                             str(authority.core_socket)], capture_output=True, text=True, timeout=60)
+                             str(authority.core_socket)], capture_output=True, text=True, timeout=60, check=False)
     assert result.returncode == 0, result.stderr
     reply = json.loads(result.stdout)
     assert authority.record.read_bytes() == genuine
