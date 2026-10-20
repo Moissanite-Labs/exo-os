@@ -184,6 +184,11 @@ What the binding does not cover:
 - A pid reused between connect and accept is not detected (D-060's limit).
 - The check reads `/proc` entries of the core's processes. `hidepid` or
   `ProtectProc` for the signer would make it refuse every principal append.
+- The signer checks the descriptor's name before it asks the file's filesystem
+  anything. A process of the desktop user can already keep the signer's four
+  workers busy. A file at the record's path on a filesystem that never answers,
+  mounted in another mount namespace, would hold a worker past the request
+  deadline.
 - Native proof on a booted image is pending: an exod append through the
   signer's own mount namespace, and a refusal for another `exo` process. The
   host suites run the real signer `Server` on a real Unix socket with a real

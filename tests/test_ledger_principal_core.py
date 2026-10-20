@@ -231,11 +231,12 @@ def test_record_naming_another_live_process_refuses(authority, reasons):
 
 NOT_THE_CORE = "only the core process named by its launch record may append as this writer"
 NOT_PRIVATE = "descriptor is not the core's private launch record"
+NOT_CURRENT = "descriptor is not the core's current launch record"
 CASES = {"no-descriptor": "this writer appends only with the core's launch record",
          "two-descriptors": None,  # refused while reading the request, before the binding
-         "copy-elsewhere": "descriptor is not the core's current launch record", "group-readable": NOT_PRIVATE,
+         "copy-elsewhere": NOT_CURRENT, "group-readable": NOT_PRIVATE,
          "wrong-start": NOT_THE_CORE, "wrong-uid": NOT_THE_CORE, "not-v1": "launch record is not a v1 record",
-         "pipe": NOT_PRIVATE, "other-device": NOT_PRIVATE}
+         "pipe": NOT_CURRENT, "other-device": NOT_PRIVATE}
 
 
 @pytest.mark.parametrize("case", list(CASES))
@@ -283,13 +284,14 @@ def test_a_replaced_launch_record_refuses(authority, reasons):
     head = authority.journal.head()
     fd = os.open(authority.record, os.O_RDONLY)
     try:
-        core.issue(authority.core_socket)  # a new launch replaces the record: the old file has no link left
+        # A new launch replaces the record. Linux names the old file '(deleted)'; it has no link left either way.
+        core.issue(authority.core_socket)
         reply = send(authority.path, append_request("principal", "stale", head), [fd])
     finally:
         os.close(fd)
     assert reply["state"] == "refused"
     unchanged(authority, head, "stale")
-    assert reasons == [NOT_PRIVATE]
+    assert reasons == [NOT_CURRENT] if sys.platform.startswith("linux") else reasons in ([NOT_CURRENT], [NOT_PRIVATE])
 
 
 def open_descriptors():

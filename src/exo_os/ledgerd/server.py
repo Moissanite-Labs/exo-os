@@ -22,13 +22,17 @@ from .wire import GREETING, MAX_WIRE, closing, decode, encode, read_request, req
 
 
 def fd_path(fd):
-    """The path the kernel names for an open descriptor; a replaced or removed file reads as '... (deleted)'."""
-    if sys.platform.startswith("linux"):
-        return os.readlink(f"/proc/self/fd/{fd}")
-    if sys.platform == "darwin":  # host tests only: the signer ships for Linux
-        import fcntl
-        return fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0].decode()
-    raise AuthorityError("descriptor paths are unavailable on this platform")
+    """The path the kernel names for an open descriptor, without asking its filesystem. On Linux a replaced or
+    removed file reads as '... (deleted)'."""
+    try:
+        if sys.platform.startswith("linux"):
+            return os.readlink(f"/proc/self/fd/{fd}")
+        if sys.platform == "darwin":  # host tests only: the signer ships for Linux
+            import fcntl
+            return fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0].decode()
+    except (OSError, UnicodeDecodeError):
+        pass
+    return None
 
 
 def store_device(home):
@@ -42,13 +46,13 @@ def core_record(fd, expected: Path, uid: int) -> dict:
     The signer cannot open the record: it is private to the desktop user, in an owner-only folder. The caller
     opened it and passed the open file. It must be the private single-link file, owned by the caller, that the
     kernel names at the record's place on the store filesystem, so a copy, a replaced record or a file in another
-    mount namespace does not count."""
+    mount namespace does not count. The name is checked first, since it needs no call into the file's filesystem."""
+    if fd_path(fd) != str(expected):
+        raise AuthorityError("descriptor is not the core's current launch record")
     info = os.fstat(fd)
     if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != uid or info.st_mode & 0o077
             or info.st_size > core.RECORD_MAX or info.st_dev != store_device(expected.parents[1])):
         raise AuthorityError("descriptor is not the core's private launch record")
-    if fd_path(fd) != str(expected):
-        raise AuthorityError("descriptor is not the core's current launch record")
     raw = os.pread(fd, core.RECORD_MAX + 1, 0)
     if len(raw) > core.RECORD_MAX:
         raise AuthorityError("launch record too large")
