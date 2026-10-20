@@ -169,6 +169,12 @@ including one that holds the real record. Reads of the stream (`head`,
 verify and synchronize a projection that holds principal events. A descriptor on
 any other request refuses.
 
+The record also holds the core's principal token, and the signer reads the
+whole record into memory to check it. It uses only the version, pid, user ID
+and start identity, and it neither logs nor keeps the record. The token gives
+the signer nothing: the core grants principal standing only to a peer of its
+own user ID, `exo`, and its socket is in the same owner-only folder.
+
 In the shipped image nothing appends as `principal`. Exod writes as `exo-gate`,
 `exo-memory`, `exo-learn` and `exo-os`, and the OS commands and setup as
 `exo-os`. Command-line requests for the
