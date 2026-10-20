@@ -509,12 +509,13 @@ def test_stage_refuses_checkpoint_missing_egress_mount_contract(image):
 def lock_env(tmp_path):
     proc = tmp_path / "proc"
     proc.mkdir()
+    fake_process(proc, os.getpid(), start="555")
     return tmp_path / "db.lck", tmp_path / "recovery.lock", proc
 
 
 def fake_process(proc, pid, start="100", comm="bash", cmdline=b"bash\0"):
     path = proc / str(pid)
-    path.mkdir()
+    path.mkdir(exist_ok=True)
     (path / "stat").write_text(f"{pid} ({comm} x) S " + " ".join(["0"] * 18 + [start, "0"]))
     (path / "comm").write_text(comm + "\n")
     (path / "cmdline").write_bytes(cmdline)
@@ -573,6 +574,105 @@ def test_empty_or_garbage_lock_refused_while_pacman_or_recovery_runs(tmp_path, c
         with r.administrator_lock(db, run, proc):
             pass
     assert db.read_text() == content
+
+
+@pytest.mark.parametrize("content", ["4242 0\n", "4242\n"])
+def test_unknown_holder_start_is_refused_while_pid_lives_and_taken_when_gone(tmp_path, content):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 4242, start="100")
+    db.write_text(content)
+    with pytest.raises(r.RecoveryError, match=str(db)):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert db.read_text() == content
+    (proc / "4242" / "stat").unlink()
+    (proc / "4242" / "comm").unlink()
+    (proc / "4242" / "cmdline").unlink()
+    (proc / "4242").rmdir()
+    with r.administrator_lock(db, run, proc):
+        assert db.read_text().split()[0] == str(os.getpid())
+
+
+def test_own_start_time_unreadable_refuses_and_writes_nothing(tmp_path):
+    db, run, proc = lock_env(tmp_path)
+    (proc / str(os.getpid()) / "stat").unlink()
+    with pytest.raises(r.RecoveryError, match="start time"):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert not db.exists()
+    db.write_text("4242 100\n")
+    with pytest.raises(r.RecoveryError, match="start time"):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert db.read_text() == "4242 100\n"
+
+
+@pytest.mark.parametrize("comm,cmdline", [
+    ("tail", b"tail\0-f\0/var/lib/pacman/db.lck\0"),
+    ("vim", b"vim\0/run/exo-os-recovery.lock\0"),
+    ("less", b"less\0exo_os.recovery\0"),
+    ("python3", b"python3\0edit.py\0exo-os-recovery.log\0"),
+    ("python3", b"python3\0-m\0http.server\0exo_os.recovery\0"),
+    ("grep", b"grep\0exo-os-recovery\0"),
+])
+def test_unrelated_process_naming_recovery_is_not_a_holder(tmp_path, comm, cmdline):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, os.getpid(), start="555")
+    fake_process(proc, 777, comm=comm, cmdline=cmdline)
+    db.write_text("")
+    with r.administrator_lock(db, run, proc):
+        assert db.read_text().split()[0] == str(os.getpid())
+
+
+@pytest.mark.parametrize("comm,cmdline", [
+    ("exo-os-recovery", b"/usr/bin/exo-os-recovery\0stage\0x\0"),
+    ("python3", b"python3\0/usr/bin/exo-os-recovery\0checkpoint\0"),
+    ("python3", b"python3\0-u\0-m\0exo_os.recovery\0checkpoint\0"),
+    ("python3", b"python3\0-mexo_os.recovery\0checkpoint\0"),
+])
+def test_real_recovery_invocations_are_detected(tmp_path, comm, cmdline):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 777, comm=comm, cmdline=cmdline)
+    assert r.package_or_recovery_running(proc)
+
+
+def test_takeover_rechecks_and_restores_lock_that_became_live(tmp_path, monkeypatch):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, os.getpid(), start="555")
+    fake_process(proc, 4242, start="100")
+    db.write_text("9999 1\n")  # stale when first checked
+    real_rename = os.rename
+
+    def racing_rename(src, dst):
+        Path(src).write_text("4242 100\n")  # a live holder takes the lock before the move
+        real_rename(src, dst)
+
+    monkeypatch.setattr(os, "rename", racing_rename)
+    with pytest.raises(r.RecoveryError, match=str(db)):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert db.read_text() == "4242 100\n"
+    assert not list(tmp_path.glob("db.lck.stale-*"))
+
+
+def test_takeover_leaves_no_aside_file_and_new_lock_wins_race(tmp_path, monkeypatch):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, os.getpid(), start="555")
+    db.write_text("9999 1\n")
+    with r.administrator_lock(db, run, proc):
+        assert not list(tmp_path.glob("db.lck.stale-*"))
+    db.write_text("9999 1\n")
+    real_rename = os.rename
+
+    def create_after_move(src, dst):
+        real_rename(src, dst)
+        Path(src).write_text("pacman owns this")
+
+    monkeypatch.setattr(os, "rename", create_after_move)
+    with pytest.raises(r.RecoveryError, match=str(db)):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert db.read_text() == "pacman owns this"
 
 
 def test_symlink_lock_is_never_taken_over(tmp_path):
