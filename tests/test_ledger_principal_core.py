@@ -34,12 +34,16 @@ pytestmark = pytest.mark.skipif(sys.platform not in ("linux", "darwin"),
 WRITERS = ("principal", "exo-os")
 
 # Another process of the same user: it connects, reads the greeting and sends one append, with the record's
-# descriptor when asked. It uses only the wire format, not the exo-os client.
+# descriptor when asked. Given the core's socket, it first writes a launch record that names itself. It uses only
+# the wire format, not the exo-os client.
 OTHER = r"""
 import array, json, os, socket, sys
+from exo import principal
 from exo_os.ledgerd import wire
 from exo_os.sysd.protocol import read_line
 path, raw, record = sys.argv[1], json.loads(sys.argv[2]), sys.argv[3]
+if len(sys.argv) > 4:
+    principal.issue(sys.argv[4])
 fds = [os.open(record, os.O_RDONLY)] if record else []
 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
     conn.settimeout(10)
@@ -125,6 +129,18 @@ def reasons(monkeypatch):
     return seen
 
 
+def after_record(monkeypatch, hook):
+    """Run ``hook`` in the signer after it has read the launch record and before it checks the record's process."""
+    original = server.core_record
+
+    def read_then_hook(*args):
+        record = original(*args)
+        hook()
+        return record
+
+    monkeypatch.setattr(server, "core_record", read_then_hook)
+
+
 def append_request(writer, operation, head):
     return {"version": 1, "nonce": "n" + operation, "stream": "fixture", "writer": writer, "op": "append",
             "operation_id": operation, "expected_head": {"seq": head["seq"], "chain": head["chain"]},
@@ -169,6 +185,14 @@ def unchanged(authority, head, operation, writer="principal"):
     assert authority.journal.lookup(operation, writer=writer) is None
 
 
+NOT_USER = "launch record names another user"
+NOT_PROCESS = "launch record names another process"
+NOT_START = "launch record names another process start"
+GONE = "the process that connected has ended or its pid was reused"
+NOT_PRIVATE = "descriptor is not the core's private launch record"
+NOT_CURRENT = "descriptor is not the core's current launch record"
+
+
 @pytest.mark.parametrize("with_record", [False, True], ids=["bare", "with-genuine-record"])
 def test_another_process_of_the_desktop_user_cannot_append_as_principal(authority, reasons, with_record):
     """The probe for #106. Before OS-21 the signer accepted this from any process of the caller UID."""
@@ -178,8 +202,7 @@ def test_another_process_of_the_desktop_user_cannot_append_as_principal(authorit
                           authority.record if with_record else "")
     assert reply["state"] == "refused" and reply["result"] is None, reply
     unchanged(authority, head, "forged")
-    assert reasons == ["only the core process named by its launch record may append as this writer" if with_record
-                       else "this writer appends only with the core's launch record"]
+    assert reasons == [NOT_PROCESS if with_record else "this writer appends only with the core's launch record"]
 
 
 def test_the_core_named_by_its_launch_record_appends_as_principal(authority):
@@ -223,19 +246,19 @@ def test_record_naming_another_live_process_refuses(authority, reasons):
         reply = as_core(authority, append_request("principal", "not-me", head), authority.record)
         assert reply["state"] == "refused"
         unchanged(authority, head, "not-me")
-        assert reasons == ["only the core process named by its launch record may append as this writer"]
+        assert reasons == [NOT_PROCESS]
     finally:
         other.kill()
         other.wait()
 
 
-NOT_THE_CORE = "only the core process named by its launch record may append as this writer"
-NOT_PRIVATE = "descriptor is not the core's private launch record"
-NOT_CURRENT = "descriptor is not the core's current launch record"
 CASES = {"no-descriptor": "this writer appends only with the core's launch record",
          "two-descriptors": None,  # refused while reading the request, before the binding
-         "copy-elsewhere": NOT_CURRENT, "group-readable": NOT_PRIVATE,
-         "wrong-start": NOT_THE_CORE, "wrong-uid": NOT_THE_CORE, "not-v1": "launch record is not a v1 record",
+         "copy-elsewhere": NOT_CURRENT, "group-readable": NOT_PRIVATE, "hard-link": NOT_PRIVATE,
+         "wrong-start": NOT_START, "wrong-uid": NOT_USER, "not-v1": "launch record is not a v1 record",
+         # This process's own start identity under another pid: on Linux a process started in the same clock tick
+         # has the same start identity, so only the pid sets the core apart.
+         "wrong-pid": NOT_PROCESS,
          "pipe": NOT_CURRENT, "other-device": NOT_PRIVATE}
 
 
@@ -258,9 +281,11 @@ def test_the_launch_record_must_be_the_cores_own(authority, reasons, monkeypatch
         paths = [copy]
     elif case == "group-readable":
         os.chmod(authority.record, 0o640)
-    elif case in ("wrong-start", "wrong-uid", "not-v1"):
+    elif case == "hard-link":  # the kernel still names the record's path, but the file has a second name
+        os.link(authority.record, authority.record.with_name("link.principal.key"))
+    elif case in ("wrong-start", "wrong-uid", "not-v1", "wrong-pid"):
         changed = {"wrong-start": {"start": record["start"] + "0"}, "wrong-uid": {"uid": record["uid"] + 1},
-                   "not-v1": {"v": 2}}[case]
+                   "not-v1": {"v": 2}, "wrong-pid": {"pid": record["pid"] + 1}}[case]
         authority.record.write_text(json.dumps({**record, **changed}))
         os.chmod(authority.record, 0o600)
     elif case == "other-device":
@@ -277,6 +302,41 @@ def test_the_launch_record_must_be_the_cores_own(authority, reasons, monkeypatch
     assert reply["state"] == "refused", case
     unchanged(authority, head, raw["operation_id"])
     assert reasons == ([CASES[case]] if CASES[case] else [])
+
+
+def test_a_process_that_ends_before_the_check_refuses(authority, reasons, monkeypatch):
+    """The record names the process that connected, and that process ends while the signer reads the record. Its
+    pid no longer names it when the signer checks, so the append refuses."""
+    reached, proceed = threading.Event(), threading.Event()
+    after_record(monkeypatch, lambda: (reached.set(), proceed.wait(30)))
+    head = authority.journal.head()
+    raw = append_request("principal", "ended", head)
+    child = subprocess.Popen([sys.executable, "-c", OTHER, authority.path, json.dumps(raw), str(authority.record),
+                              str(authority.core_socket)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        assert reached.wait(30), "the signer never read the child's launch record"
+        assert json.loads(authority.record.read_text())["pid"] == child.pid
+    finally:
+        child.kill()
+        child.wait()  # reaped: its pid names no process now
+        proceed.set()
+    # The listener serves one connection at a time, so this reply comes after the child's request is done.
+    reply = send(authority.path, {"version": 1, "nonce": "h", "stream": "fixture", "writer": "principal",
+                                  "op": "head", "seq": None})
+    assert reply["state"] == "ok"
+    unchanged(authority, head, "ended")
+    assert reasons == [GONE]
+
+
+def test_a_pid_reused_before_the_check_refuses(authority, reasons, monkeypatch):
+    """The record names the process that connected, but by the check its pid has another start identity."""
+    core.issue(authority.core_socket)
+    after_record(monkeypatch, lambda: monkeypatch.setattr(core, "proc_info", lambda pid: core.Proc(1, 0.0, "reused")))
+    head = authority.journal.head()
+    reply = as_core(authority, append_request("principal", "reused", head), authority.record)
+    assert reply["state"] == "refused"
+    unchanged(authority, head, "reused")
+    assert reasons == [GONE]
 
 
 def test_a_replaced_launch_record_refuses(authority, reasons):

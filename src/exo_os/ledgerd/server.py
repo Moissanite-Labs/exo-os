@@ -76,16 +76,22 @@ class Server:
     def bind_core(self, stream, uid, peer, fds):
         """OS-21: only the process the core's launch record names may append as a core-bound writer.
 
-        ``peer`` is the kernel's peer and its start identity, taken at accept. The record must name that pid,
-        this uid and that start identity, and the pid must still be that process now."""
+        ``peer`` is the kernel's peer and its start identity, taken at accept. The record must name this uid, that
+        pid and that start identity, and the pid must still be that process now. Each check stands on its own: on
+        Linux two processes started in the same clock tick share a start identity, and only the pid tells them
+        apart."""
         if len(fds) != 1 or self.records[stream] is None:
             raise AuthorityError("this writer appends only with the core's launch record")
         record = core_record(fds[0], self.records[stream], uid)
-        now = core.proc_info(peer.pid) if peer.pid else None
-        if (peer.uid != uid or record["uid"] != uid or record["pid"] != peer.pid or peer.ident is None
-                or now is None or not hmac.compare_digest(record["start"].encode(), peer.ident.encode())
-                or not hmac.compare_digest(now.ident.encode(), peer.ident.encode())):
-            raise AuthorityError("only the core process named by its launch record may append as this writer")
+        if peer.uid != uid or record["uid"] != uid:
+            raise AuthorityError("launch record names another user")
+        if record["pid"] != peer.pid:  # also a peer the kernel names no pid for (None, or 0 in another PID namespace)
+            raise AuthorityError("launch record names another process")
+        if peer.ident is None or not hmac.compare_digest(record["start"].encode(), peer.ident.encode()):
+            raise AuthorityError("launch record names another process start")
+        now = core.proc_info(peer.pid)
+        if now is None or not hmac.compare_digest(now.ident.encode(), peer.ident.encode()):
+            raise AuthorityError("the process that connected has ended or its pid was reused")
 
     def serve_connection(self, conn):
         fds = []  # descriptors the caller sent; closed however the connection ends
