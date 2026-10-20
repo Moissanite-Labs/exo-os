@@ -324,21 +324,92 @@ def firmware_check() -> None:
         raise RecoveryError("Recovery menu options require Secure Boot disabled for this unsigned image")
 
 
+PACKAGE_LOCK = Path("/var/lib/pacman/db.lck")
+RECOVERY_LOCK = Path("/run/exo-os-recovery.lock")
+PROC = Path("/proc")
+
+
+def process_start(pid: int, proc: Path = PROC) -> str | None:
+    """Return the kernel start time of a process, or None when it does not exist."""
+    try:
+        stat_line = (proc / str(pid) / "stat").read_text()
+        # The command name may contain spaces and parentheses; fields resume after the last one.
+        return stat_line[stat_line.rindex(")") + 2:].split()[19]
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def parse_holder(text: str) -> tuple[int, str] | None:
+    parts = text.split()
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit() and int(parts[0]) > 0:
+        return int(parts[0]), parts[1]
+    return None
+
+
+def package_or_recovery_running(proc: Path = PROC) -> bool:
+    """True when a pacman or another recovery process exists (pacman itself writes nothing into db.lck)."""
+    for entry in proc.iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            name = (entry / "comm").read_text().strip()
+            argv = (entry / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if name == "pacman" or any(b"exo-os-recovery" in item or b"exo_os.recovery" in item for item in argv):
+            return True
+    return False
+
+
+def stale_lock_reason(package_lock: Path, proc: Path = PROC) -> str | None:
+    """Why the existing lock is provably stale, or None when it must be respected."""
+    try:
+        if package_lock.is_symlink() or not package_lock.is_file():
+            return None
+        text = package_lock.read_text(errors="replace")
+    except OSError:
+        return None
+    holder = parse_holder(text)
+    if holder is not None:
+        pid, start = holder
+        current = process_start(pid, proc)
+        if current is None:
+            return f"holder process {pid} is gone"
+        if current != start:
+            return f"process id {pid} was reused by another process"
+        return None
+    if package_or_recovery_running(proc):
+        return None
+    return "lock file has no valid holder and no pacman or recovery process is running"
+
+
 @contextmanager
-def administrator_lock():
+def administrator_lock(package_lock: Path = PACKAGE_LOCK, recovery_lock: Path = RECOVERY_LOCK, proc: Path = PROC):
     # Use pacman's native lock too: checkpoints must not race a package transaction.
-    with open("/run/exo-os-recovery.lock", "a") as lock:
+    with open(recovery_lock, "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        package_lock = Path("/var/lib/pacman/db.lck")
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
         try:
-            descriptor = os.open(package_lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            descriptor = os.open(package_lock, flags, 0o600)
         except FileExistsError:
-            raise RecoveryError("Package transaction in progress; try after it finishes") from None
+            if stale_lock_reason(package_lock, proc) is None:
+                raise RecoveryError(
+                    f"Package transaction in progress; try after it finishes. Lock file: {package_lock}") from None
+            try:
+                package_lock.unlink()
+                descriptor = os.open(package_lock, flags, 0o600)
+            except OSError:
+                raise RecoveryError(f"Package lock could not be taken over. Lock file: {package_lock}") from None
         try:
-            os.close(descriptor)
+            with os.fdopen(descriptor, "w") as handle:
+                handle.write(f"{os.getpid()} {process_start(os.getpid(), proc) or 0}\n")
+        except BaseException:
+            package_lock.unlink(missing_ok=True)
+            raise
+        try:
             yield
         finally:
-            package_lock.unlink()
+            package_lock.unlink(missing_ok=True)
 
 
 def main(argv=None) -> int:

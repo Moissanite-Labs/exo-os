@@ -504,3 +504,89 @@ def test_stage_refuses_checkpoint_missing_egress_mount_contract(image):
     with pytest.raises(r.RecoveryError, match="egress"):
         helper.stage(checkpoint["id"])
     assert not any(args[:3] == ("btrfs", "subvolume", "snapshot") for args in calls)
+
+
+def lock_env(tmp_path):
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    return tmp_path / "db.lck", tmp_path / "recovery.lock", proc
+
+
+def fake_process(proc, pid, start="100", comm="bash", cmdline=b"bash\0"):
+    path = proc / str(pid)
+    path.mkdir()
+    (path / "stat").write_text(f"{pid} ({comm} x) S " + " ".join(["0"] * 18 + [start, "0"]))
+    (path / "comm").write_text(comm + "\n")
+    (path / "cmdline").write_bytes(cmdline)
+
+
+def test_administrator_lock_records_holder_and_releases(tmp_path):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, os.getpid(), start="555")
+    with r.administrator_lock(db, run, proc):
+        assert db.read_text() == f"{os.getpid()} 555\n"
+    assert not db.exists()
+
+
+def test_stale_lock_from_dead_holder_is_taken_over(tmp_path):
+    db, run, proc = lock_env(tmp_path)
+    db.write_text("4242 100\n")
+    with r.administrator_lock(db, run, proc):
+        assert db.read_text().split()[0] == str(os.getpid())
+    assert not db.exists()
+
+
+def test_live_holder_is_refused_and_lock_path_named(tmp_path):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 4242, start="100")
+    db.write_text("4242 100\n")
+    with pytest.raises(r.RecoveryError, match=str(db)):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert db.read_text() == "4242 100\n"
+
+
+def test_reused_pid_is_not_a_live_holder(tmp_path):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 4242, start="999")
+    db.write_text("4242 100\n")
+    with r.administrator_lock(db, run, proc):
+        assert db.read_text().split()[0] == str(os.getpid())
+
+
+@pytest.mark.parametrize("content", ["", "not a holder", "12", "1 2 3", "-5 7", "x y"])
+def test_empty_or_garbage_lock_taken_over_when_nothing_runs(tmp_path, content):
+    db, run, proc = lock_env(tmp_path)
+    db.write_text(content)
+    with r.administrator_lock(db, run, proc):
+        assert db.read_text().split()[0] == str(os.getpid())
+
+
+@pytest.mark.parametrize("content", ["", "garbage"])
+@pytest.mark.parametrize("comm,cmdline", [("pacman", b"pacman\0-Syu\0"),
+                                          ("python3", b"python3\0-m\0exo_os.recovery\0checkpoint\0")])
+def test_empty_or_garbage_lock_refused_while_pacman_or_recovery_runs(tmp_path, content, comm, cmdline):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 777, comm=comm, cmdline=cmdline)
+    db.write_text(content)
+    with pytest.raises(r.RecoveryError, match=str(db)):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert db.read_text() == content
+
+
+def test_symlink_lock_is_never_taken_over(tmp_path):
+    db, run, proc = lock_env(tmp_path)
+    target = tmp_path / "target"
+    target.write_text("")
+    db.symlink_to(target)
+    with pytest.raises(r.RecoveryError, match=str(db)):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert target.exists()
+
+
+@pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="needs Linux /proc")
+def test_process_start_reads_real_proc():
+    assert r.process_start(os.getpid()).isdigit()
+    assert r.process_start(2**22 + 12345) is None
