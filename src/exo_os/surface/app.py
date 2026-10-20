@@ -30,6 +30,7 @@ from gi.repository import Gio, GLib
 
 from .. import paths
 from ..profile import Profile
+from . import renderer
 
 APP_ID = "org.exo_os.Surface"
 PRELOAD_MARK = "EXO_SURFACE_PRELOADED"
@@ -148,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
     if lib and needs_preload(dict(os.environ), lib):
         os.execve(sys.executable, [sys.executable, "-m", "exo_os.surface.app", *argv[1:]],
                   preload_env(dict(os.environ), lib))
+    renderer.apply(os.environ)  # before GTK starts; logs the choice (OS-20)
     return Surface().run(argv)
 
 
