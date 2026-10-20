@@ -128,7 +128,7 @@ core at the current pin:
    The core stamps the principal only for the same user and the recorded process.
 
 The surface gets 2 and 3 by joining as `Client(principal="surface")`. The OS
-still has to keep the socket out of reach of tools (issues #16 and #106).
+still has to keep the socket out of reach of tools (see BANKAI.md I-1, P-5).
 Current behavior and limitations are documented in
 [SURFACE-RECOVERY.md](SURFACE-RECOVERY.md).
 

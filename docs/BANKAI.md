@@ -125,7 +125,9 @@ tool tree. What a request body says about its sender decides nothing. What the c
   stamps the principal only for the same user and a process that is not a descendant of the core. This code is Exo's,
   not this repo's; it is the principal client path, not a property of the OS image.
 - *Root helper.* exo-sysd checks `SO_PEERCRED` on every connection (`sysd/protocol.py`, `peer_credentials`;
-  `sysd/server.py`, `Server._client` and `_allowed`) and refuses a peer outside its group. The egress and ledger
+  `sysd/server.py`, `Server._client` and `_allowed`) and refuses a peer outside its group. No unit test covers `_allowed` (it can return true for every peer with
+  `tests/test_sysd.py` still green); the only check is the VM root-door test in `tools/accept-phase2.sh`, which
+  exercises the socket mode, not `_allowed` itself. The egress and ledger
   services check the kernel peer too: egress admits only the fixed `exo` desktop UID (`egress/server.py`, `Server`,
   `main`), the ledger service checks the peer UID (`ledgerd/server.py`), and their clients verify the service
   (`egress/client.py`, `verify_socket`, `verify_greeting`; `ledgerd/client.py`).
@@ -133,12 +135,16 @@ tool tree. What a request body says about its sender decides nothing. What the c
   and connection (`sandbox/runner.py`, `sandbox/restrict.py`; `docs/TOOL-ISOLATION.md`).
 
 Not covered. The principal's other same-user desktop applications are trusted: nothing stops one from connecting to
-exod, the root helper or the egress socket as the desktop user (`docs/TOOL-ISOLATION.md`, `docs/CORE-CONTRACT.md`,
-issues #16 and #106). The exod socket is not kept out of reach of those applications. The authority of the principal
+exod, the root helper or the egress socket as the desktop user, or from reading the owner-only launch record and being
+stamped `principal`. The pinned core's D-060 Limits say so: same-user code outside the core's tree remains trusted and
+can read the record (`exo/principal.py`, `stamp`, checks the token, the uid, a live and unreused pid, and that the
+caller is not a descendant of the core). Nothing in this repo closes that gap; the proposed fix is P-5 (desktop apps in
+their own boxes, section 4; see also `docs/TOOL-ISOLATION.md`). Issue #16 (a replaced socket) is closed and is covered by
+D-060 `verify_daemon`; issue #106 concerns ledger writer attribution and would not close this gap. The authority of the principal
 (approvals, learning signals, settings, model choice, policy acceptance) rests on the core's stamp, so on the OS the
 invariant holds for the surface and the root helper, not yet against a hostile same-user application. Check: a tool
 child, a detached grandchild and a replaced socket each try to act as the principal through the surface path, and
-each fails; another desktop app trying the same is a known gap until #106 closes.
+each fails; another desktop app trying the same is a known gap until P-5 is built.
 
 **I-2. Provenance: every message and every record says who wrote it, stamped by the way it came in.**
 Source: D-040 (authors), D-010 (`PROVENANCE.toml` for lifted code), exo-os #88 and #90 (build inputs). Authors are
@@ -214,25 +220,31 @@ evidence; an undo restores the item.
 
 **I-10. Bypass mode, and its floor. Unverified at the pin.**
 Source: D-065, cited here until now as "A asked for a permissionless mode". At the pinned core
-(exo `5f434b1`) no D-065 exists (its `DECISIONS.md` goes from D-061 to D-067) and "bypass" names no mode in its source
-or docs, and this repo has no bypass code. So none of the following is claimed as implemented or checked: that bypass
+(exo `5f434b1`) no D-065 exists (its `DECISIONS.md` goes from D-061 to D-067). The design is exo issue #96 (open) and
+exo PR #366 (open), a proposal that is not on main. The pinned source has no bypass mode (`git grep -i bypass 5f434b1
+-- src` finds nothing); its docs mention one only as that proposal (`docs/GITHUB-IDENTITY.md`, `docs/WHITEPAPER.md`
+section 30.1, `docs/DOCS-MAP.md`). This repo has no bypass code. So none of the following is claimed as implemented or checked: that bypass
 turns `ask` into `allow` with a banner and a ledger row per call, that a floor still asks for `store_write` and
 `credentials`, that `deny` rules still block, that only a live principal connection can turn it on, or that Exo OS
-refuses bypass while a required executor is configured. These are the design intent. Until the decision is located in
-the core repo or restated here as an Exo OS decision, treat them as a requirement on any future bypass, not as a
+refuses bypass while a required executor is configured. These are the design intent. Until the proposal lands in the core as a decision
+or is restated here as an Exo OS decision, treat them as a requirement on any future bypass, not as a
 property of the system. Until then the safe reading is that no bypass mode exists. Section 4 carries a proposal (P-6)
 for a narrower, contained form that the OS makes safe; it needs A.
 
 Ten more that the OS must also hold, because the harness already does:
 
-- **I-11. Mechanism apart from person** (D-004). The code and the image name no person and no machine, and a fresh
+- **I-11. Mechanism apart from person** (D-004). The code and the image name no person, and a fresh
   image with an empty store should run end to end. They do name one role account, `exo`, the image's single desktop
   user (`image/mkosi.postinst.chroot`, `useradd ... exo`; `image/mkosi.extra/usr/lib/environment.d/50-exo-os.conf`,
   `EXO_PRINCIPAL=exo`, `EXO_HOME=/var/lib/exo/exo`; `egress/server.py`, `main`, `account_uid("exo")`). That account is
   mechanism, not a person: the desktop user is a fixed role the units, paths and peer checks refer to. The image's
   login shell instead derives the principal from `$USER` (`etc/profile.d/exo-os.sh`), and `setup.py` falls back to the
-  login name. Everything personal is in the store. Not claimed: that no account name appears (it does, as above), or
-  that an empty-store boot has been proven end to end.
+  login name. Everything personal is in the store. The image sets a fixed hostname, `exo` (`image/mkosi.conf`,
+  `Hostname=exo`), a role like the account, not an identity. One machine is named in a comment and a test name: the
+  `webapp_class` docstring (`src/exo_os/profile.py`) and `test_webapp_class_seen_on_charminar` (`tests/test_profile.py`)
+  record where a window class was observed; no behaviour depends on it, and removing it is a separate code change. Not
+  claimed: that no account, host or machine name appears (they do, as above), or that an empty-store boot has been
+  proven end to end.
 - **I-12. Reversibility governs freedom** (P11, OS-5). The easier an act is to undo, the freer it runs. Nothing changes
   the system without a pre-snapshot and a ledger row; a failed check reverts without asking and says so in one line.
 - **I-13. Evidence before action** (D-020 required gate audit, OS-11, OS-17). Under the required executor the decision,
@@ -466,7 +478,7 @@ not pretend they are gone.
   endpoint; plugins run behind the executor. Needs a seam in Exo first.
 - **P-5. Desktop apps in their own boxes.** Chromium and other apps run sandboxed with portals, so they cannot read the
   store, the launch record or each other's data. Keeps the memory budget in mind (DESIGN.md §11).
-- **P-6. Contained bypass (needs A).** D-065 refuses bypass under the required executor, because that installation
+- **P-6. Contained bypass (needs A).** the design intent (unverified, I-10; the proposal is exo #96, not on main) is that bypass is refused under the required executor, because that installation
   exists to decide and record every call. The OS changes the trade: a call inside the box can only touch the
   workspace, and the workspace is snapshotted. So the OS could auto-allow *contained* calls (reversible, no network,
   workspace only) without asking, while every outward act, `store_write`, `credentials` and every root action still
