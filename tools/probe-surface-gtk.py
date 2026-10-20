@@ -63,8 +63,12 @@ def pump():
         ctx.iteration(False)
 
 
-def wait_until(label, ready, seconds=5):
-    """Let a real compositor complete focus and map round trips, with a hard bound."""
+def wait_until(label, ready, seconds=30, state=None):
+    """Let a real compositor complete focus and map round trips, with a hard bound.
+
+    The deadline only bounds a hang: every wait returns the moment its condition holds, so a slow or
+    loaded host costs time, not a false failure. A timeout names the condition and, when given, its state.
+    """
     deadline = time.monotonic() + seconds
     while True:
         pump()
@@ -72,7 +76,8 @@ def wait_until(label, ready, seconds=5):
             return
         if time.monotonic() >= deadline:
             timeout_snapshot(label)
-            raise AssertionError(f"timed out after {seconds}s waiting for {label}")
+            seen = f"; state {state()}" if state else ""
+            raise AssertionError(f"timed out after {seconds}s waiting for {label}{seen}")
         time.sleep(0.02)
 
 def focus_within(window, target):
@@ -363,14 +368,76 @@ def unarmed_answer(decision):
         A.GLib.get_monotonic_time = original
 
 
-def review_with_f6():
-    if backend == "wayland-layer":
-        finish_keys(start_keys("-k", "F6"))
-    else:
-        assert ui._bar_key(None, A.Gdk.KEY_F6, 0, None)
-        ui.card._key_released(None, A.Gdk.KEY_F6, 0, None)
-    wait_until("explicit approval review", lambda: ui.card.get_visible()
-               and ui.card.reviewing and focus_within(ui.card, ui.card.summary))
+def enter_review(press, label, release=lambda: None, *, active=False):
+    """Make a gesture enter request review and wait until it has: card visible, reviewing, summary focused.
+
+    release lets go of the key a gesture holds, so that a repeated gesture is a fresh press. active=True
+    also waits for GTK to report the card active, the state a focus loss revokes a review from.
+
+    On Broadway the display reports activation as later events: each present() and hide() is followed by
+    a deactivate and reactivate that arrive after the call returns. The surface correctly revokes a review
+    when an active card loses activation, so an event left over from the previous hide or present can
+    revoke this review before the probe has seen it. That is a revocation nobody asked for, not a result
+    for this probe to assert on: a review that was entered and then revoked with nothing answered is
+    entered again with the same gesture. Revocation by a deliberate focus change is asserted separately
+    ("external fixture focus revokes review") and does not use this retry.
+
+    Broadway also reports activation only when the display's focus moves. If the card already holds that
+    focus (left from its last review) presenting it again reports nothing, so a review that stays inactive
+    is presented again after moving focus away to the bar and back, as a person switching windows would.
+    """
+    broadway = backend == "broadway-private"
+    want_active = active and broadway
+    presses, reviewed, asked = 0, [False], [0.0]
+
+    def entered():
+        return (ui.card.get_visible() and ui.card.reviewing and focus_within(ui.card, ui.card.summary)
+                and (ui.card.is_active() or not want_active))
+
+    def revoked():
+        # Only a review this press did enter can have been revoked; a refused press just keeps waiting.
+        return broadway and reviewed[0] and not ui.card.reviewing and not ui.card.get_visible()
+
+    def ready():
+        reviewed[0] = reviewed[0] or ui.card.reviewing
+        if want_active and ui.card.reviewing and not ui.card.is_active() and time.monotonic() - asked[0] > 2.0:
+            asked[0] = time.monotonic()
+            ui.bar.present()
+            pump()
+            ui.card.present()
+        return entered() or revoked()
+
+    def state():
+        return {"visible": ui.card.get_visible(), "reviewing": ui.card.reviewing,
+                "focus_on_summary": focus_within(ui.card, ui.card.summary), "active": ui.card.is_active(),
+                "gesture_presses": presses, "backend": backend}
+
+    deadline = time.monotonic() + 30
+    while True:
+        presses += 1
+        if presses > 1:
+            release()
+        press()
+        asked[0] = time.monotonic()
+        reviewed[0] = ui.card.reviewing  # seen before any event is pumped, which could revoke it at once
+        wait_until(label, ready, seconds=max(1, deadline - time.monotonic()), state=state)
+        if entered():
+            return
+        if presses >= 20 or time.monotonic() >= deadline:
+            timeout_snapshot(label)
+            raise AssertionError(f"timed out waiting for {label}: revoked after each of {presses} "
+                                 f"presses; state {state()}")
+
+
+def review_with_f6(*, active=False):
+    def press():
+        if backend == "wayland-layer":
+            finish_keys(start_keys("-k", "F6"))
+        else:
+            assert ui._bar_key(None, A.Gdk.KEY_F6, 0, None)
+            ui.card._key_released(None, A.Gdk.KEY_F6, 0, None)
+
+    enter_review(press, "explicit approval review (card visible, reviewing, summary focused)", active=active)
     remember_renderer("card", ui.card)
 
 
@@ -528,8 +595,8 @@ else:
     wait_until("held F6 fallback pending prompt settled", lambda: prompt_target_ready()
                and not ui.card.get_visible() and not ui.card.get_mapped()
                and not ui.card.reviewing and model.reviewed_approval is None)
-    assert ui._bar_key(None, A.Gdk.KEY_F6, 77, None)
-    wait_until("held F6 enters first fallback review", lambda: ui.card.reviewing and ui.card.is_active())
+    enter_review(lambda: ui._bar_key(None, A.Gdk.KEY_F6, 77, None), "held F6 enters first fallback review",
+                 release=lambda: ui.card._key_released(None, A.Gdk.KEY_F6, 77, None), active=True)
     armed_at = ui.card.shown_at
     ui.card._key(None, A.Gdk.KEY_F6, 77, None)
     assert ui.card.shown_at == armed_at  # a repeat does not reset the current review's guard
@@ -600,7 +667,7 @@ ui.on_event(ev(s.ApprovalResolved(request_id="changed", decision="deny")))
 # Losing activation after actual review revokes keyboard consent without refocusing the bar.
 ui.show()
 ui.on_event(ev(s.ApprovalRequested(request_id="focus_loss", summary="Focus loss request", binding="focus")))
-review_with_f6()
+review_with_f6(active=True)
 wait_until("review actually active", lambda: ui.card.is_active())
 other = Gtk.Window(title="Synthetic other work")
 if backend == "wayland-layer":

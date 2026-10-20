@@ -80,6 +80,12 @@ def _broadway(tmp_path):
     return proc, env
 
 
+def _probe_failure(out):
+    """The probe's last stderr line names the condition it waited for; lead with it, then the full output."""
+    lines = out.stderr.strip().splitlines()
+    return f"probe exit {out.returncode}: {lines[-1] if lines else 'no stderr'}\n{out.stdout}{out.stderr}"
+
+
 def test_widgets_smoke(tmp_path):
     proc, env = _broadway(tmp_path)
     if proc is None:
@@ -92,7 +98,7 @@ def test_widgets_smoke(tmp_path):
         if proc is not None:
             proc.terminate()
             proc.wait(5)
-    assert out.returncode == 0, out.stdout + out.stderr
+    assert out.returncode == 0, _probe_failure(out)
     verified = subprocess.run([sys.executable, str(VALIDATOR), "--backend", "broadway-private",
                                "--exit-code", str(out.returncode)], input=out.stdout, capture_output=True,
                               text=True, timeout=10)
