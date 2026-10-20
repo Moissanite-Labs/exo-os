@@ -129,15 +129,15 @@ def test_zero_cap_priced_native_route_refuses_before_mock_http_and_offline_remai
         assert db.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == 0
 
 
-def test_missing_and_partial_state_never_auto_recreate(store):
+def test_missing_and_partial_state_after_ownership_never_auto_recreate(store):
     (store / ".owned").touch()
-    with pytest.raises(AuthorityError, match="missing established"):
+    with pytest.raises(AuthorityError, match="missing established.*exo-model-spend-admin repair"):
         spend.ensure_boot(store=store)
-    (store / ".owned").unlink()
-    (store / "model-spend").mkdir()
-    with pytest.raises(AuthorityError, match="wrong type, owner or mode|unexpected entries"):
+    (store / "model-spend").mkdir(mode=0o755)
+    with pytest.raises(AuthorityError, match="missing after first boot completed.*exo-model-spend-admin repair"):
         spend.ensure_boot(store=store)
     assert not (store / "model-spend/policy.json").exists()
+    assert not any((store / "model-spend").iterdir())
 
 
 def test_missing_state_with_nonempty_principal_never_counts_as_fresh(store):
@@ -147,15 +147,18 @@ def test_missing_state_with_nonempty_principal_never_counts_as_fresh(store):
     assert not (store / "model-spend").exists()
 
 
-def test_failed_policy_publication_leaves_explicit_repair_state(store, monkeypatch):
-    monkeypatch.setattr(spend.os, "link", lambda *a, **kw: (_ for _ in ()).throw(OSError("disk fault")))
-    with pytest.raises(OSError, match="disk fault"):
-        spend.ensure_boot(store=store)
+def test_failed_policy_publication_resumes_with_the_same_journal(store, monkeypatch):
+    with monkeypatch.context() as patch:
+        patch.setattr(spend.os, "link", lambda *a, **kw: (_ for _ in ()).throw(OSError("disk fault")))
+        with pytest.raises(OSError, match="disk fault"):
+            spend.ensure_boot(store=store)
     state = store / "model-spend"
     assert (state / "exo/journal.sqlite").exists()
     assert not (state / "policy.json").exists()
-    with pytest.raises(AuthorityError):
-        spend.ensure_boot(store=store)
+    identity = _journal_identity(state / "exo/journal.sqlite")
+    raw = spend.ensure_boot(store=store)
+    assert raw["journal_id"] == identity and raw["daily_usd"] == raw["monthly_usd"] == "0" and raw["routes"] == {}
+    assert {p.name for p in state.iterdir()} == {"policy.json", "exo"}
 
 
 @pytest.mark.parametrize("fault", ["missing_policy", "corrupt_policy", "missing_journal", "symlink_journal",
@@ -163,6 +166,7 @@ def test_failed_policy_publication_leaves_explicit_repair_state(store, monkeypat
                                    "corrupt_sqlite", "wrong_identity"])
 def test_established_corruption_refuses_without_reseed(store, fault):
     first = spend.ensure_boot(store=store)
+    (store / ".owned").touch()  # firstboot finished: the policy was published and used
     policy = store / "model-spend/policy.json"
     journal = store / "model-spend/exo/journal.sqlite"
     if fault == "missing_policy":
@@ -305,6 +309,7 @@ def test_published_policy_link_survives_interrupted_cleanup(store, monkeypatch):
                                    "nlink", "extra", "bad_name", "too_long", "missing_policy"])
 def test_policy_cleanup_rejects_unverified_leftovers(store, monkeypatch, fault):
     raw = spend.ensure_boot(store=store)
+    (store / ".owned").touch()
     state = store / "model-spend"
     policy = state / "policy.json"
     leftover = state / ".policy-0123456789abcdef"
@@ -388,3 +393,277 @@ def test_as_exo_refuses_child_setup_and_output_failures(monkeypatch, tmp_path, f
     with pytest.raises(AuthorityError, match="validation or provisioning failed"):
         spend._as_exo(1000, 1000, action, result=True)
     assert called.exists() == (fault != "drop")
+
+
+class PowerCut(Exception):
+    """Nothing after the injected point runs, as after a power loss."""
+
+
+def _cut(*args, **kwargs):
+    raise PowerCut()
+
+
+def _journal_identity(path):
+    db = sqlite3.connect(path)
+    try:
+        return db.execute("SELECT id FROM identity").fetchone()[0]
+    finally:
+        db.close()
+
+
+def _journal_write(path, statement, *values):
+    db = sqlite3.connect(path)
+    try:
+        db.execute(statement, values)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _tree(root):
+    return {str(p.relative_to(root)): (p.read_bytes() if p.is_file() else None) for p in sorted(root.rglob("*"))}
+
+
+def _boot_as_unit(store):
+    """The provisioning unit runs with UMask=0077."""
+    previous = os.umask(0o077)
+    try:
+        return spend.ensure_boot(store=store)
+    finally:
+        os.umask(previous)
+
+
+def _empty_journal(path, principal):
+    os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    raise PowerCut()
+
+
+def _identity_table_only(path, principal):
+    os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE identity (id TEXT NOT NULL, principal TEXT NOT NULL, blocked TEXT NOT NULL, "
+               "observed REAL NOT NULL)")
+    db.close()
+    raise PowerCut()
+
+
+def _uncommitted_identity(path, principal):
+    """Schema committed, identity insert cut before COMMIT, hot rollback journal left behind."""
+    os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    db = sqlite3.connect(path, isolation_level=None)
+    db.executescript("CREATE TABLE identity (id TEXT NOT NULL, principal TEXT NOT NULL, blocked TEXT NOT NULL, "
+                     "observed REAL NOT NULL); CREATE TABLE calls (id TEXT PRIMARY KEY, day TEXT NOT NULL, "
+                     "month TEXT NOT NULL, route TEXT NOT NULL, session TEXT NOT NULL, reserved INTEGER NOT NULL, "
+                     "actual INTEGER, pricing TEXT NOT NULL, completed_day TEXT, completed_month TEXT);")
+    db.execute("BEGIN")
+    db.execute("INSERT INTO identity VALUES ('00000000-0000-4000-8000-000000000001', ?, '', 0)", (principal,))
+    hot = path.with_name(path.name + "-journal")
+    saved = hot.read_bytes()
+    db.close()  # rolls back and removes the journal; restore it as a power cut would leave it
+    fd = os.open(hot, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    with os.fdopen(fd, "wb") as output:
+        output.write(saved)
+    raise PowerCut()
+
+
+def _torn_fdopen(real):
+    def opener(fd, *args, **kwargs):
+        handle = real(fd, *args, **kwargs)
+
+        class Torn:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                handle.close()
+
+            def write(self, data):
+                handle.write(data[:len(data) // 2])
+                handle.flush()
+                raise PowerCut()
+        return Torn()
+    return opener
+
+
+def _cut_paths(real, prefix):
+    def call(path, *args, **kwargs):
+        if Path(path).name.startswith(prefix):
+            raise PowerCut()
+        return real(path, *args, **kwargs)
+    return call
+
+
+# Each power-cut point in first-boot provisioning, and whether a journal identity was committed.
+FIRST_BOOT_CUTS = {
+    "after_state_mkdir": (lambda patch: patch.setattr(spend.os, "chmod", _cut), False),
+    "after_journal_dir_mkdir": (lambda patch: patch.setattr(spend.os, "chown", _cut), False),
+    "before_journal_seed": (lambda patch: patch.setattr(spend, "_as_exo", _cut), False),
+    "empty_journal_file": (lambda patch: patch.setattr(spend.SpendJournal, "provision", _empty_journal), False),
+    "partial_journal_schema": (lambda patch: patch.setattr(spend.SpendJournal, "provision",
+                                                           _identity_table_only), False),
+    "uncommitted_journal_identity": (lambda patch: patch.setattr(spend.SpendJournal, "provision",
+                                                                 _uncommitted_identity), False),
+    "after_journal_seed": (lambda patch: patch.setattr(spend, "validate_policy", _cut), True),
+    "torn_temporary_policy": (lambda patch: patch.setattr(spend.os, "fdopen", _torn_fdopen(os.fdopen)), True),
+    "temporary_policy_before_chmod": (lambda patch: patch.setattr(
+        spend.os, "chmod", _cut_paths(os.chmod, ".policy-")), True),
+    "temporary_policy_before_link": (lambda patch: patch.setattr(spend.os, "link", _cut), True),
+}
+
+
+@pytest.mark.parametrize("cut", sorted(FIRST_BOOT_CUTS))
+def test_first_boot_cut_before_policy_publication_resumes_on_next_boot(store, monkeypatch, cut):
+    inject, committed = FIRST_BOOT_CUTS[cut]
+    state, journal = store / "model-spend", store / "model-spend/exo/journal.sqlite"
+    with monkeypatch.context() as patch:
+        inject(patch)
+        with pytest.raises(PowerCut):
+            _boot_as_unit(store)
+    assert state.is_dir() and not (state / "policy.json").exists()
+    identity = _journal_identity(journal) if committed else None
+    if cut == "uncommitted_journal_identity":
+        assert {p.name for p in journal.parent.iterdir()} == {"journal.sqlite", "journal.sqlite-journal"}
+    raw = _boot_as_unit(store)
+    assert raw == {"principal": "exo", "journal": str(journal), "journal_id": raw["journal_id"],
+                   "daily_usd": "0", "monthly_usd": "0", "routes": {}}
+    if committed:
+        assert raw["journal_id"] == identity
+    else:
+        assert raw["journal_id"] != "00000000-0000-4000-8000-000000000001"
+    assert _journal_identity(journal) == raw["journal_id"]
+    assert {p.name for p in state.iterdir()} == {"policy.json", "exo"}
+    assert {p.name for p in journal.parent.iterdir()} == {"journal.sqlite"}
+    assert stat.S_IMODE(state.stat().st_mode) == 0o755
+    assert json.loads((state / "policy.json").read_bytes()) == raw
+    assert _boot_as_unit(store) == raw
+
+
+def _cut_before_link(store, monkeypatch):
+    with monkeypatch.context() as patch:
+        patch.setattr(spend.os, "link", _cut)
+        with pytest.raises(PowerCut):
+            spend.ensure_boot(store=store)
+    state = store / "model-spend"
+    return state, state / "exo/journal.sqlite", next(state.glob(".policy-*"))
+
+
+UNPROVEN = {"one_call": "holds calls", "stopped": "used or bound elsewhere", "observed_clock": "used or bound",
+            "other_principal": "used or bound elsewhere", "extra_table": "unexpected schema",
+            "owned": "missing after first boot completed", "extra_store_entry": "unexpected entries",
+            "extra_state_entry": "unexpected entries", "linked_temporary": "unexpected hard links",
+            "temporary_without_journal": "no provisioned journal", "unsafe_journal_mode": "wrong type, owner or mode"}
+
+
+@pytest.mark.parametrize("fault", sorted(UNPROVEN))
+def test_interrupted_first_boot_refuses_state_it_cannot_prove_unpublished(store, monkeypatch, tmp_path, fault):
+    state, journal, temporary = _cut_before_link(store, monkeypatch)
+    if fault == "one_call":
+        _journal_write(journal, "INSERT INTO calls (id, day, month, route, session, reserved, actual, pricing) "
+                       "VALUES ('c1', '2026-10-20', '2026-10', 'native:m', 's', 1, NULL, '{}')")
+    elif fault == "stopped":
+        _journal_write(journal, "UPDATE identity SET blocked='uncertain charge'")
+    elif fault == "observed_clock":
+        _journal_write(journal, "UPDATE identity SET observed=1")
+    elif fault == "other_principal":
+        _journal_write(journal, "UPDATE identity SET principal='other'")
+    elif fault == "extra_table":
+        _journal_write(journal, "CREATE TABLE notes (body TEXT)")
+    elif fault == "owned":
+        (store / ".owned").touch()
+    elif fault == "extra_store_entry":
+        (store / "witness-publisher").mkdir()
+    elif fault == "extra_state_entry":
+        (state / "notes").write_text("x")
+    elif fault == "linked_temporary":
+        os.link(temporary, tmp_path / "other-link")
+    elif fault == "temporary_without_journal":
+        journal.unlink()
+    else:
+        journal.chmod(0o644)
+    before = _tree(state)
+    with pytest.raises(AuthorityError, match=UNPROVEN[fault] + ".*root repair: exo-model-spend-admin repair"):
+        spend.ensure_boot(store=store)
+    assert _tree(state) == before
+    assert not (state / "policy.json").exists()
+
+
+def test_repair_preserves_a_refused_journal_and_publishes_fresh_zero_caps(store, monkeypatch):
+    state, journal, _ = _cut_before_link(store, monkeypatch)
+    _journal_write(journal, "INSERT INTO calls (id, day, month, route, session, reserved, actual, pricing) "
+                   "VALUES ('c1', '2026-10-20', '2026-10', 'native:m', 's', 1, NULL, '{}')")
+    old = _journal_identity(journal)
+    with pytest.raises(AuthorityError, match="holds calls"):
+        spend.ensure_boot(store=store)
+    result = spend.repair(store=store)
+    preserved = Path(result["preserved"])
+    assert preserved.name == "model-spend" and preserved.parent.parent == store / "model-spend-repair"
+    for path in (preserved.parent, preserved.parent.parent):
+        assert stat.S_IMODE(path.stat().st_mode) == 0o700
+    assert "holds calls" in result["refusal"]
+    assert _journal_identity(preserved / "exo/journal.sqlite") == old
+    with sqlite3.connect(preserved / "exo/journal.sqlite") as db:
+        assert db.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == 1
+    policy = result["policy"]
+    assert policy["journal_id"] != old and policy["daily_usd"] == policy["monthly_usd"] == "0"
+    assert policy["routes"] == {}
+    assert spend.ensure_boot(store=store) == policy
+
+
+def test_repair_never_replaces_valid_state_or_clears_a_stop(store):
+    raw = spend.ensure_boot(store=store)
+    (store / ".owned").touch()
+    before = _tree(store)
+    assert spend.repair(store=store) == {"preserved": None, "refusal": None, "policy": raw}
+    assert _tree(store) == before
+    SpendJournal(raw).freeze("uncertain charge")
+    assert spend.repair(store=store)["preserved"] is None
+    assert SpendJournal.inspect(raw)["state"] == "stopped"
+    assert not (store / "model-spend-repair").exists()
+
+
+def test_repair_provisions_missing_state_after_ownership(store):
+    (store / ".owned").touch()
+    with pytest.raises(AuthorityError, match="missing established"):
+        spend.ensure_boot(store=store)
+    result = spend.repair(store=store)
+    assert result["preserved"] is None and "missing established" in result["refusal"]
+    assert result["policy"]["daily_usd"] == "0" and result["policy"]["routes"] == {}
+    assert spend.ensure_boot(store=store) == result["policy"]
+
+
+def test_repair_requires_the_ledger_and_moves_nothing_without_it(store, monkeypatch):
+    state, _, _ = _cut_before_link(store, monkeypatch)
+    (store / ".owned").touch()
+    before = _tree(store)
+    monkeypatch.setattr(spend, "_ledger_ready", lambda *a: (_ for _ in ()).throw(AuthorityError("missing signer")))
+    with pytest.raises(AuthorityError, match="missing signer"):
+        spend.repair(store=store)
+    assert _tree(store) == before
+
+
+def test_repair_command_prints_its_result(monkeypatch, capsys):
+    monkeypatch.setattr(spend, "repair", lambda: {"preserved": None, "refusal": None, "policy": {}})
+    monkeypatch.setattr(spend.sys, "argv", ["exo-model-spend-admin", "repair"])
+    spend.main()
+    assert json.loads(capsys.readouterr().out) == {"policy": {}, "preserved": None, "refusal": None}
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="requires disposable root Linux test container")
+def test_unpublished_journal_evidence_crosses_the_exo_uid_boundary():
+    account = pwd.getpwnam("nobody")
+    uid, gid = account.pw_uid, account.pw_gid
+    root = Path(tempfile.mkdtemp(prefix="exo-spend-", dir="/tmp"))
+    os.chown(root, uid, gid)
+    root.chmod(0o700)
+    empty, seeded = root / "empty.sqlite", root / "journal.sqlite"
+    try:
+        spend._as_exo(uid, gid, lambda: os.close(os.open(empty, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)))
+        assert spend._as_exo(uid, gid, lambda: spend._unpublished_journal(empty, "exo"), result=True) is None
+        identity = spend._as_exo(uid, gid, lambda: SpendJournal.provision(seeded, "exo"), result=True)
+        assert spend._as_exo(uid, gid, lambda: spend._unpublished_journal(seeded, "exo"), result=True) == identity
+        _journal_write(seeded, "INSERT INTO calls (id, day, month, route, session, reserved, actual, pricing) "
+                       "VALUES ('c1', '2026-10-20', '2026-10', 'native:m', 's', 1, NULL, '{}')")
+        with pytest.raises(AuthorityError, match="validation or provisioning failed"):
+            spend._as_exo(uid, gid, lambda: spend._unpublished_journal(seeded, "exo"), result=True)
+    finally:
+        shutil.rmtree(root)

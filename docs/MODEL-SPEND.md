@@ -18,6 +18,7 @@ charge stops later admission until the principal reviews the journal.
 | `/var/lib/exo/model-spend/policy.json` | `root:root 0644` | Fixed principal, journal UUID, caps and route contracts |
 | `/var/lib/exo/model-spend/exo` | `exo:exo 0700` | Private journal parent |
 | `/var/lib/exo/model-spend/exo/journal.sqlite` | `exo:exo 0600` | Reservations, charges and stop state |
+| `/var/lib/exo/model-spend-repair` | `root:root 0700` | Refused state preserved by [root repair](#root-repair), only after it runs |
 
 `EXO_MODEL_SPEND_REQUIRED=1` and
 `EXO_MODEL_SPEND_POLICY=/var/lib/exo/model-spend/policy.json` are installed in
@@ -31,17 +32,17 @@ starting a model turn or opening an approval card.
 On every later boot the service checks the existing policy, fixed principal and
 journal path, journal UUID, exact owners and modes, and the ledger/store mount
 identity. Missing, partial, symlinked, misowned or inconsistent state refuses
-startup. A crash after atomic policy publication can leave one `.policy-` file
+startup, except a [first boot cut off before publication](#first-boot-cut-off-before-publication).
+Each refusal names the [root repair](#root-repair) command. A crash after atomic
+policy publication can leave one `.policy-` file
 with exactly 16 lowercase hexadecimal characters. Boot activation removes it
 only after validating the published policy and original journal, and only if
 it is a root-owned regular `0644` file with the policy's exact device/inode and
 both have link count two. Status may inspect this verified state without removing
-the link. Unrelated entries, other hard links, or a crash before publication
-still require explicit repair. This cleanup does not change policy bytes,
-ceilings or the journal UUID. It does not recreate the journal or restore a
-default policy. Repair requires a deliberate administrator procedure with the daemon stopped and
-preserved evidence. This repository does not expose cap editing, journal reset,
-or resume through an agent tool.
+the link. Unrelated entries or other hard links still refuse. This cleanup does
+not change policy bytes, ceilings or the journal UUID. It does not recreate the
+journal or restore a default policy. This repository does not expose cap editing,
+journal reset, or resume through an agent tool.
 
 An operator who deliberately enables a paid route must pin the native
 transport, endpoint, model, input/output bounds and all four token prices in
@@ -87,3 +88,44 @@ post-checkpoint stopped journal through an actual older-root reboot. These are
 offline/mocked-HTTP results. Paid usage, billing accuracy and the new `c2d1ad9`
 image's spending acceptance remain unverified. The original failed attempt is
 retained. See [historical evidence](VALIDATION.md#historical-image-5a86e3b).
+
+## First boot cut off before publication
+
+A power cut between creating `/var/lib/exo/model-spend` and linking `policy.json`
+leaves state that no policy ever named. Login waits for this unit, and the core
+opens the journal only through `policy.json`, so no model call could have used it.
+The next boot finishes provisioning only when all of these hold:
+
+- `/var/lib/exo/.owned` is absent. The store holds only `model-spend` and the
+  empty root-owned `exo` skeleton.
+- `policy.json` is absent. Every directory and file, with its owner and mode, is
+  one that first boot creates at some step under the unit's `UMask=0077`.
+- A journal, if present, opens under the `exo` UID and passes SQLite's quick check.
+  It has only the `identity` and `calls` tables, no call row, no stop reason and an
+  observed clock of zero. A hot rollback journal is rolled back first.
+- At most one root-owned `.policy-` temporary file with a single link exists, and
+  only beside a journal with an identity. Nothing reads it, so boot removes it.
+
+When the journal has an identity, boot publishes the zero-cap policy for that same
+journal UUID through the usual link. When no identity row was ever committed, boot
+removes the directories and provisions from the start. Both end with the default
+policy: zero caps and no routes. Any other state still refuses. Examples are a
+journal with one call, a stop or a moved clock, an extra entry, or a store whose
+ownership transfer already finished.
+
+## Root repair
+
+`exo-model-spend-admin repair` is the command each refusal names. Run it as root
+from the console while login is blocked. It needs a valid ledger, so run
+`exo-ledger-admin repair` first if the ledger unit also failed. The command first
+runs the normal boot check, which may finish a cut-off first boot. If that check
+passes, it stops there and prints the policy. A stopped journal passes, so repair
+never clears a stop on valid state. Otherwise it renames the refused `model-spend`
+entry into a new `/var/lib/exo/model-spend-repair/<UTC time>-<random>/` directory.
+That directory is root-only, mode 0700, on the same subvolume. Nothing is deleted.
+The command then provisions a new journal with the zero-cap policy and prints JSON
+with the preserved path, the refusal and the new policy. Reboot afterwards.
+
+The new journal does not carry earlier charges, pending reservations or a stop.
+With zero caps and no routes, no paid call can be admitted. Before an operator
+installs a priced route again, review the preserved journal and the provider bill.

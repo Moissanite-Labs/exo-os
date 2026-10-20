@@ -90,6 +90,32 @@ An administrator inspects those artifacts manually before deleting or retrying.
 No automatic garbage collection, snapshot deletion, boot promotion, rollback of
 user data, firmware changes or automatic failure detection is implemented.
 
+## Protected state refused before login
+
+`exo-ledger-provision.service` and `exo-model-spend-provision.service` run before
+login, and a refusal from either blocks it. A power cut during first-boot
+provisioning no longer does. The next boot finishes or restarts provisioning when
+the state proves nothing was published. See
+[the ledger rules](LEDGER-AUTHORITY.md#provision-cut-off-before-publication) and
+[the spend rules](MODEL-SPEND.md#first-boot-cut-off-before-publication). Any other
+refusal names its root repair command in the unit's log. From a root console:
+
+```sh
+journalctl -b -u exo-ledger-provision.service -u exo-model-spend-provision.service
+exo-ledger-admin repair          # only if the ledger unit failed
+exo-model-spend-admin repair     # only if the spend unit failed
+reboot
+```
+
+Both commands leave state that passes the boot check in place. Otherwise they move
+the refused state into a new root-only directory on the same subvolume, under
+`/var/lib/exo-ledger/repair/` or `/var/lib/exo/model-spend-repair/`, and provision
+fresh state. Nothing is deleted. The ledger command refuses while the bound
+projection exists unless given `--set-aside-projection`, which also preserves that
+copy under `/var/lib/exo/ledger-repair/`. A recovery checkpoint does not roll these
+directories back, because they live on the persistent `@signer` and `@store`
+subvolumes.
+
 ## Why systemd-boot can select the clone
 
 The [Boot Loader Specification](https://uapi-group.org/specifications/specs/boot_loader_specification/)
