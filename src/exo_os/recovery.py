@@ -324,21 +324,145 @@ def firmware_check() -> None:
         raise RecoveryError("Recovery menu options require Secure Boot disabled for this unsigned image")
 
 
+PACKAGE_LOCK = Path("/var/lib/pacman/db.lck")
+RECOVERY_LOCK = Path("/run/exo-os-recovery.lock")
+PROC = Path("/proc")
+
+
+def process_start(pid: int, proc: Path = PROC) -> str | None:
+    """Return the kernel start time of a process, or None when it does not exist."""
+    try:
+        stat_line = (proc / str(pid) / "stat").read_text()
+        # The command name may contain spaces and parentheses; fields resume after the last one.
+        return stat_line[stat_line.rindex(")") + 2:].split()[19]
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def parse_holder(text: str) -> tuple[int, str] | None:
+    """Parse "<pid> <start>"; a bare pid or a start of 0 means the start time is unknown ("0")."""
+    parts = text.split()
+    if not parts or not parts[0].isdigit() or int(parts[0]) <= 0:
+        return None
+    if len(parts) == 1:
+        return int(parts[0]), "0"
+    if len(parts) == 2 and parts[1].isdigit():
+        return int(parts[0]), str(int(parts[1]))
+    return None
+
+
+RECOVERY_NAME = "exo-os-recovery"
+RECOVERY_MODULE = "exo_os.recovery"
+
+
+def is_package_or_recovery_process(comm: str, argv: list[bytes]) -> bool:
+    """Match the real pacman or recovery program, never a tool that merely names one in its arguments."""
+    names = [item.decode(errors="replace") for item in argv if item]
+    if comm == "pacman" or comm == RECOVERY_NAME:
+        return True
+    if names and os.path.basename(names[0]) in ("pacman", RECOVERY_NAME):
+        return True
+    if not comm.startswith("python"):
+        return False
+    args = iter(names[1:])
+    for arg in args:
+        if arg == "-m":
+            return next(args, "") == RECOVERY_MODULE
+        if arg.startswith("-m") and len(arg) > 2 and not arg.startswith("--"):
+            return arg[2:] == RECOVERY_MODULE
+        if arg.startswith("-"):
+            continue
+        return os.path.basename(arg) == RECOVERY_NAME
+    return False
+
+
+def package_or_recovery_running(proc: Path = PROC) -> bool:
+    """True when a pacman or another recovery process exists (pacman itself writes nothing into db.lck)."""
+    for entry in proc.iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            name = (entry / "comm").read_text().strip()
+            argv = (entry / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if is_package_or_recovery_process(name, argv):
+            return True
+    return False
+
+
+def stale_lock_reason(package_lock: Path, proc: Path = PROC) -> str | None:
+    """Why the existing lock is provably stale, or None when it must be respected."""
+    try:
+        if package_lock.is_symlink() or not package_lock.is_file():
+            return None
+        text = package_lock.read_text(errors="replace")
+    except OSError:
+        return None
+    holder = parse_holder(text)
+    if holder is not None:
+        pid, start = holder
+        current = process_start(pid, proc)
+        if current is None:
+            return f"holder process {pid} is gone"
+        if start == "0":
+            return None  # start time unknown: a live process cannot be proven to be a reused pid
+        if current != start:
+            return f"process id {pid} was reused by another process"
+        return None
+    if package_or_recovery_running(proc):
+        return None
+    return "lock file has no valid holder and no pacman or recovery process is running"
+
+
+def take_over_stale_lock(package_lock: Path, proc: Path) -> None:
+    """Move a stale lock aside, verify the file really moved is stale, then drop it; restore it otherwise."""
+    refused = RecoveryError(f"Package transaction in progress; try after it finishes. Lock file: {package_lock}")
+    if stale_lock_reason(package_lock, proc) is None:
+        raise refused
+    aside = package_lock.with_name(f"{package_lock.name}.stale-{os.getpid()}")
+    try:
+        os.rename(package_lock, aside)
+    except OSError:
+        raise RecoveryError(f"Package lock could not be taken over. Lock file: {package_lock}") from None
+    if stale_lock_reason(aside, proc) is None:
+        try:
+            os.link(aside, package_lock)  # never replaces a lock created meanwhile
+            aside.unlink(missing_ok=True)
+        except OSError:
+            raise RecoveryError(
+                f"Package lock changed during takeover and could not be restored; kept as {aside}") from None
+        raise refused
+    aside.unlink(missing_ok=True)
+
+
 @contextmanager
-def administrator_lock():
+def administrator_lock(package_lock: Path = PACKAGE_LOCK, recovery_lock: Path = RECOVERY_LOCK, proc: Path = PROC):
     # Use pacman's native lock too: checkpoints must not race a package transaction.
-    with open("/run/exo-os-recovery.lock", "a") as lock:
+    with open(recovery_lock, "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        package_lock = Path("/var/lib/pacman/db.lck")
+        own_start = process_start(os.getpid(), proc)
+        if own_start is None or not own_start.isdigit() or int(own_start) == 0:
+            raise RecoveryError("Cannot read this process start time, so the package lock cannot record a verifiable holder")
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
         try:
-            descriptor = os.open(package_lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            descriptor = os.open(package_lock, flags, 0o600)
         except FileExistsError:
-            raise RecoveryError("Package transaction in progress; try after it finishes") from None
+            take_over_stale_lock(package_lock, proc)
+            try:
+                descriptor = os.open(package_lock, flags, 0o600)
+            except OSError:
+                raise RecoveryError(f"Package lock could not be taken over. Lock file: {package_lock}") from None
         try:
-            os.close(descriptor)
+            with os.fdopen(descriptor, "w") as handle:
+                handle.write(f"{os.getpid()} {own_start}\n")
+        except BaseException:
+            package_lock.unlink(missing_ok=True)
+            raise
+        try:
             yield
         finally:
-            package_lock.unlink()
+            package_lock.unlink(missing_ok=True)
 
 
 def main(argv=None) -> int:
