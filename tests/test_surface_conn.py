@@ -220,14 +220,16 @@ def test_pending_approvals_are_fetched_on_connect(paths):
 
 
 def test_surface_joins_as_the_principal(tmp_path):
-    # Exo D-039: only a principal client may answer approvals; the surface sends the per-launch credential.
-    from exo import principal as pr
+    # Exo D-039 and D-060: only a principal client may answer approvals. The surface joins with the principal label,
+    # so the core client checks the kernel peer of each connection before the credential goes on it.
+    from exo.peerauth import PrincipalTransport
     from exo_os.surface import conn
 
     sock = tmp_path / "run" / "exod.sock"
-    token = pr.issue(sock)
     client = conn._default_client(str(sock))
-    assert client._who() == {pr.HEADER: token, "X-Exo-Client": "surface"}
+    transport = client._http._transport
+    assert isinstance(transport, PrincipalTransport)
+    assert (transport.socket, transport.label) == (str(sock), "surface")
 
 
 def test_stop_twice_does_not_raise(paths):
