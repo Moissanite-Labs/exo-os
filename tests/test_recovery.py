@@ -593,6 +593,48 @@ def test_unknown_holder_start_is_refused_while_pid_lives_and_taken_when_gone(tmp
         assert db.read_text().split()[0] == str(os.getpid())
 
 
+def unreadable_stat(proc, pid):
+    stat = proc / str(pid) / "stat"
+    stat.unlink()
+    stat.mkdir()  # reading a directory raises OSError, like a permission failure
+
+
+@pytest.mark.parametrize("break_holder", [
+    unreadable_stat,
+    lambda proc, pid: (proc / str(pid) / "stat").write_text("garbage without paren"),
+    lambda proc, pid: (proc / str(pid) / "stat").write_text("4242 (x) S 1 2"),
+    lambda proc, pid: (proc / str(pid) / "stat").write_text("4242 (x) S " + " ".join(["0"] * 18 + ["abc", "0"])),
+    lambda proc, pid: (proc / str(pid) / "stat").unlink(),
+], ids=["unreadable", "no-paren", "short", "bad-start", "stat-missing-dir-present"])
+def test_unreadable_or_malformed_holder_refuses_takeover(tmp_path, break_holder):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 424242, start="99")
+    db.write_text("424242 99\n")
+    break_holder(proc, 424242)
+    assert r.stale_lock_reason(db, proc) is None
+    with pytest.raises(r.RecoveryError, match=str(db)):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert db.read_text() == "424242 99\n"
+    assert not list(tmp_path.glob("db.lck.stale-*"))
+
+
+def test_holder_start_reports_gone_only_for_absent_process(tmp_path, monkeypatch):
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    assert r.holder_start(4242, proc) is None
+    fake_process(proc, 4242, start="100")
+    assert r.holder_start(4242, proc) == "100"
+    unreadable_stat(proc, 4242)
+    with pytest.raises(OSError):
+        r.holder_start(4242, proc)
+
+    def exited(self):
+        raise ProcessLookupError(3, "No such process")
+    monkeypatch.setattr(Path, "read_text", exited)
+    assert r.holder_start(4242, proc) is None  # ESRCH: exited while being read
+
+
 def test_own_start_time_unreadable_refuses_and_writes_nothing(tmp_path):
     db, run, proc = lock_env(tmp_path)
     (proc / str(os.getpid()) / "stat").unlink()
