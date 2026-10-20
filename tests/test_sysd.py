@@ -5,6 +5,8 @@ from pathlib import Path
 import socket
 import subprocess
 import threading
+import time
+import types
 
 import pytest
 
@@ -775,3 +777,136 @@ def test_snapshot_list_non_object_rows_is_action_error():
         return subprocess.CompletedProcess(argv, 0, "", "")
     with pytest.raises(ActionError, match="unreadable output"):
         Actions(rows, keyring=KEYRING).snapshot_list({})
+
+
+class _GatedRunner(FakeRunner):
+    """Blocks a chosen command until released, and records how many mutations overlap."""
+
+    def __init__(self, block_on, **kwargs):
+        super().__init__(**kwargs)
+        self.block_on, self.entered, self.release = block_on, threading.Event(), threading.Event()
+        self.guard, self.active, self.peak = threading.Lock(), 0, 0
+
+    def __call__(self, argv):
+        if argv[:2] == self.block_on:
+            with self.guard:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            self.entered.set()
+            assert self.release.wait(10)
+            with self.guard:
+                self.active -= 1
+        return super().__call__(argv)
+
+
+def _run_in_thread(srv, action, args=None):
+    out = []
+    t = threading.Thread(target=lambda: out.append(srv.handle_line(encode(_request(action, args)), (1, 0, 0))), daemon=True)
+    t.start()
+    return t, out
+
+
+def test_slow_read_only_action_does_not_block_status(tmp_path):
+    runner = _GatedRunner(["snapper", "--jsonout"])
+    srv = Server(Actions(runner, keyring=KEYRING), key_path=tmp_path / 'key',
+                 public_key_path=tmp_path / 'receipt.pub', log_path=tmp_path / 'log')
+    slow, slow_out = _run_in_thread(srv, 'snapshot.list')
+    assert runner.entered.wait(5)
+    status = srv.handle_line(encode(_request('status')), (1, 0, 0))
+    assert status['ok'] and status['execution'] == 'completed'
+    assert slow.is_alive() and not slow_out
+    runner.release.set()
+    slow.join(5)
+    assert slow_out[0]['ok']
+
+
+def test_slow_mutation_does_not_block_status(tmp_path):
+    runner = _GatedRunner(["snapper", "-c"])
+    srv = Server(Actions(runner, keyring=KEYRING), key_path=tmp_path / 'key',
+                 public_key_path=tmp_path / 'receipt.pub', log_path=tmp_path / 'log')
+    slow, slow_out = _run_in_thread(srv, 'snapshot.create')
+    assert runner.entered.wait(5)
+    assert srv.handle_line(encode(_request('status')), (1, 0, 0))['ok']
+    runner.release.set()
+    slow.join(5)
+    assert slow_out[0]['ok']
+
+
+def test_mutating_actions_still_run_one_at_a_time(tmp_path):
+    runner = _GatedRunner(["snapper", "-c"])
+    srv = Server(Actions(runner, keyring=KEYRING), key_path=tmp_path / 'key',
+                 public_key_path=tmp_path / 'receipt.pub', log_path=tmp_path / 'log')
+    first, first_out = _run_in_thread(srv, 'snapshot.create')
+    assert runner.entered.wait(5)
+    second, second_out = _run_in_thread(srv, 'snapshot.create')
+    second.join(0.5)
+    assert second.is_alive() and not second_out  # waiting on the mutation lock
+    runner.release.set()
+    first.join(5), second.join(5)
+    assert first_out[0]['ok'] and second_out[0]['ok']
+    assert runner.peak == 1
+    assert len((tmp_path / 'log').read_bytes().splitlines()) == 2
+
+
+class _SlowLog:
+    """Stands in for the audit log file and records overlapping appends and their order."""
+
+    def __init__(self, tracker):
+        self.t = tracker
+        self.buf = b""
+
+    def write(self, data):
+        with self.t.guard:
+            self.t.active += 1
+            self.t.peak = max(self.t.peak, self.t.active)
+        time.sleep(0.02)
+        self.t.rows.append(data)
+        with self.t.guard:
+            self.t.active -= 1
+
+    def flush(self):
+        pass
+
+    def fileno(self):
+        return os.open(os.devnull, os.O_WRONLY)
+
+    def close(self):
+        pass
+
+
+def test_audit_appends_never_overlap(tmp_path):
+    t = types.SimpleNamespace(guard=threading.Lock(), active=0, peak=0, rows=[])
+    srv = Server(Actions(FakeRunner(), keyring=KEYRING), key_path=tmp_path / 'key',
+                 public_key_path=tmp_path / 'receipt.pub', log_path=tmp_path / 'log')
+    srv._open_log = lambda: _SlowLog(t)
+    threads = [_run_in_thread(srv, 'status')[0] for _ in range(6)]
+    for th in threads:
+        th.join(10)
+    assert len(t.rows) == 6 and t.peak == 1
+
+
+def test_mutation_lock_is_held_through_the_log_append(tmp_path):
+    events = []
+
+    class Runner(FakeRunner):
+        def __call__(self, argv):
+            if argv[:2] == ["snapper", "-c"]:
+                events.append("run")
+            return super().__call__(argv)
+
+    t = None
+    srv = Server(Actions(Runner(), keyring=KEYRING), key_path=tmp_path / 'key',
+                 public_key_path=tmp_path / 'receipt.pub', log_path=tmp_path / 'log')
+
+    def open_log():
+        class L(_SlowLog):
+            def write(self, data):
+                time.sleep(0.02)
+                events.append("append")
+        return L(t)
+
+    srv._open_log = open_log
+    threads = [_run_in_thread(srv, 'snapshot.create')[0] for _ in range(3)]
+    for th in threads:
+        th.join(10)
+    assert events == ["run", "append"] * 3

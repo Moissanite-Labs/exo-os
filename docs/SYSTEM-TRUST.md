@@ -61,8 +61,10 @@ step fails. An `ok: false` response does not promise that nothing changed.
 
 ## Auditing without repeating an operation
 
-Execution, receipt signing, and append to `/var/lib/exo-sysd/audit.log` are serialized
-under one helper lock. The log is opened and checked before execution. The helper
+Mutating actions run one at a time under a mutation lock, and the root log's open and append
+happen under a separate log lock that is never held while an action runs. Read-only actions
+(`status`, `snapshot.list`) take no mutation lock, so a long install cannot block them. An action not
+listed as read-only counts as a mutation. The log is opened and checked before execution. The helper
 refuses an operation if that preflight fails. A write/fsync failure after an
 operation succeeds keeps its successful result and signs an explicit
 `audit_error`; it does not pretend the operation failed or invite a retry.
