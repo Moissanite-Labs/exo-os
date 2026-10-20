@@ -5,13 +5,17 @@ import json
 import os
 import pwd
 import sqlite3
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from exo.ledger_authority import AuthorityError
+from fake_owners import FakeOwners
 
 from exo_os.ledgerd import admin, policy, server
+
+SIGNER, SIGNER_GID = 4201, 4202  # neither root nor the test user, so every owner check runs
 
 
 class PowerCut(Exception):
@@ -29,23 +33,16 @@ def boot(tmp_path, monkeypatch):
     state.mkdir(mode=0o755)
     store.mkdir()
     (store / "exo").mkdir(mode=0o700)
-    owner, gid = os.getuid(), os.getgid()
-    signer = owner or 1000  # provisioning never accepts the root identity
+    # Root owns what root creates; the signer owns what appears under its UID drop.
+    owners = FakeOwners(root, monkeypatch)
     monkeypatch.setattr(admin.os, "geteuid", lambda: 0)
     monkeypatch.setattr(admin, "validate_boot_mounts", lambda *a: None)
     monkeypatch.setattr(admin, "trusted_path", lambda path, **kw: path)
     monkeypatch.setattr(policy, "trusted_path", lambda path, **kw: path)
-    monkeypatch.setattr(admin, "account_uid", lambda name: signer)
-    monkeypatch.setattr(pwd, "getpwnam", lambda name: SimpleNamespace(pw_gid=gid))
-    monkeypatch.setattr(admin.os, "chown", lambda *a: None)
-    monkeypatch.setattr(admin, "_as_signer", lambda uid, gid, action: action())
-    # Host tests own every file; model root and the signer account as that owner.
-    inode = admin._inode
-    monkeypatch.setattr(admin, "_inode", lambda path, kind, owners, forbidden=0o077: inode(
-        path, kind, {owner if uid in (0, signer) else uid for uid in owners}, forbidden))
-    load = server.load_journals
-    monkeypatch.setattr(server, "load_journals", lambda manifest, uid, where=policy.STATE: load(manifest, owner, where))
-    return SimpleNamespace(state=state, store=store, owner=owner,
+    monkeypatch.setattr(admin, "account_uid", lambda name: SIGNER)
+    monkeypatch.setattr(pwd, "getpwnam", lambda name: SimpleNamespace(pw_gid=SIGNER_GID))
+    monkeypatch.setattr(admin, "_as_signer", lambda uid, gid, action: owners.run_as(uid, gid, action))
+    return SimpleNamespace(state=state, store=store, owners=owners,
                            projection=store / "exo/principals/exo/ledger.sqlite")
 
 
@@ -58,28 +55,49 @@ def _boot_as_unit(boot):
         os.umask(previous)
 
 
-def _journal(boot, manifest):
-    return _load_journal(boot, manifest)[1]
+def _as_signer(boot, action):
+    """Test-side journal work runs under the signer UID, as the service's would."""
+    result = []
+    boot.owners.run_as(SIGNER, SIGNER_GID, lambda: result.append(action()))
+    return result[0]
 
 
-def _load_journal(boot, manifest):
+def _journal_call(boot, manifest, call):
     stream = next(iter(manifest["streams"]))
-    return stream, server.load_journals(manifest, boot.owner, boot.state)[stream]
+    return _as_signer(boot, lambda: call(server.load_journals(manifest, SIGNER, boot.state)[stream]))
+
+
+def _head(boot, manifest):
+    return _journal_call(boot, manifest, lambda journal: journal.head())
 
 
 def _append(boot, manifest):
-    stream, journal = _load_journal(boot, manifest)
-    head = journal.head()
-    return journal.append("exo-os", "op-1", {"seq": head["seq"], "chain": head["chain"]},
-                          {"author": "exo-os", "kind": "action", "body": {"step": 1}, "session": "s", "refs": []})
+    def append(journal):
+        head = journal.head()
+        return journal.append("exo-os", "op-1", {"seq": head["seq"], "chain": head["chain"]},
+                              {"author": "exo-os", "kind": "action", "body": {"step": 1}, "session": "s", "refs": []})
+    return _journal_call(boot, manifest, append)
 
 
-def _count(path, table):
-    db = sqlite3.connect(path)
-    try:
-        return db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-    finally:
-        db.close()
+def _sql(boot, path, statement):
+    def run():
+        db = sqlite3.connect(path)
+        try:
+            rows = db.execute(statement).fetchall()
+            db.commit()
+            return rows
+        finally:
+            db.close()
+    return _as_signer(boot, run)
+
+
+def _count(boot, path, table):
+    return _sql(boot, path, f"SELECT COUNT(*) FROM {table}")[0][0]
+
+
+def _tree(root):
+    return {str(p.relative_to(root)): (p.read_bytes() if p.is_file() and not p.is_symlink() else None)
+            for p in sorted(root.rglob("*"))}
 
 
 def _empty_journal(path, identity, keys, checkpoint):
@@ -151,7 +169,7 @@ def _torn_manifest(patch):
 UNPUBLISHED_CUTS = {
     "after_private_mkdir": lambda patch: patch.setattr(admin.os, "chown", _cut),
     "after_private_owned": lambda patch: patch.setattr(admin.os, "chmod", _cut),
-    "after_stream_mkdir": lambda patch: patch.setattr(admin.os, "chown", _cut_on_call(lambda *a: None, 2)),
+    "after_stream_mkdir": lambda patch: patch.setattr(admin.os, "chown", _cut_on_call(os.chown, 2)),
     "torn_first_key": lambda patch: patch.setattr(admin.os, "fdopen", _torn_key_writes(os.fdopen, 0)),
     "torn_later_key": lambda patch: patch.setattr(admin.os, "fdopen", _torn_key_writes(os.fdopen, 4)),
     "after_keys_written": lambda patch: patch.setattr(admin.AuthorityJournal, "provision", _cut),
@@ -165,6 +183,23 @@ UNPUBLISHED_CUTS = {
 }
 
 
+def _assert_fresh_stream(boot, manifest, left=()):
+    stream = next(iter(manifest["streams"]))
+    assert stream not in left
+    assert {p.name for p in boot.state.iterdir()} - {admin.VAULT} == {"manifest.json", "private"}
+    assert [p.name for p in (boot.state / "private").iterdir()] == [stream]
+    assert boot.owners.owners[_key(boot.state / "private" / stream)] == (SIGNER, SIGNER_GID)
+    assert manifest["streams"][stream]["ledger_path"] == str(boot.projection)
+    assert json.loads((boot.state / "manifest.json").read_bytes()) == manifest
+    assert _head(boot, manifest)["seq"] == 0
+    assert _boot_as_unit(boot) == manifest
+
+
+def _key(path):
+    info = os.lstat(path)
+    return info.st_dev, info.st_ino
+
+
 @pytest.mark.parametrize("cut", sorted(UNPUBLISHED_CUTS))
 def test_cut_before_manifest_publication_clears_and_provisions_on_next_boot(boot, monkeypatch, cut):
     with monkeypatch.context() as patch:
@@ -173,16 +208,47 @@ def test_cut_before_manifest_publication_clears_and_provisions_on_next_boot(boot
             _boot_as_unit(boot)
     assert any(boot.state.iterdir()) and not (boot.state / "manifest.json").exists()
     left = [p.name for p in (boot.state / "private").iterdir()] if (boot.state / "private").exists() else []
-    manifest = _boot_as_unit(boot)
-    stream = next(iter(manifest["streams"]))
-    assert stream not in left
-    assert {p.name for p in boot.state.iterdir()} == {"manifest.json", "private"}
-    assert [p.name for p in (boot.state / "private").iterdir()] == [stream]
-    assert manifest["streams"][stream]["ledger_path"] == str(boot.projection)
-    assert json.loads((boot.state / "manifest.json").read_bytes()) == manifest
-    assert _journal(boot, manifest).head()["seq"] == 0
-    assert _boot_as_unit(boot) == manifest
+    _assert_fresh_stream(boot, _boot_as_unit(boot), left)
     assert not boot.projection.exists() and {p.name for p in boot.store.iterdir()} == {"exo"}
+
+
+def _cut_before_link(boot, monkeypatch):
+    with monkeypatch.context() as patch:
+        patch.setattr(admin.os, "link", _cut)
+        with pytest.raises(PowerCut):
+            _boot_as_unit(boot)
+    return next((boot.state / "private").iterdir())
+
+
+@pytest.mark.parametrize("cut", range(1, 18))
+def test_cut_while_clearing_leaves_state_the_next_boot_clears(boot, monkeypatch, cut):
+    """Each unlink or rmdir of the clearing, with SQLite side files present, is a cut point."""
+    stream = _cut_before_link(boot, monkeypatch)
+    temporary = next(boot.state.glob(".manifest-*"))
+    reader = []  # a reader that outlives the boot check keeps the WAL side files in place
+    _as_signer(boot, lambda: reader.append(sqlite3.connect(stream / "journal.sqlite")) or
+               reader[0].execute("SELECT COUNT(*) FROM checkpoints").fetchone())
+    assert {"journal.sqlite-wal", "journal.sqlite-shm"} <= {p.name for p in stream.iterdir()}
+    try:
+        attempted = []
+        with monkeypatch.context() as patch:
+            for name in ("unlink", "rmdir"):
+                real = getattr(os, name)
+
+                def call(path, *args, real=real, **kwargs):
+                    attempted.append(os.fspath(path))
+                    if len(attempted) == cut:
+                        raise PowerCut()
+                    return real(path, *args, **kwargs)
+                patch.setattr(os, name, call)
+            with pytest.raises(PowerCut):
+                _boot_as_unit(boot)
+        assert attempted[0] == temporary.name  # the temporary goes before the journal it requires
+        cleared = [name for name in attempted if name.startswith("journal.sqlite")]
+        assert len(cleared) < 3 or cleared[-1] == "journal.sqlite"  # side files go before their database
+        _assert_fresh_stream(boot, _boot_as_unit(boot), [stream.name])
+    finally:
+        _as_signer(boot, lambda: reader[0].close())
 
 
 def test_cut_after_manifest_link_keeps_the_published_stream(boot, monkeypatch):
@@ -214,6 +280,14 @@ def _provisioned_then_lost(boot):
     return manifest
 
 
+def _signed_event(boot, manifest):
+    restored = boot.state / "manifest.json"
+    restored.write_text(json.dumps(manifest))
+    _append(boot, manifest)
+    restored.unlink()
+
+
+# Faults on state left without a manifest, and the boot refusal each one gives.
 UNPROVEN = {
     "signed_event": "not provably unsigned",
     "head_above_genesis": "not provably unsigned",
@@ -226,29 +300,24 @@ UNPROVEN = {
     "loose_key_mode": "wrong type, owner or mode",
     "symlinked_private": "wrong type, owner or mode",
     "linked_temporary": "unverified manifest leftover",
+    "temporary_without_journal": "unverified manifest leftover",
+    # Owners provisioning never leaves at any step.
+    "root_owned_private_with_stream": "wrong type, owner or mode",
+    "root_owned_stream_with_files": "wrong type, owner or mode",
+    "root_owned_key": "wrong type, owner or mode",
+    "signer_owned_temporary": "wrong type, owner or mode",
 }
 
 
-@pytest.mark.parametrize("fault", sorted(UNPROVEN))
-def test_missing_manifest_refuses_state_it_cannot_prove_unpublished(boot, tmp_path, fault):
-    manifest = _provisioned_then_lost(boot)
+def _inject(boot, tmp_path, manifest, fault):
     stream = next(iter(manifest["streams"]))
     directory = boot.state / "private" / stream
     if fault == "signed_event":
-        restored = boot.state / "manifest.json"
-        restored.write_text(json.dumps(manifest))
-        _append(boot, manifest)
-        restored.unlink()
+        _signed_event(boot, manifest)
     elif fault == "head_above_genesis":
-        db = sqlite3.connect(directory / "journal.sqlite")
-        db.execute("INSERT INTO checkpoints VALUES (1, '{}')")
-        db.commit()
-        db.close()
+        _sql(boot, directory / "journal.sqlite", "INSERT INTO checkpoints VALUES (1, '{}')")
     elif fault == "unknown_table":
-        db = sqlite3.connect(directory / "journal.sqlite")
-        db.execute("CREATE TABLE notes (body TEXT)")
-        db.commit()
-        db.close()
+        _sql(boot, directory / "journal.sqlite", "CREATE TABLE notes (body TEXT)")
     elif fault == "projection":
         boot.projection.parent.mkdir(parents=True)
         boot.projection.write_bytes(b"")
@@ -259,45 +328,69 @@ def test_missing_manifest_refuses_state_it_cannot_prove_unpublished(boot, tmp_pa
     elif fault == "second_stream":
         (boot.state / "private" / ("s_" + "0" * 32)).mkdir(mode=0o700)
     elif fault == "unknown_stream_file":
-        (directory / "notes").write_text("x")
+        _as_signer(boot, lambda: (directory / "notes").write_text("x"))
     elif fault == "loose_key_mode":
         (directory / "checkpoint.key").chmod(0o644)
     elif fault == "symlinked_private":
         (boot.state / "private").rename(tmp_path / "moved-private")
         (boot.state / "private").symlink_to(tmp_path / "moved-private", target_is_directory=True)
-    else:
+    elif fault == "linked_temporary":
         temporary = boot.state / ".manifest-0123456789abcdef"
         temporary.write_text("{}")
+        temporary.chmod(0o644)
         os.link(temporary, tmp_path / "other-link")
+    elif fault == "temporary_without_journal":
+        (boot.state / ".manifest-0123456789abcdef").write_text("{}")
+        _as_signer(boot, lambda: (directory / "journal.sqlite").unlink())
+    elif fault == "root_owned_private_with_stream":
+        boot.owners.set(boot.state / "private", 0, 0)
+    elif fault == "root_owned_stream_with_files":
+        boot.owners.set(directory, 0, 0)
+    elif fault == "root_owned_key":
+        boot.owners.set(directory / "checkpoint.key", 0, 0)
+    elif fault == "signer_owned_temporary":
+        temporary = boot.state / ".manifest-0123456789abcdef"
+        temporary.write_text("{}")
+        temporary.chmod(0o644)
+        boot.owners.set(temporary, SIGNER, SIGNER_GID)
+    else:
+        raise AssertionError(fault)
+    return directory
+
+
+@pytest.mark.parametrize("fault", sorted(UNPROVEN))
+def test_missing_manifest_refuses_state_it_cannot_prove_unpublished(boot, tmp_path, fault):
+    manifest = _provisioned_then_lost(boot)
+    directory = _inject(boot, tmp_path, manifest, fault)
     names = {p.name for p in boot.state.iterdir()}
     held = sorted(p.name for p in directory.iterdir()) if directory.exists() else None
-    with pytest.raises(AuthorityError, match=UNPROVEN[fault] + ".*root repair: exo-ledger-admin repair"):
+    with pytest.raises(AuthorityError, match=UNPROVEN[fault] + ".*root can run exo-ledger-admin repair"):
         _boot_as_unit(boot)
     assert {p.name for p in boot.state.iterdir()} == names and not (boot.state / "manifest.json").exists()
     if held is not None and fault != "symlinked_private":
-        assert {"journal.sqlite", "checkpoint.key"} <= set(p.name for p in directory.iterdir()) <= set(held) | {
-            "journal.sqlite-wal", "journal.sqlite-shm"}
+        side = {"journal.sqlite-wal", "journal.sqlite-shm"}  # SQLite may add or drop these while reading
+        assert set(held) - side <= {p.name for p in directory.iterdir()} <= set(held) | side
     if fault == "signed_event":
-        assert _count(directory / "journal.sqlite", "records") == 1
+        assert _count(boot, directory / "journal.sqlite", "records") == 1
 
 
-def test_truncated_manifest_from_an_older_provision_names_repair(boot):
+def test_truncated_manifest_from_an_older_provision_refuses_and_is_never_reseeded(boot):
     _boot_as_unit(boot)
     path = boot.state / "manifest.json"
     truncated = path.read_bytes()[:57]
     path.write_bytes(truncated)
-    with pytest.raises(AuthorityError, match="manifest is invalid.*root repair: exo-ledger-admin repair"):
+    with pytest.raises(AuthorityError, match="manifest is invalid.*published ledger is never reseeded"):
         _boot_as_unit(boot)
-    result = admin.repair(state=boot.state, store=boot.store)
-    slot = Path(result["preserved"][0])
-    assert (slot / "manifest.json").read_bytes() == truncated and (slot / "private").is_dir()
-    assert _boot_as_unit(boot) == result["manifest"]
+    before = _tree(boot.state)
+    with pytest.raises(AuthorityError, match="repair refuses: a manifest was published.*reviewed migration"):
+        admin.repair(state=boot.state, store=boot.store)
+    assert _tree(boot.state) == before and path.read_bytes() == truncated
 
 
 def test_provision_refuses_a_manifest_leftover(boot):
     (boot.state / ".manifest-0123456789abcdef").write_text("{}")
     with pytest.raises(AuthorityError, match="partial signer state"):
-        admin.provision("exo", state=boot.state, uid=boot.owner or 1000, gid=os.getgid(), projection=boot.projection)
+        admin.provision("exo", state=boot.state, uid=SIGNER, gid=SIGNER_GID, projection=boot.projection)
 
 
 def test_repair_never_replaces_valid_state(boot):
@@ -308,54 +401,90 @@ def test_repair_never_replaces_valid_state(boot):
     assert {p.name: p.stat().st_ino for p in boot.state.iterdir()} == before
 
 
-def test_repair_preserves_signed_history_and_starts_a_new_stream(boot):
+# Refused state that may hold signed or published history, and why repair refuses it too.
+PUBLISHED = {
+    "signed_event": "not provably unsigned",
+    "head_above_genesis": "not provably unsigned",
+    "unknown_table": "not provably unsigned",
+    "projection": "store is not the empty first-boot skeleton",
+    "store_entry": "store is not the empty first-boot skeleton",
+    "signer_entry": "cannot classify signer entry",
+    "unknown_stream_file": "cannot classify signer stream",
+    "symlinked_private": "cannot classify signer entry",
+    "temporary_without_journal": "temporary manifest has no journal",
+}
+
+
+@pytest.mark.parametrize("fault", sorted(PUBLISHED))
+def test_repair_refuses_state_that_may_hold_history_and_changes_nothing(boot, tmp_path, fault):
+    manifest = _provisioned_then_lost(boot)
+    _inject(boot, tmp_path, manifest, fault)
+    before, store = _tree(boot.state), _tree(boot.store)
+    with pytest.raises(AuthorityError, match=f"repair refuses: .*{PUBLISHED[fault]}.*never reseeded"):
+        admin.repair(state=boot.state, store=boot.store)
+    assert _tree(boot.state) == before and _tree(boot.store) == store
+    assert not (boot.state / admin.VAULT).exists()
+
+
+def test_repair_refuses_a_published_manifest_that_fails_validation(boot, monkeypatch):
     manifest = _boot_as_unit(boot)
-    record = _append(boot, manifest)
+    stream = next(iter(manifest["streams"]))
+    (boot.state / "private" / stream / "checkpoint.key").chmod(0o644)
+    with pytest.raises(AuthorityError, match="published ledger is never reseeded"):
+        _boot_as_unit(boot)
+    before = _tree(boot.state)
+    with pytest.raises(AuthorityError, match="repair refuses: a manifest was published"):
+        admin.repair(state=boot.state, store=boot.store)
+    assert _tree(boot.state) == before
+
+
+# Unpublished state that boot will not delete, because no provisioning step leaves it.
+UNPUBLISHED_REPAIRS = ("loose_key_mode", "second_stream", "linked_temporary", "root_owned_private_with_stream",
+                       "root_owned_stream_with_files", "root_owned_key", "signer_owned_temporary")
+
+
+@pytest.mark.parametrize("fault", UNPUBLISHED_REPAIRS)
+def test_repair_preserves_unpublished_state_boot_will_not_clear(boot, tmp_path, fault):
+    manifest = _provisioned_then_lost(boot)
     old = next(iter(manifest["streams"]))
-    (boot.state / "manifest.json").unlink()
-    with pytest.raises(AuthorityError, match="not provably unsigned"):
+    _inject(boot, tmp_path, manifest, fault)
+    before = _tree(boot.state)
+    with pytest.raises(AuthorityError, match=UNPROVEN[fault]):
         _boot_as_unit(boot)
     result = admin.repair(state=boot.state, store=boot.store)
     slot = Path(result["preserved"][0])
-    assert slot.parent == boot.state / "repair" and (slot.stat().st_mode & 0o777) == 0o700
-    assert "not provably unsigned" in result["refusal"]
-    assert _count(slot / "private" / old / "journal.sqlite", "records") == 1
-    stream = next(iter(result["manifest"]["streams"]))
-    assert stream != old and record["event"]["seq"] == 1
-    assert _boot_as_unit(boot) == result["manifest"]
-    assert _journal(boot, result["manifest"]).head()["seq"] == 0
+    assert slot.parent == boot.state / admin.VAULT and stat.S_IMODE(slot.stat().st_mode) == 0o700
+    assert boot.owners.owners.get(_key(slot), (0, 0)) == (0, 0)
+    assert UNPROVEN[fault] in result["refusal"]
+    assert {name.split("/", 1)[0] for name in _tree(slot)} == {name.split("/", 1)[0] for name in before}
+    assert (slot / "private" / old / "checkpoint.key").read_bytes() == before[f"private/{old}/checkpoint.key"]
+    _assert_fresh_stream(boot, result["manifest"], [old])
+    assert {p.name for p in boot.store.iterdir()} == {"exo"}
 
 
-def test_repair_moves_a_projection_only_when_asked(boot):
-    manifest = _boot_as_unit(boot)
-    boot.projection.parent.mkdir(parents=True)
-    boot.projection.write_bytes(b"principal copy")
-    boot.projection.with_name("ledger.sqlite-wal").write_bytes(b"wal")
-    (boot.state / "manifest.json").unlink()
-    with pytest.raises(AuthorityError, match="fresh store must contain only"):
-        _boot_as_unit(boot)
-    before = {p.name for p in boot.state.iterdir()}
-    with pytest.raises(AuthorityError, match="--set-aside-projection"):
-        admin.repair(state=boot.state, store=boot.store)
-    assert {p.name for p in boot.state.iterdir()} == before and boot.projection.exists()
-    assert not (boot.state / "repair").exists() and not (boot.store / "ledger-repair").exists()
-    result = admin.repair(state=boot.state, store=boot.store, set_aside_projection=True)
-    signer_slot, projection_slot = map(Path, result["preserved"])
-    assert (signer_slot / "private" / next(iter(manifest["streams"]))).is_dir()
-    assert projection_slot.parent == boot.store / "ledger-repair"
-    assert (projection_slot / "ledger.sqlite").read_bytes() == b"principal copy"
-    assert (projection_slot / "ledger.sqlite-wal").read_bytes() == b"wal"
-    assert not boot.projection.exists() and not boot.projection.with_name("ledger.sqlite-wal").exists()
-    assert _boot_as_unit(boot) == result["manifest"]
+def test_repair_resumes_after_a_cut_during_its_own_provision(boot, monkeypatch, tmp_path):
+    manifest = _provisioned_then_lost(boot)
+    _inject(boot, tmp_path, manifest, "loose_key_mode")
+    with monkeypatch.context() as patch:
+        patch.setattr(admin.os, "link", _cut)
+        with pytest.raises(PowerCut):
+            admin.repair(state=boot.state, store=boot.store)
+    with pytest.raises(AuthorityError, match="unexpected entries.*root can run exo-ledger-admin repair"):
+        _boot_as_unit(boot)  # the earlier repair directory is not something provisioning writes
+    result = admin.repair(state=boot.state, store=boot.store)
+    assert len(list((boot.state / admin.VAULT).iterdir())) == 2
+    _assert_fresh_stream(boot, result["manifest"])
 
 
-def test_repair_command_passes_the_projection_flag(monkeypatch, capsys):
+def test_repair_command_prints_its_result(monkeypatch, capsys):
     seen = []
-    monkeypatch.setattr(admin, "repair", lambda principal, set_aside_projection: seen.append(
-        (principal, set_aside_projection)) or {"preserved": []})
-    monkeypatch.setattr(admin.sys, "argv", ["exo-ledger-admin", "repair", "--set-aside-projection"])
+    monkeypatch.setattr(admin, "repair", lambda principal: seen.append(principal) or {"preserved": []})
+    monkeypatch.setattr(admin.sys, "argv", ["exo-ledger-admin", "repair"])
     admin.main()
-    assert seen == [("exo", True)] and json.loads(capsys.readouterr().out) == {"preserved": []}
+    assert seen == ["exo"] and json.loads(capsys.readouterr().out) == {"preserved": []}
+    monkeypatch.setattr(admin.sys, "argv", ["exo-ledger-admin", "repair", "--set-aside-projection"])
+    with pytest.raises(SystemExit):
+        admin.main()
 
 
 @pytest.mark.skipif(os.geteuid() != 0, reason="requires disposable root Linux test container")
@@ -388,5 +517,41 @@ def test_unsigned_evidence_runs_under_the_signer_uid():
         admin._as_signer(uid, gid, append)
         with pytest.raises(AuthorityError, match="signer validation or provisioning failed"):
             admin._as_signer(uid, gid, lambda: admin._unsigned(path))
+    finally:
+        shutil.rmtree(root)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="requires disposable root Linux test container")
+def test_step_owners_hold_with_a_real_signer_account(monkeypatch):
+    """Real chown and a real UID drop: a cut resumes, and a root-owned stream holding keys refuses."""
+    import shutil
+    import tempfile
+
+    account = pwd.getpwnam("nobody")
+    root = Path(tempfile.mkdtemp(prefix="exo-first-boot-", dir="/tmp"))
+    root.chmod(0o755)
+    state, store = root / "signer", root / "store"
+    state.mkdir(mode=0o755)
+    store.mkdir(mode=0o755)
+    (store / "exo").mkdir(mode=0o700)
+    monkeypatch.setattr(admin, "validate_boot_mounts", lambda *a: None)
+    monkeypatch.setattr(admin, "trusted_path", lambda path, **kw: path)
+    monkeypatch.setattr(policy, "trusted_path", lambda path, **kw: path)
+    monkeypatch.setattr(admin, "account_uid", lambda name: account.pw_uid)
+    monkeypatch.setattr(pwd, "getpwnam", lambda name: account)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(admin, "validate_manifest", _cut)
+            with pytest.raises(PowerCut):
+                admin.ensure_boot(state=state, store=store)
+        stream = next((state / "private").iterdir())
+        assert stream.stat().st_uid == account.pw_uid and (stream / "journal.sqlite").stat().st_uid == account.pw_uid
+        os.chown(stream, 0, 0)
+        with pytest.raises(AuthorityError, match="wrong type, owner or mode"):
+            admin.ensure_boot(state=state, store=store)
+        os.chown(stream, account.pw_uid, account.pw_gid)
+        manifest = admin.ensure_boot(state=state, store=store)
+        assert next(iter(manifest["streams"])) != stream.name and not stream.exists()
+        assert admin.ensure_boot(state=state, store=store) == manifest
     finally:
         shutil.rmtree(root)

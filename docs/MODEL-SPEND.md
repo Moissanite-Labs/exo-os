@@ -33,7 +33,9 @@ On every later boot the service checks the existing policy, fixed principal and
 journal path, journal UUID, exact owners and modes, and the ledger/store mount
 identity. Missing, partial, symlinked, misowned or inconsistent state refuses
 startup, except a [first boot cut off before publication](#first-boot-cut-off-before-publication).
-Each refusal names the [root repair](#root-repair) command. A crash after atomic
+The image installs no documentation, so each refusal ends with a short hint. For
+state after publication it says the state is never reset automatically. For other
+state it names [root repair](#root-repair) and its limit. A crash after atomic
 policy publication can leave one `.policy-` file
 with exactly 16 lowercase hexadecimal characters. Boot activation removes it
 only after validating the published policy and original journal, and only if
@@ -41,8 +43,10 @@ it is a root-owned regular `0644` file with the policy's exact device/inode and
 both have link count two. Status may inspect this verified state without removing
 the link. Unrelated entries or other hard links still refuse. This cleanup does
 not change policy bytes, ceilings or the journal UUID. It does not recreate the
-journal or restore a default policy. This repository does not expose cap editing,
-journal reset, or resume through an agent tool.
+journal or restore a default policy. Repair of state after publication requires a
+deliberate administrator procedure with the daemon stopped and preserved evidence.
+Neither boot nor root repair resets it. This repository does not expose cap
+editing, journal reset, or resume through an agent tool.
 
 An operator who deliberately enables a paid route must pin the native
 transport, endpoint, model, input/output bounds and all four token prices in
@@ -92,12 +96,13 @@ retained. See [historical evidence](VALIDATION.md#historical-image-5a86e3b).
 ## First boot cut off before publication
 
 A power cut between creating `/var/lib/exo/model-spend` and linking `policy.json`
-leaves state that no policy ever named. Login waits for this unit, and the core
-opens the journal only through `policy.json`, so no model call could have used it.
-The next boot finishes provisioning only when all of these hold:
+leaves a journal without a policy. Login waits for this unit, and the core opens the
+journal only through `policy.json`. Boot cannot tell whether a policy ever named the
+journal, because a policy deleted before `.owned` exists leaves the same files. So it
+finishes provisioning only when the files show the journal was never used:
 
-- `/var/lib/exo/.owned` is absent. The store holds only `model-spend` and the
-  empty root-owned `exo` skeleton.
+- `/var/lib/exo/.owned` is absent, so first boot never finished. The store holds
+  only `model-spend` and the empty root-owned `exo` skeleton.
 - `policy.json` is absent. Every directory and file, with its owner and mode, is
   one that first boot creates at some step under the unit's `UMask=0077`.
 - A journal, if present, opens under the `exo` UID and passes SQLite's quick check.
@@ -108,24 +113,38 @@ The next boot finishes provisioning only when all of these hold:
 
 When the journal has an identity, boot publishes the zero-cap policy for that same
 journal UUID through the usual link. When no identity row was ever committed, boot
-removes the directories and provisions from the start. Both end with the default
-policy: zero caps and no routes. Any other state still refuses. Examples are a
-journal with one call, a stop or a moved clock, an extra entry, or a store whose
-ownership transfer already finished.
+removes the directories and provisions from the start. It removes the rollback
+journal before its database, so a cut during removal leaves state the next boot
+accepts again. Both end with the default policy: zero caps and no routes. Any other
+state still refuses. Examples are a journal with one call, a stop or a moved clock,
+an extra entry, or a store whose ownership transfer already finished.
 
 ## Root repair
 
-`exo-model-spend-admin repair` is the command each refusal names. Run it as root
-from the console while login is blocked. It needs a valid ledger, so run
-`exo-ledger-admin repair` first if the ledger unit also failed. The command first
-runs the normal boot check, which may finish a cut-off first boot. If that check
-passes, it stops there and prints the policy. A stopped journal passes, so repair
-never clears a stop on valid state. Otherwise it renames the refused `model-spend`
-entry into a new `/var/lib/exo/model-spend-repair/<UTC time>-<random>/` directory.
-That directory is root-only, mode 0700, on the same subvolume. Nothing is deleted.
-The command then provisions a new journal with the zero-cap policy and prints JSON
-with the preserved path, the refusal and the new policy. Reboot afterwards.
+`exo-model-spend-admin repair` runs as root from the console while login is
+blocked. It needs a valid ledger, so run `exo-ledger-admin repair` first if the
+ledger unit also failed. The command first runs the normal boot check, which may
+finish a cut-off first boot. If that check passes, it stops there and prints the
+policy. A stopped journal passes, so repair never clears a stop on valid state.
 
-The new journal does not carry earlier charges, pending reservations or a stop.
-With zero caps and no routes, no paid call can be admitted. Before an operator
-installs a priced route again, review the preserved journal and the provider bill.
+Otherwise it acts only when the refused state shows the same lack of use as a
+cut-off first boot. `.owned` and `policy.json` are absent. The store holds only
+`model-spend`, the empty `exo` skeleton and any earlier repair directory. Every
+entry is a kind first boot writes. A journal, if present, has no call, no stop and
+an observed clock of zero under the `exo` UID. A temporary policy needs a journal
+with a committed identity beside it. Owners, modes, link counts and the number of
+temporaries may differ from every first-boot step. That is why boot refused, since
+boot deletes or publishes from what it accepts.
+
+It then renames the `model-spend` entry into a new
+`/var/lib/exo/model-spend-repair/<UTC time>-<random>/` directory. That directory is
+root-only, mode 0700, on the same subvolume. Nothing is deleted. The command then
+provisions a new journal with the zero-cap policy and prints JSON with the preserved
+path, the refusal and the new policy. Reboot afterwards. A cut during repair leaves
+`/var/lib/exo/model-spend-repair` in the store, which boot does not accept. Run
+repair again.
+
+Any other state refuses unchanged. That includes any `policy.json`, a journal with a
+call, a stop or a moved clock, a temporary policy without its journal, a store whose
+first boot finished, and any entry repair cannot classify. Repairing that state stays a deliberate administrator
+procedure with the daemon stopped and preserved evidence.

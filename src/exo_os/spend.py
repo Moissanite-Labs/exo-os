@@ -1,9 +1,12 @@
 """Root-controlled model-spend activation on the persistent Exo store.
 
 Only a pristine first boot may create state. A first boot cut off before its policy
-was published resumes only when the state proves no policy ever named the journal.
-Later boots validate the same policy and journal without resetting either ceilings
-or the journal identity. Every other state refuses until root runs `repair`.
+was published resumes only when first boot never finished and the journal shows no
+use: no call, no stop and no observed clock. These checks cannot tell a policy that
+was never written from one deleted before first boot finished. They show only that
+no policy admitted a call through this journal. Later boots validate the same policy
+and journal without resetting either ceilings or the journal identity. Every other
+state refuses. Root `repair` replaces only state that shows the same lack of use.
 """
 from __future__ import annotations
 
@@ -33,6 +36,12 @@ POLICY = STATE / "policy.json"
 JOURNAL = STATE / "exo" / "journal.sqlite"
 PRINCIPAL = "exo"
 REPAIR = "exo-model-spend-admin repair"
+# Boot units log these; the image installs no docs, so each names the command and its limit inline.
+UNUSED_HINT = (f"root can run {REPAIR}, which sets this state aside and provisions again "
+               "only if first boot never finished and the journal was never used")
+PUBLISHED_HINT = ("spend state after publication is never reset automatically; "
+                  "an administrator repairs it by hand and keeps the evidence")
+REFUSED_HINT = "an administrator repairs such state by hand and keeps the evidence"
 VAULT = "model-spend-repair"
 TEMPORARY = re.compile(r"\.policy-[0-9a-f]{16}")
 
@@ -246,18 +255,23 @@ def _journal_id(value) -> str:
 
 
 def _discard_unbound(store: Path, state: Path, principal: str) -> None:
-    """Remove first-boot directories whose journal never committed an identity."""
+    """Remove first-boot directories whose journal never committed an identity.
+
+    The rollback journal goes before its database, so a cut never leaves it alone,
+    which the next boot would refuse.
+    """
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     state_fd = os.open(state, flags)
     try:
         if principal in os.listdir(state_fd):
             user_fd = os.open(principal, flags, dir_fd=state_fd)
             try:
-                for name in os.listdir(user_fd):
-                    if name not in ("journal.sqlite", "journal.sqlite-journal"):
-                        raise AuthorityError("model-spend journal directory has unexpected entries")
+                names = os.listdir(user_fd)
+                if not set(names) <= {"journal.sqlite", "journal.sqlite-journal"}:
+                    raise AuthorityError("model-spend journal directory has unexpected entries")
+                for name in sorted(names, reverse=True):  # journal.sqlite-journal, then journal.sqlite
                     os.unlink(name, dir_fd=user_fd)
-                os.fsync(user_fd)
+                    os.fsync(user_fd)
             finally:
                 os.close(user_fd)
             os.rmdir(principal, dir_fd=state_fd)
@@ -271,10 +285,11 @@ def _discard_unbound(store: Path, state: Path, principal: str) -> None:
 def _resume(store: Path, state: Path, principal: str, uid: int, gid: int) -> dict:
     """Finish a first boot cut off before policy.json was published.
 
-    Login waits for this unit and the core opens the journal only through policy.json,
-    so a journal without one was never used. Its rows must agree: no call, no stop and
-    no observed clock. Nothing reads a temporary policy. Accept only the states first
-    boot leaves at each step, then publish the same zero caps it would have.
+    Login waits for this unit and the core opens the journal only through policy.json.
+    Absent .owned shows first boot never finished. The journal rows must show it was
+    never used: no call, no stop and no observed clock. Nothing reads a temporary
+    policy. Accept only the states first boot leaves at each step, then publish the
+    same zero caps it would have.
     """
     if os.path.lexists(store / ".owned"):
         raise AuthorityError("model-spend policy is missing after first boot completed")
@@ -401,35 +416,93 @@ def ensure_boot(principal: str = PRINCIPAL, *, store: Path = STORE, signer: Path
     try:
         return _boot(store, state, principal, uid, gid)
     except AuthorityError as exc:
-        raise AuthorityError(f"{exc}; root repair: {REPAIR} (docs/MODEL-SPEND.md)") from exc
+        published = os.path.lexists(state / "policy.json") or os.path.lexists(store / ".owned")
+        raise AuthorityError(f"{exc}; {PUBLISHED_HINT if published else UNUSED_HINT}") from exc
+
+
+def _kind(path: Path, kind: int) -> None:
+    """Repair's shape check: the file type alone, never following a symlink."""
+    if stat.S_IFMT(path.lstat().st_mode) != kind:
+        raise AuthorityError(f"repair cannot classify model-spend entry: {path}")
+
+
+def _unused(store: Path, state: Path, principal: str, uid: int, gid: int) -> None:
+    """Repair's proof that refused spend state was never used, whatever its owners and modes.
+
+    Boot resumes only the exact states first boot leaves, because it deletes or
+    publishes from them. Repair deletes nothing, so it also takes other owners or
+    modes, extra or linked temporaries and an earlier repair directory. It still needs
+    the same evidence: first boot never finished, no policy.json, only entries first
+    boot writes, a journal with no call, no stop and no observed clock under the exo
+    UID, and a committed journal identity beside any temporary policy.
+    """
+    if os.path.lexists(store / ".owned"):
+        raise AuthorityError("first boot finished, so a policy was published")
+    entries = {p.name for p in store.iterdir()}
+    if VAULT in entries:
+        _node(store / VAULT, stat.S_IFDIR, 0o700, 0, 0)
+    try:
+        _fresh(store, principal, {principal, "model-spend"} | (entries & {VAULT}))
+    except AuthorityError as exc:
+        raise AuthorityError("the store is not the empty first-boot skeleton") from exc
+    _kind(state, stat.S_IFDIR)
+    if os.path.lexists(state / "policy.json"):
+        raise AuthorityError("a policy was published")
+    names = {p.name for p in state.iterdir()}
+    temporaries = names - {principal}
+    for name in temporaries:
+        if not TEMPORARY.fullmatch(name):
+            raise AuthorityError(f"repair cannot classify model-spend entry: {state / name}")
+        _kind(state / name, stat.S_IFREG)  # nothing reads a temporary policy
+    held = set()
+    if principal in names:
+        user_dir = state / principal
+        _kind(user_dir, stat.S_IFDIR)
+        held = {p.name for p in user_dir.iterdir()}
+        if not held <= {"journal.sqlite", "journal.sqlite-journal"} or held == {"journal.sqlite-journal"}:
+            raise AuthorityError(f"repair cannot classify model-spend entry: {user_dir}")
+        for name in held:
+            _kind(user_dir / name, stat.S_IFREG)
+    journal_id = None
+    if held:
+        journal = state / principal / "journal.sqlite"
+        try:
+            journal_id = _as_exo(uid, gid, lambda: _unpublished_journal(journal, principal), result=True)
+        except AuthorityError as exc:
+            raise AuthorityError("the journal does not show that it was never used") from exc
+    # A temporary policy was written for a journal identity; without it nothing shows the policy went unused.
+    if temporaries and journal_id is None:
+        raise AuthorityError("a temporary policy has no journal identity to show it was never used")
 
 
 def repair(principal: str = PRINCIPAL, *, store: Path = STORE, signer: Path = SIGNER_STATE) -> dict:
-    """Root console repair after boot refused: preserve that state, then publish fresh zero caps.
+    """Root console repair after boot refused: preserve unused state, then publish fresh zero caps.
 
     State that passes the boot check, including a stopped journal, is never replaced.
-    The preserved policy and journal stay root-only for review.
+    State a policy may have used refuses unchanged. The preserved state stays
+    root-only for review.
     """
     state, uid, gid = _context(principal, store, signer)
     try:
         return {"preserved": None, "refusal": None, "policy": _boot(store, state, principal, uid, gid)}
     except AuthorityError as exc:
         refusal = str(exc)
-    preserved = None
-    if os.path.lexists(state):
-        vault = store / VAULT
-        if not os.path.lexists(vault):
-            vault.mkdir(mode=0o700)
-            os.chmod(vault, 0o700)
-        _node(vault, stat.S_IFDIR, 0o700, 0, 0)
-        slot = vault / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + os.urandom(4).hex())
-        slot.mkdir(mode=0o700)  # never an existing directory, so rename cannot replace evidence
-        preserved = slot / "model-spend"
-        os.rename(state, preserved)  # same @store subvolume; moves a symlink itself, never its target
-        for path in (slot, vault, store):
-            _fsync(path)
-    return {"preserved": None if preserved is None else str(preserved), "refusal": refusal,
-            "policy": _provision(store, state, principal, uid, gid)}
+    try:
+        _unused(store, state, principal, uid, gid)
+    except AuthorityError as exc:
+        raise AuthorityError(f"{refusal}; repair refuses: {exc}; {REFUSED_HINT}") from exc
+    vault = store / VAULT
+    if not os.path.lexists(vault):
+        vault.mkdir(mode=0o700)
+        os.chmod(vault, 0o700)
+    _node(vault, stat.S_IFDIR, 0o700, 0, 0)
+    slot = vault / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + os.urandom(4).hex())
+    slot.mkdir(mode=0o700)  # never an existing directory, so rename cannot replace evidence
+    preserved = slot / "model-spend"
+    os.rename(state, preserved)  # same @store subvolume; moves a symlink itself, never its target
+    for path in (slot, vault, store):
+        _fsync(path)
+    return {"preserved": str(preserved), "refusal": refusal, "policy": _provision(store, state, principal, uid, gid)}
 
 
 def inspect(*, store: Path = STORE, principal: str = PRINCIPAL) -> dict:
@@ -456,7 +529,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("ensure-boot")
     sub.add_parser("status")
-    sub.add_parser("repair", help="root console only: preserve refused state, then publish fresh zero caps")
+    sub.add_parser("repair", help="root console only: preserve refused unused state, then publish fresh zero caps")
     args = parser.parse_args()
     if args.command == "ensure-boot":
         ensure_boot()
