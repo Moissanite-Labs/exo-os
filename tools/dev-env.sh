@@ -7,6 +7,10 @@ pin="$(cat "$here/exo.pin")"
 dep="$here/.deps/exo"
 [[ -d $dep/.git ]] || git clone -q https://github.com/aska-digital/exo.git "$dep"
 git -C "$dep" fetch -q origin
+if [[ -n $(git -C "$dep" status --porcelain) ]]; then
+  echo "refusing: $dep has local modifications; stash or clean it before the dev env builds against the pin" >&2
+  exit 1
+fi
 git -C "$dep" -c advice.detachedHead=false checkout -q "$pin"
 if [[ ! -d $here/.venv ]]; then
   python="$(uv python find --system '>=3.11' 2>/dev/null || uv python find '>=3.11')"

@@ -129,7 +129,7 @@ journal removes the protection.
 
 `tests/test_egress.py` uses a generated TEST certificate/key and a real local TLS
 fixture. It checks secret delivery only upstream, complete payload withholding,
-verified TLS, route/path denial, no redirect following, request/response bounds,
+verified TLS, route/path denial, no redirect following, response bounds (64 KiB),
 header deadlines, duplicate races, persistent in-flight state, lost upstream
 reply, and durable-outcome failure. Tests never contact a cloud service or use
 existing credentials. Plugin tests run the pinned Exo gate and confirm one

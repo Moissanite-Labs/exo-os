@@ -3,8 +3,8 @@ enable NetworkManager-wait-online.service
 disable systemd-networkd.service
 disable systemd-networkd-wait-online.service
 enable systemd-timesyncd.service
-enable snapper-timeline.timer
 enable snapper-cleanup.timer
+disable snapper-timeline.timer
 enable greetd.service
 enable exo-sysd.socket
 enable exo-egress.socket

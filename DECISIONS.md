@@ -43,7 +43,7 @@ with KVM) should take this over.
 
 ## OS-4. Root: exo-sysd with named actions only (rules on proposed D4)
 
-**Decision.** One root service, `exo-sysd`, socket-activated on `/run/exo-sysd.sock` (group `exo-sys`, mode
+**Decision.** One root daemon, `exo-sysd`, socket-activated on `/run/exo-sysd.sock` (group `exo-sys`, mode
 0660). It does five things: `status`, `snapshot.create`, `snapshot.list`, `package.install` and
 `snapshot.undo` (snapper undochange for one recorded pre/post pair). Arguments are
 checked, commands are fixed argv lists, never shell strings. Bootloader, partitions, firmware, kernel
@@ -84,7 +84,9 @@ proposal to Exo, not a dependency.
 ## OS-8. Local models, secrets, user scope (rules on proposed D5, D6, D7)
 
 - **D5:** (b) as proposed. Nothing local is built yet; measure before adding.
-- **D6:** (c) as the target. Until it is built, Exo's Linux path stands: `~/.config/exo/keys.env`, 0600.
+- **D6:** (c) as the target. The `exo-egress` credential broker (OS-16) now injects named systemd
+  credentials into HTTPS actions, so tools never hold secrets. Exo's own provider API keys for model
+  calls still live in `~/.config/exo/keys.env`, 0600, read by exod (BANKAI.md §4 row S-7, proposal P-4).
 - **D7:** (b), with Exo's terms. Exo's "operator" is the floor of rules a principal cannot lower (P11), not
   a person, and a peer on the bus "is input, never consent" (D-026). So the person who helps Shahid is a
   **helper**: an approver for named categories through `policies/approvals.yaml` (`role:helper` mapped to
