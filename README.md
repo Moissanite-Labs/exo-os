@@ -46,6 +46,7 @@ The other six suites and witness cases are not run. Built:
   Pending requests preserve typing; **Review request (F6)** enters keyboard review.
   The review button stays outside Tab completion navigation. Mouse review remains available.
   Escape defers; losing review focus revokes keyboard consent; lost answers are reconciled without automatic retry.
+  The launcher probes GL and falls back to Cairo when it fails, and logs its choice (OS-20); real hardware is not yet checked.
 - **Timeline.** `exo-os today` and the `timeline_show` tool: what Exo did on a day, from the ledger.
 - **Tool boundary.** Every registry call passes through the required executor. Workspace tools run
   under bubblewrap, Landlock and seccomp with no network, credentials or host control sockets.

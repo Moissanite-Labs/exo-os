@@ -66,6 +66,8 @@ def app(monkeypatch):
         raise Exec(*args)
 
     monkeypatch.setattr(module, "Surface", Surface)
+    module.applied = []
+    monkeypatch.setattr(module.renderer, "apply", lambda env: module.applied.append(env))
     monkeypatch.setattr(module.os, "execve", no_exec)
     for name in ("WAYLAND_DISPLAY", "GDK_BACKEND", "LD_PRELOAD", module.PRELOAD_MARK):
         monkeypatch.delenv(name, raising=False)
@@ -141,3 +143,18 @@ def test_no_reexec_without_the_library_or_a_wayland_display(app, monkeypatch, li
     if wayland:
         monkeypatch.setenv("WAYLAND_DISPLAY", wayland)
     assert app.main(["exo-surface"]) == 7
+
+
+def test_renderer_policy_runs_in_the_primary_instance_before_gtk(app, monkeypatch):
+    monkeypatch.setattr(app, "name_has_owner", lambda name: False)
+    monkeypatch.setattr(app, "layer_shell_lib", lambda: None)
+    order = []
+    monkeypatch.setattr(app.renderer, "apply", lambda env: order.append("policy"))
+    app.Surface.run = lambda self, argv: order.append("run") or 7
+    assert app.main(["exo-surface"]) == 7 and order == ["policy", "run"]
+
+
+def test_a_toggle_to_a_running_surface_never_probes(app, monkeypatch):
+    monkeypatch.setattr(app, "name_has_owner", lambda name: True)
+    app.main(["exo-surface", "toggle"])
+    assert app.applied == []

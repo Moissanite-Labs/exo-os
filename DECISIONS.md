@@ -255,6 +255,29 @@ a lock per action, which would let two mutations touch the package database and
 snapshots at once. Known limit: a request waiting for the mutation lock still holds
 one of the eight connection slots.
 
+## OS-20. The production surface probes GL and falls back to Cairo
+
+**Decision.** `exo-surface` starts a child process that opens a hidden GTK window with the default renderer
+(`exo_os.surface.renderer`). If the child reports a GL or Vulkan renderer, the surface runs with GTK's default
+selection untouched. If it fails, crashes, hangs past 10 seconds or reports a software renderer, the launcher sets
+`GSK_RENDERER=cairo` before GTK starts. Every start logs one line, `exo-surface: renderer=<gl|cairo|default>
+source=<probe-ok|probe-failed|environment|no-display>`, to the journal. A `GSK_RENDERER` already in the environment is
+the operator's choice and is neither probed nor changed. The production unit sets no renderer. The `vmtest` profile
+keeps `GSK_RENDERER=cairo` because the acceptance VM has no GPU and its default renderer drew blank glyphs (#52); the
+drop-in says so. Acceptance records the launcher's logged choice and what the selection logic returns on the VM with
+the override removed (`p3-surface-renderer-choice.json`). Details: `docs/SURFACE-ACCESSIBILITY.md`.
+
+**Why.** The failure behind #52 is not understood, so GL that is missing or broken can happen on real hardware, and
+relying on GTK to fail gracefully is an unchecked assumption. A probe in a child keeps a crash or hang out of the
+surface, and logging the choice makes the renderer a visible fact rather than a guess. Rejected: forcing Cairo
+everywhere (Cairo is GTK's incomplete comparison renderer, slower and missing 3D transforms, and it would hide GL
+problems instead of finding them); trusting GTK's default alone (no check, no record, no fallback when GL starts and
+then fails); probing inside the surface process (a GL crash or hang would take the surface down); an image-level
+setting chosen at build time (build hardware is not run hardware). Known limit: the probe sees a renderer that will
+not start, not one that starts and draws wrong, such as blank glyphs. Whether the default renderer is correct on real
+hardware is not established by this repo and must be settled on hardware before the USB and real-hardware image
+profile (#10).
+
 ## OS-21. The principal writer signs only for the core process its launch record names
 
 **Decision.** The ledger signer appends as the `principal` writer only for the

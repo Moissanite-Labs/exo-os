@@ -127,13 +127,15 @@ so this run supplies no recorded held-key proof. Image acceptance remains held.
 Earlier failed fixtures remain failed. A tools-only diagnostic against an older
 image does not validate the new runtime.
 
-The `vmtest` profile sets `GSK_RENDERER=cairo` only for `exo-surface.service`.
-These VM checks therefore run on Wayland with Cairo. Production retains GTK's
-default renderer selection. The harness verifies both the service declaration
-and its running process environment before passing the same value to fixtures.
-GTK evidence records each realized window's renderer through
-[`Gtk.Native.get_renderer()`](https://docs.gtk.org/gtk4/method.Native.get_renderer.html)
-and requires `GskCairoRenderer`; an environment hint alone cannot pass.
+The `vmtest` profile sets `GSK_RENDERER=cairo` only for `exo-surface.service`, because the VM has no GPU and its
+default renderer drew blank glyphs (#52). These VM checks therefore run on Wayland with Cairo. Production sets no
+renderer in the unit: the launcher probes GL in a child process and falls back to Cairo when the probe fails,
+hangs, crashes or reports a software renderer (OS-20, `src/exo_os/surface/renderer.py`). It logs one line,
+`exo-surface: renderer=<gl|cairo|default> source=<...>`, for every start. The harness verifies both the service declaration
+and the main process environment. Phase 3 also records that log line and the selection the logic returns on the VM
+without the override (`p3-surface-renderer-choice.json`). On the VM that second record shows only what the probe
+reports there. It says nothing about real hardware, and the probe cannot see glyphs that draw blank on a renderer that
+starts.
 
 The service records are `p3-surface-renderer.json` and
 `atspi-surface-renderer.json`; they contain only the renderer values and service
