@@ -57,8 +57,8 @@ normal principal filtering.
 event replay through that sequence. Event delivery waits until the snapshot is
 posted, so a live resolution received during the query is applied after its
 possibly stale row. Requests with newer event sequences remain until replay
-resolves them. The current protocol does not provide an atomic pending snapshot
-plus event cursor: transient display of a newer request resolved during the query
+resolves them. The surface does not yet use the cursor that `approvals.list` now returns, so
+an atomic pending snapshot plus event cursor is not in use: transient display of a newer request resolved during the query
 is possible until its resolution event arrives, and the daemon's binding and
 pending checks remain authoritative.
 
@@ -75,18 +75,19 @@ than relying on event arrival as a heartbeat. A lower daemon sequence also cause
 reconnection. Replay follows the existing 2,000-event limit; pending approvals
 are recovered independently of that replay limit.
 
-An event socket stalled while the daemon stays entirely idle cannot be proven
-stalled by this protocol. Command probes establish daemon responsiveness, and
-sequence lag detects a stuck feed once the daemon produces events. A per-stream
-heartbeat or stronger subscription acknowledgement would require core protocol
-support. No inactivity timeout is imposed on an otherwise healthy idle feed.
+The core pings an idle event stream every 15 seconds, and the core client ends a
+stream that brings no event or heartbeat for 45 seconds. The surface then
+reconnects, so an event socket stalled while the daemon is idle is detected
+without depending on events. Command probes and sequence lag remain as
+independent checks.
 
 Reconnect errors, including malformed replies and unexpected exceptions, log a
 traceback on the first failure and the latest failure at most once per minute,
 with the intervening retry count. Creation and close errors share that bound.
 The connection status remains a calm up/down state rather than a log stream.
 
-The surface preserves the core's per-launch principal credential on requests.
-This change does not establish peer authentication beyond the core's existing
-credential handling; Unix peer authentication is a separate core integration
-requirement (issue #16). No live machine configuration is changed by these fixes.
+The surface joins as a principal client. The core client checks the kernel peer of
+each connection against the launch record (pid and process start identity) before the
+per-launch credential goes on it, and refuses with zero bytes written otherwise
+(Exo D-060). Sockets in another PID namespace are refused. No live machine
+configuration is changed by these fixes.
