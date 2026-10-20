@@ -275,8 +275,8 @@ tool process that reached the socket could sign as `principal`. D-060 already
 names one process per launch, by pid and a start identity that a reused pid does
 not share. Binding to it closes the principal writer to every other process,
 including one that holds a copy of the record. No core change is needed, and
-nothing in the image appends as `principal` from another process: exod's own
-writers are `exo-gate`, `exo-memory` and `exo-learn`.
+nothing in the image appends as `principal`: exod writes as `exo-gate`,
+`exo-memory`, `exo-learn` and `exo-os`, and the OS commands as `exo-os`.
 
 **Rejected.** Letting the signer read the record: an ACL shows in the record's
 group bits, which the core's own reader refuses, and `CAP_DAC_READ_SEARCH` would

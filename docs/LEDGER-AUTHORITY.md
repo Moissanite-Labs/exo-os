@@ -167,8 +167,9 @@ including one that holds the real record. Reads of the stream (`head`,
 verify and synchronize a projection that holds principal events. A descriptor on
 any other request refuses.
 
-In the shipped image nothing else appends as `principal`: exod's own writers are
-`exo-gate`, `exo-memory` and `exo-learn`. Command-line requests for the
+In the shipped image nothing appends as `principal`. Exod writes as `exo-gate`,
+`exo-memory`, `exo-learn` and `exo-os`, and the OS commands and setup as
+`exo-os`. Command-line requests for the
 `principal` writer, such as `exo log append --author principal` or
 `exo ask answer --author principal`, now refuse on the image.
 
