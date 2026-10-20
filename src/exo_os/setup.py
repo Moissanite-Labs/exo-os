@@ -27,7 +27,7 @@ GATE_RULES = """rules:
   # Exo OS: installing software changes the system. The person decides, every time.
   - match: {tool: "system_package_*"}
     decision: ask
-    reason: installing software changes the system
+    reason: installing software changes the system, and it upgrades all system packages first
   - match: {tool: "system_snapshot_undo"}
     decision: ask
     reason: putting the system back changes installed software

@@ -215,8 +215,9 @@ TOOLS = [
         "Open one of the person's apps, or bring it to the front if it is already open.",
         {"name": APP_PROPS["name"]}, ["name"])),
     ("system_package_install", system_package_install, "high", _schema(
-        "Install system packages. A system snapshot is taken first; full undo may need a restart. Always asks "
-        "the person first.",
+        "Install system packages. This refreshes the package lists and upgrades all system packages first, "
+        "not only the ones named. A system snapshot is taken first; full undo may need a restart. Always "
+        "asks the person first.",
         {"names": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 10},
          "reason": {"type": "string", "description": "One plain sentence: why"}}, ["names", "reason"])),
     ("system_snapshot_undo", system_snapshot_undo, "high", _schema(
