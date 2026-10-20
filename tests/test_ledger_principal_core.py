@@ -234,6 +234,22 @@ def test_a_descriptor_on_another_writers_request_refuses(authority):
     unchanged(authority, head, "with-fd", "exo-os")
 
 
+READS = {"head": {"seq": None}, "lookup": {"operation_id": "any"}, "read_since": {"seq": 0, "limit": 1}}
+
+
+@pytest.mark.parametrize("op", list(READS))
+@pytest.mark.parametrize("writer", WRITERS)
+def test_a_descriptor_on_a_read_refuses(authority, reasons, writer, op):
+    """Reads take no descriptor, not even the core's own record from the core. The same read without one passes,
+    so the descriptor alone refuses it, before the binding is asked."""
+    core.issue(authority.core_socket)
+    raw = {"version": 1, "nonce": "r", "stream": "fixture", "writer": writer, "op": op, **READS[op]}
+    assert send(authority.path, raw)["state"] == "ok"
+    reply = as_core(authority, raw, authority.record)
+    assert reply["state"] == "refused" and reply["result"] is None, reply
+    assert reasons == []
+
+
 def test_record_naming_another_live_process_refuses(authority, reasons):
     """The record names a separate core; the test process holds it but is not that process."""
     other = subprocess.Popen([sys.executable, "-c", "import sys, time\nfrom exo import principal\n"
