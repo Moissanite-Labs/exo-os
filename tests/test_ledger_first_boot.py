@@ -30,8 +30,9 @@ def _cut(*args, **kwargs):
 def boot(tmp_path, monkeypatch):
     root = tmp_path.resolve()
     state, store = root / "signer", root / "store"
-    state.mkdir(mode=0o755)
-    store.mkdir()
+    for path in (state, store):  # as the image installs them, so the signer UID can enter the signer mount
+        path.mkdir(mode=0o755)
+        path.chmod(0o755)
     (store / "exo").mkdir(mode=0o700)
     # Root owns what root creates; the signer owns what appears under its UID drop.
     owners = FakeOwners(root, monkeypatch)
@@ -306,7 +307,46 @@ UNPROVEN = {
     "root_owned_stream_with_files": "wrong type, owner or mode",
     "root_owned_key": "wrong type, owner or mode",
     "signer_owned_temporary": "wrong type, owner or mode",
+    "root_owned_stream_with_keys": "wrong type, owner or mode",
+    "root_owned_private_with_keys": "wrong type, owner or mode",
+    # Entry kinds provisioning never writes, and SQLite side files it never leaves without their database.
+    "bad_stream_name": "unexpected entries",
+    "symlinked_stream": "wrong type, owner or mode",
+    "symlinked_key": "wrong type, owner or mode",
+    "symlinked_temporary": "wrong type, owner or mode",
+    "wal_without_journal": "stream has unexpected entries",
+    "shm_without_journal": "stream has unexpected entries",
+    "rollback_journal_without_journal": "stream has unexpected entries",
 }
+
+
+def _signed_frames_only(boot, manifest, directory, tmp_path):
+    """Leave a signed append only in the WAL: the keys and journal.sqlite-wal stay, the database goes."""
+    journal, wal = directory / "journal.sqlite", directory / "journal.sqlite-wal"
+    reader = []  # an open reader keeps the WAL, and the frames of the append, in place
+    _as_signer(boot, lambda: reader.append(sqlite3.connect(journal)) or
+               reader[0].execute("SELECT COUNT(*) FROM checkpoints").fetchone())
+    try:
+        genesis = journal.read_bytes()
+        _signed_event(boot, manifest)
+        frames = wal.read_bytes()
+    finally:
+        _as_signer(boot, lambda: reader[0].close())
+    proof = tmp_path / "proof"
+    proof.mkdir()
+    (proof / "journal.sqlite").write_bytes(genesis)
+    (proof / "journal.sqlite-wal").write_bytes(frames)
+    db = sqlite3.connect(proof / "journal.sqlite")
+    try:
+        assert db.execute("SELECT COUNT(*) FROM records").fetchone()[0] == 1  # the WAL alone holds the event
+    finally:
+        db.close()
+
+    def leave_frames():
+        for name in ("journal.sqlite", "journal.sqlite-wal", "journal.sqlite-shm"):
+            (directory / name).unlink(missing_ok=True)
+        wal.write_bytes(frames)
+    _as_signer(boot, leave_frames)
 
 
 def _inject(boot, tmp_path, manifest, fault):
@@ -353,6 +393,27 @@ def _inject(boot, tmp_path, manifest, fault):
         temporary.write_text("{}")
         temporary.chmod(0o644)
         boot.owners.set(temporary, SIGNER, SIGNER_GID)
+    elif fault in ("root_owned_stream_with_keys", "root_owned_private_with_keys"):
+        _as_signer(boot, lambda: (directory / "journal.sqlite").unlink())
+        boot.owners.set(directory if fault == "root_owned_stream_with_keys" else boot.state / "private", 0, 0)
+    elif fault == "bad_stream_name":
+        (directory.parent / "notes").mkdir(mode=0o700)
+    elif fault in ("symlinked_stream", "symlinked_key"):
+        path = directory if fault == "symlinked_stream" else directory / "checkpoint.key"
+        path.rename(tmp_path / "moved")
+        path.symlink_to(tmp_path / "moved", target_is_directory=fault == "symlinked_stream")
+    elif fault == "symlinked_temporary":
+        (tmp_path / "moved").write_text("{}")
+        (boot.state / ".manifest-0123456789abcdef").symlink_to(tmp_path / "moved")
+    elif fault == "wal_without_journal":
+        _signed_frames_only(boot, manifest, directory, tmp_path)
+    elif fault in ("shm_without_journal", "rollback_journal_without_journal"):
+        side = directory / ("journal.sqlite-shm" if fault == "shm_without_journal" else "journal.sqlite-journal")
+
+        def leave_side_file():
+            side.write_bytes((directory / "journal.sqlite").read_bytes())
+            (directory / "journal.sqlite").unlink()
+        _as_signer(boot, leave_side_file)
     else:
         raise AssertionError(fault)
     return directory
@@ -412,6 +473,16 @@ PUBLISHED = {
     "unknown_stream_file": "cannot classify signer stream",
     "symlinked_private": "cannot classify signer entry",
     "temporary_without_journal": "temporary manifest has no journal",
+    "bad_stream_name": "cannot classify signer entry",
+    "symlinked_stream": "cannot classify signer entry",
+    "symlinked_key": "cannot classify signer entry",
+    "symlinked_temporary": "cannot classify signer entry",
+    "wal_without_journal": "cannot classify signer stream",  # the frames of a signed event
+    "shm_without_journal": "cannot classify signer stream",
+    "rollback_journal_without_journal": "cannot classify signer stream",
+    # The signer UID cannot enter a root-owned 0700 directory on the journal's path.
+    "root_owned_private_with_stream": "not provably unsigned",
+    "root_owned_stream_with_files": "not provably unsigned",
 }
 
 
@@ -438,9 +509,10 @@ def test_repair_refuses_a_published_manifest_that_fails_validation(boot, monkeyp
     assert _tree(boot.state) == before
 
 
-# Unpublished state that boot will not delete, because no provisioning step leaves it.
-UNPUBLISHED_REPAIRS = ("loose_key_mode", "second_stream", "linked_temporary", "root_owned_private_with_stream",
-                       "root_owned_stream_with_files", "root_owned_key", "signer_owned_temporary")
+# Unpublished state that boot will not delete, because no provisioning step leaves it. Each journal
+# must still open under the signer UID, so a root-owned directory is here only when it holds none.
+UNPUBLISHED_REPAIRS = ("loose_key_mode", "second_stream", "linked_temporary", "root_owned_key",
+                       "signer_owned_temporary", "root_owned_stream_with_keys", "root_owned_private_with_keys")
 
 
 @pytest.mark.parametrize("fault", UNPUBLISHED_REPAIRS)
@@ -474,6 +546,29 @@ def test_repair_resumes_after_a_cut_during_its_own_provision(boot, monkeypatch, 
     result = admin.repair(state=boot.state, store=boot.store)
     assert len(list((boot.state / admin.VAULT).iterdir())) == 2
     _assert_fresh_stream(boot, result["manifest"])
+
+
+@pytest.mark.parametrize("fault", ["loose", "signer_owned", "symlinked"])
+def test_repair_refuses_a_repair_directory_it_cannot_trust(boot, monkeypatch, tmp_path, fault):
+    manifest = _provisioned_then_lost(boot)
+    _inject(boot, tmp_path, manifest, "loose_key_mode")
+    with monkeypatch.context() as patch:
+        patch.setattr(admin, "provision", _cut)
+        with pytest.raises(PowerCut):
+            admin.repair(state=boot.state, store=boot.store)
+    vault = boot.state / admin.VAULT
+    assert {p.name for p in boot.state.iterdir()} == {admin.VAULT}
+    if fault == "loose":
+        vault.chmod(0o755)
+    elif fault == "signer_owned":
+        boot.owners.set(vault, SIGNER, SIGNER_GID)
+    else:
+        vault.rename(tmp_path / "moved-repair")
+        vault.symlink_to(tmp_path / "moved-repair", target_is_directory=True)
+    before = _tree(boot.state)
+    with pytest.raises(AuthorityError, match="wrong type, owner or mode"):
+        admin.repair(state=boot.state, store=boot.store)
+    assert _tree(boot.state) == before and not (boot.state / "manifest.json").exists()
 
 
 def test_repair_command_prints_its_result(monkeypatch, capsys):
@@ -521,14 +616,10 @@ def test_unsigned_evidence_runs_under_the_signer_uid():
         shutil.rmtree(root)
 
 
-@pytest.mark.skipif(os.geteuid() != 0, reason="requires disposable root Linux test container")
-def test_step_owners_hold_with_a_real_signer_account(monkeypatch):
-    """Real chown and a real UID drop: a cut resumes, and a root-owned stream holding keys refuses."""
-    import shutil
+def _real_signer(monkeypatch, account, prefix):
     import tempfile
 
-    account = pwd.getpwnam("nobody")
-    root = Path(tempfile.mkdtemp(prefix="exo-first-boot-", dir="/tmp"))
+    root = Path(tempfile.mkdtemp(prefix=prefix, dir="/tmp"))
     root.chmod(0o755)
     state, store = root / "signer", root / "store"
     state.mkdir(mode=0o755)
@@ -539,6 +630,16 @@ def test_step_owners_hold_with_a_real_signer_account(monkeypatch):
     monkeypatch.setattr(policy, "trusted_path", lambda path, **kw: path)
     monkeypatch.setattr(admin, "account_uid", lambda name: account.pw_uid)
     monkeypatch.setattr(pwd, "getpwnam", lambda name: account)
+    return root, state, store
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="requires disposable root Linux test container")
+def test_step_owners_hold_with_a_real_signer_account(monkeypatch):
+    """Real chown and a real UID drop: a cut resumes, and a root-owned stream holding keys refuses."""
+    import shutil
+
+    account = pwd.getpwnam("nobody")
+    root, state, store = _real_signer(monkeypatch, account, "exo-first-boot-")
     try:
         with monkeypatch.context() as patch:
             patch.setattr(admin, "validate_manifest", _cut)
@@ -553,5 +654,30 @@ def test_step_owners_hold_with_a_real_signer_account(monkeypatch):
         manifest = admin.ensure_boot(state=state, store=store)
         assert next(iter(manifest["streams"])) != stream.name and not stream.exists()
         assert admin.ensure_boot(state=state, store=store) == manifest
+    finally:
+        shutil.rmtree(root)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="requires disposable root Linux test container")
+@pytest.mark.parametrize("owned", ["private", "stream"])
+def test_repair_refuses_a_journal_a_real_signer_account_cannot_reach(monkeypatch, owned):
+    """A real UID drop cannot open this journal, as the host fake models, so repair refuses and moves nothing."""
+    import shutil
+
+    account = pwd.getpwnam("nobody")
+    root, state, store = _real_signer(monkeypatch, account, "exo-signer-reach-")
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(admin, "validate_manifest", _cut)
+            with pytest.raises(PowerCut):
+                admin.ensure_boot(state=state, store=store)
+        stream = next((state / "private").iterdir())
+        os.chown(state / "private" if owned == "private" else stream, 0, 0)
+        before = _tree(state)
+        with pytest.raises(AuthorityError, match="wrong type, owner or mode"):
+            admin.ensure_boot(state=state, store=store)
+        with pytest.raises(AuthorityError, match="repair refuses: a signer journal is not provably unsigned"):
+            admin.repair(state=state, store=store)
+        assert _tree(state) == before
     finally:
         shutil.rmtree(root)

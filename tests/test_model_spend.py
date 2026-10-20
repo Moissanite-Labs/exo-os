@@ -31,7 +31,8 @@ def owners(tmp_path, monkeypatch):
 @pytest.fixture
 def store(tmp_path, monkeypatch, owners):
     root = tmp_path.resolve() / "store"
-    root.mkdir()
+    root.mkdir(mode=0o755)
+    root.chmod(0o755)  # as the image installs /var/lib/exo, so the exo UID can enter it
     (root / "exo").mkdir(mode=0o700)
     monkeypatch.setattr(spend.os, "geteuid", lambda: 0)
     monkeypatch.setattr(spend.pwd, "getpwnam", lambda _: SimpleNamespace(pw_uid=EXO_UID, pw_gid=EXO_GID))
@@ -564,7 +565,15 @@ UNPROVEN = {"one_call": "holds calls", "stopped": "used or bound elsewhere", "ob
             "root_owned_journal": "wrong type, owner or mode",
             "exo_owned_state": "wrong type, owner or mode",
             "exo_owned_temporary": "wrong type, owner or mode",
-            "state_mode_before_chmod_with_entries": "wrong type, owner or mode"}
+            "state_mode_before_chmod_with_entries": "wrong type, owner or mode",
+            # Entry kinds first boot never writes, and a lone rollback journal it never leaves.
+            "symlinked_state": "wrong type, owner or mode",
+            "symlinked_journal_dir": "wrong type, owner or mode",
+            "symlinked_journal": "wrong type, owner or mode",
+            "symlinked_temporary": "wrong type, owner or mode",
+            "rollback_journal_alone": "journal directory has unexpected entries",
+            "journal_dir_entry": "journal directory has unexpected entries",
+            "loose_repair_directory": "unexpected entries"}
 
 
 def _inject(store, owners, tmp_path, state, journal, temporary, fault):
@@ -601,6 +610,21 @@ def _inject(store, owners, tmp_path, state, journal, temporary, fault):
         owners.set(temporary, EXO_UID, EXO_GID)
     elif fault == "state_mode_before_chmod_with_entries":
         state.chmod(0o700)  # first boot sets 0755 before it creates anything inside
+    elif fault in ("symlinked_state", "symlinked_journal_dir", "symlinked_journal", "symlinked_temporary"):
+        path = {"symlinked_state": state, "symlinked_journal_dir": journal.parent,
+                "symlinked_journal": journal, "symlinked_temporary": temporary}[fault]
+        path.rename(tmp_path / f"moved-{path.name}")
+        path.symlink_to(tmp_path / f"moved-{path.name}", target_is_directory=path.name in ("model-spend", "exo"))
+    elif fault == "rollback_journal_alone":
+        def leave_rollback_journal():
+            journal.with_name("journal.sqlite-journal").write_bytes(journal.read_bytes())
+            journal.unlink()
+        owners.run_as(EXO_UID, EXO_GID, leave_rollback_journal)
+    elif fault == "journal_dir_entry":
+        owners.run_as(EXO_UID, EXO_GID, lambda: journal.with_name("notes").write_text("x"))
+    elif fault == "loose_repair_directory":
+        (store / "model-spend-repair").mkdir(mode=0o755)
+        (store / "model-spend-repair").chmod(0o755)
     else:
         raise AssertionError(fault)
 
@@ -624,7 +648,17 @@ USED = {"one_call": "never used", "stopped": "never used", "observed_clock": "ne
         "owned": "first boot finished, so a policy was published",
         "extra_store_entry": "store is not the empty first-boot skeleton",
         "extra_state_entry": "cannot classify model-spend entry",
-        "temporary_without_journal": "temporary policy has no journal identity"}
+        "temporary_without_journal": "temporary policy has no journal identity",
+        "symlinked_state": "cannot classify model-spend entry",
+        "symlinked_journal_dir": "cannot classify model-spend entry",
+        "symlinked_journal": "cannot classify model-spend entry",
+        "symlinked_temporary": "cannot classify model-spend entry",
+        "rollback_journal_alone": "cannot classify model-spend entry",  # may hold pages of a used journal
+        "journal_dir_entry": "cannot classify model-spend entry",
+        "loose_repair_directory": "wrong type, owner or mode",
+        # The exo UID cannot enter a directory on the journal's path, so nothing shows it unused.
+        "root_owned_journal_dir_with_journal": "the journal does not show that it was never used",
+        "state_mode_before_chmod_with_entries": "the journal does not show that it was never used"}
 
 
 @pytest.mark.parametrize("fault", sorted(USED))
@@ -632,10 +666,11 @@ def test_repair_refuses_state_a_policy_may_have_used_and_changes_nothing(store, 
                                                                          fault):
     state, journal, temporary = _cut_before_link(store, monkeypatch)
     _inject(store, owners, tmp_path, state, journal, temporary, fault)
+    vault = os.path.lexists(store / "model-spend-repair")
     before = _tree(store)
     with pytest.raises(AuthorityError, match=f"repair refuses: .*({USED[fault]}).*by hand"):
         spend.repair(store=store)
-    assert _tree(store) == before and not (store / "model-spend-repair").exists()
+    assert _tree(store) == before and os.path.lexists(store / "model-spend-repair") == vault
 
 
 def test_repair_refuses_missing_or_published_state_after_first_boot(store):
@@ -649,6 +684,8 @@ def test_repair_refuses_missing_or_published_state_after_first_boot(store):
         spend.repair(store=store)
     assert _tree(store) == before
     (store / ".owned").unlink()
+    with pytest.raises(AuthorityError, match="policy is invalid.*never reset automatically"):
+        spend.ensure_boot(store=store)  # policy.json alone shows publication
     before = _tree(store)
     with pytest.raises(AuthorityError, match="repair refuses: a policy was published"):
         spend.repair(store=store)
@@ -665,9 +702,8 @@ def test_repair_refuses_missing_state_after_ownership(store):
 
 
 # Unused state that boot will not delete or publish from, because no first-boot step leaves it.
-UNUSED_REPAIRS = ("linked_temporary", "unsafe_journal_mode",
-                  "root_owned_journal_dir_with_journal", "exo_owned_state", "exo_owned_temporary",
-                  "state_mode_before_chmod_with_entries")
+# The exo UID must still reach the journal, so a root-owned 0700 directory on its path is not here.
+UNUSED_REPAIRS = ("linked_temporary", "unsafe_journal_mode", "exo_owned_state", "exo_owned_temporary")
 
 
 @pytest.mark.parametrize("fault", UNUSED_REPAIRS)
@@ -693,18 +729,107 @@ def test_repair_preserves_unused_state_boot_will_not_resume(store, owners, monke
     assert {p.name for p in store.iterdir()} == {"exo", "model-spend", "model-spend-repair"}
 
 
-def test_repair_resumes_after_a_cut_during_its_own_provision(store, owners, monkeypatch, tmp_path):
-    state, journal, temporary = _cut_before_link(store, monkeypatch)
+def _after(real):
+    """The call completes, then the power is cut."""
+    def call(*args, **kwargs):
+        real(*args, **kwargs)
+        raise PowerCut()
+    return call
+
+
+def _cut_named(real, name):
+    def call(path, *args, **kwargs):
+        if Path(path).name == name:
+            raise PowerCut()
+        return real(path, *args, **kwargs)
+    return call
+
+
+# Each power-cut point in repair from the set-aside on, and whether it leaves a new model-spend behind.
+REPAIR_CUTS = {
+    "right_after_set_aside": (lambda patch: patch.setattr(spend.os, "rename", _after(os.rename)), False),
+    "before_provisioning": (lambda patch: patch.setattr(spend, "_provision", _cut), False),
+    "after_new_state_mkdir": (lambda patch: patch.setattr(spend.os, "chmod", _cut_named(os.chmod, "model-spend")),
+                              True),
+    "before_new_journal_seed": (lambda patch: patch.setattr(spend.SpendJournal, "provision", _cut), True),
+    "before_new_policy_link": (lambda patch: patch.setattr(spend.os, "link", _cut), True),
+}
+
+
+def _cut_repair(store, monkeypatch, inject):
+    """Unused state boot will not resume, then a repair cut at one point.
+
+    Returns the old journal identity, the slot that holds the old state and that state's tree.
+    """
+    state, journal, _ = _cut_before_link(store, monkeypatch)
     journal.chmod(0o644)
+    before = _tree(state)
     with monkeypatch.context() as patch:
-        patch.setattr(spend.os, "link", _cut)
+        inject(patch)
         with pytest.raises(PowerCut):
             spend.repair(store=store)
+    (slot,) = (store / "model-spend-repair").iterdir()
+    assert _tree(slot / "model-spend") == before
+    return _journal_identity(slot / "model-spend/exo/journal.sqlite"), slot, before
+
+
+@pytest.mark.parametrize("cut", sorted(REPAIR_CUTS))
+def test_cut_during_repair_resumes_on_the_next_repair(store, monkeypatch, cut):
+    """A cut after the set-aside leaves the old state preserved and only the repair directory beside the skeleton."""
+    inject, provisioned = REPAIR_CUTS[cut]
+    old, slot, before = _cut_repair(store, monkeypatch, inject)
+    state = store / "model-spend"
+    assert os.path.lexists(state) == provisioned
+    if not provisioned:
+        assert {p.name for p in store.iterdir()} == {"exo", "model-spend-repair"}
     with pytest.raises(AuthorityError, match="unexpected entries.*root can run exo-model-spend-admin repair"):
-        spend.ensure_boot(store=store)  # the earlier repair directory is not something first boot writes
+        spend.ensure_boot(store=store)  # the repair directory is not something first boot writes
     result = spend.repair(store=store)
-    assert len(list((store / "model-spend-repair").iterdir())) == 2
-    assert spend.ensure_boot(store=store) == result["policy"]
+    slots = {p.name for p in (store / "model-spend-repair").iterdir()}
+    assert len(slots) == (2 if provisioned else 1) and slot.name in slots
+    assert (result["preserved"] is None) != provisioned
+    assert "unexpected entries" in result["refusal"]
+    assert _tree(slot / "model-spend") == before  # the first set-aside is never touched again
+    policy = result["policy"]
+    assert policy["journal_id"] != old and policy["daily_usd"] == policy["monthly_usd"] == "0"
+    assert policy["routes"] == {}
+    assert _journal_identity(state / "exo/journal.sqlite") == policy["journal_id"]
+    assert {p.name for p in state.iterdir()} == {"policy.json", "exo"}
+    assert spend.ensure_boot(store=store) == policy
+    assert {p.name for p in store.iterdir()} == {"exo", "model-spend", "model-spend-repair"}
+
+
+# After a cut that left no model-spend, the store must still be what a first boot provisions from.
+AFTER_CUT_REFUSALS = {"owned": "first boot finished, so a policy was published",
+                      "store_entry": "store is not the empty first-boot skeleton",
+                      "skeleton_entry": "store is not the empty first-boot skeleton",
+                      "loose_repair_directory": "wrong type, owner or mode",
+                      "exo_owned_repair_directory": "wrong type, owner or mode",
+                      "symlinked_repair_directory": "wrong type, owner or mode"}
+
+
+@pytest.mark.parametrize("fault", sorted(AFTER_CUT_REFUSALS))
+def test_repair_after_a_cut_refuses_a_store_first_boot_would_not_provision(store, owners, monkeypatch, tmp_path,
+                                                                           fault):
+    _cut_repair(store, monkeypatch, REPAIR_CUTS["before_provisioning"][0])
+    vault = store / "model-spend-repair"
+    if fault == "owned":
+        (store / ".owned").touch()
+    elif fault == "store_entry":
+        (store / "witness-publisher").mkdir()
+    elif fault == "skeleton_entry":
+        (store / "exo" / "config.json").write_text("{}")
+    elif fault == "loose_repair_directory":
+        vault.chmod(0o755)
+    elif fault == "exo_owned_repair_directory":
+        owners.set(vault, EXO_UID, EXO_GID)
+    else:
+        vault.rename(tmp_path / "moved-repair")
+        vault.symlink_to(tmp_path / "moved-repair", target_is_directory=True)
+    before = _tree(store)
+    with pytest.raises(AuthorityError, match=f"repair refuses: .*({AFTER_CUT_REFUSALS[fault]}).*by hand"):
+        spend.repair(store=store)
+    assert _tree(store) == before and not os.path.lexists(store / "model-spend")
 
 
 def test_repair_never_replaces_valid_state_or_clears_a_stop(store, owners):
@@ -822,5 +947,68 @@ def test_step_owners_hold_with_a_real_exo_account(monkeypatch):
         os.chown(user_dir, account.pw_uid, account.pw_gid)
         raw = _boot_as_unit(store)
         assert raw["daily_usd"] == "0" and spend.ensure_boot(store=store) == raw
+    finally:
+        shutil.rmtree(root)
+
+
+def _real_store(monkeypatch, account, prefix):
+    root = Path(tempfile.mkdtemp(prefix=prefix, dir="/tmp"))
+    root.chmod(0o755)
+    store = root / "store"
+    store.mkdir(mode=0o755)
+    (store / "exo").mkdir(mode=0o700)
+    monkeypatch.setattr(spend, "trusted_path", lambda path, **kw: path)
+    monkeypatch.setattr(spend, "_ledger_ready", lambda *a: None)
+    monkeypatch.setattr(spend.pwd, "getpwnam", lambda _: account)
+    return root, store
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="requires disposable root Linux test container")
+@pytest.mark.parametrize("fault", ["root_owned_journal_dir", "state_mode_before_chmod"])
+def test_repair_refuses_a_journal_a_real_exo_account_cannot_reach(monkeypatch, fault):
+    """A real UID drop cannot open this journal, as the host fake models, so repair refuses and moves nothing."""
+    account = pwd.getpwnam("nobody")
+    root, store = _real_store(monkeypatch, account, "exo-spend-reach-")
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(spend.os, "link", _cut)
+            with pytest.raises(PowerCut):
+                _boot_as_unit(store)
+        state = store / "model-spend"
+        if fault == "root_owned_journal_dir":
+            os.chown(state / "exo", 0, 0)
+        else:
+            state.chmod(0o700)
+        before = _tree(store)
+        with pytest.raises(AuthorityError, match="wrong type, owner or mode"):
+            _boot_as_unit(store)
+        with pytest.raises(AuthorityError, match="repair refuses: the journal does not show that it was never used"):
+            spend.repair(store=store)
+        assert _tree(store) == before
+    finally:
+        shutil.rmtree(root)
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="requires disposable root Linux test container")
+def test_repair_resumes_after_a_cut_with_a_real_exo_account(monkeypatch):
+    """Real chown and a real UID drop: a cut after the set-aside resumes on the next repair."""
+    account = pwd.getpwnam("nobody")
+    root, store = _real_store(monkeypatch, account, "exo-spend-resume-")
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(spend.os, "link", _cut)
+            with pytest.raises(PowerCut):
+                _boot_as_unit(store)
+        (store / "model-spend/exo/journal.sqlite").chmod(0o644)
+        with monkeypatch.context() as patch:
+            patch.setattr(spend, "_provision", _cut)
+            with pytest.raises(PowerCut):
+                spend.repair(store=store)
+        assert {p.name for p in store.iterdir()} == {"exo", "model-spend-repair"}
+        result = spend.repair(store=store)
+        assert result["preserved"] is None and result["policy"]["daily_usd"] == "0"
+        journal = store / "model-spend/exo/journal.sqlite"
+        assert (journal.stat().st_uid, journal.stat().st_gid) == (account.pw_uid, account.pw_gid)
+        assert _boot_as_unit(store) == result["policy"]
     finally:
         shutil.rmtree(root)

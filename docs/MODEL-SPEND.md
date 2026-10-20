@@ -129,12 +129,15 @@ policy. A stopped journal passes, so repair never clears a stop on valid state.
 
 Otherwise it acts only when the refused state shows the same lack of use as a
 cut-off first boot. `.owned` and `policy.json` are absent. The store holds only
-`model-spend`, the empty `exo` skeleton and any earlier repair directory. Every
-entry is a kind first boot writes. A journal, if present, has no call, no stop and
+`model-spend`, the empty `exo` skeleton and any earlier repair directory, which must
+be `root:root 0700`. Every entry is a kind first boot writes, and a rollback journal
+never stands without its database. A journal, if present, has no call, no stop and
 an observed clock of zero under the `exo` UID. A temporary policy needs a journal
 with a committed identity beside it. Owners, modes, link counts and the number of
 temporaries may differ from every first-boot step. That is why boot refused, since
-boot deletes or publishes from what it accepts.
+boot deletes or publishes from what it accepts. The `exo` UID must still open the
+journal, so a directory on its path that this UID cannot enter refuses. Examples are
+a root-owned `model-spend/exo` or a `model-spend` left at mode 0700.
 
 It then renames the `model-spend` entry into a new
 `/var/lib/exo/model-spend-repair/<UTC time>-<random>/` directory. That directory is
@@ -142,9 +145,15 @@ root-only, mode 0700, on the same subvolume. Nothing is deleted. The command the
 provisions a new journal with the zero-cap policy and prints JSON with the preserved
 path, the refusal and the new policy. Reboot afterwards. A cut during repair leaves
 `/var/lib/exo/model-spend-repair` in the store, which boot does not accept. Run
-repair again.
+repair again. If the cut came after the old state was set aside, no `model-spend`
+is left. The store then holds only the empty skeleton and the repair directory: no
+policy and no journal, as at a fresh first boot. Repair provisions from there as
+first boot does and reports no new preserved path. The earlier state stays where
+the first run put it.
 
 Any other state refuses unchanged. That includes any `policy.json`, a journal with a
-call, a stop or a moved clock, a temporary policy without its journal, a store whose
-first boot finished, and any entry repair cannot classify. Repairing that state stays a deliberate administrator
-procedure with the daemon stopped and preserved evidence.
+call, a stop or a moved clock, a temporary policy without its journal, a rollback
+journal without its database, a journal the `exo` UID cannot open, a store whose
+first boot finished, and any entry repair cannot classify. Repairing that state
+stays a deliberate administrator procedure with the daemon stopped and preserved
+evidence.
