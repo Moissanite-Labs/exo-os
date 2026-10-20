@@ -102,11 +102,15 @@ the refused state shows that nothing was signed or published:
   skeleton, so no projection exists.
 - Every signer mount entry is a kind provisioning writes: `private/`, `s_` stream
   directories, their key files, journal and SQLite side files, and `.manifest-`
-  temporaries beside at least one journal. Owners, modes, link counts and the
-  number of streams or temporaries may differ from every provisioning step. That is
-  why boot refused, since boot deletes what it clears.
+  temporaries beside at least one journal. SQLite side files never stand without
+  their journal, because a WAL file alone may hold signed frames. Owners, modes,
+  link counts and the number of streams or temporaries may differ from every
+  provisioning step. That is why boot refused, since boot deletes what it clears.
+  An earlier `repair/` directory must be root-owned with no group or other access.
 - Every journal opens under the `exo-ledger` UID, passes SQLite's quick check and
-  holds no event, no operation and no checkpoint above genesis.
+  holds no event, no operation and no checkpoint above genesis. So a root-owned
+  `private/` or stream directory that this UID cannot enter refuses when it holds a
+  journal.
 
 It then renames every signer mount entry into a new
 `/var/lib/exo-ledger/repair/<UTC time>-<random>/` directory, root-only and mode

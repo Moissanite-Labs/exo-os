@@ -328,7 +328,10 @@ def _unpublished(principal, state, store, uid, gid):
     than one stream or temporary, and an earlier repair directory. It still needs the
     same evidence: no manifest, the empty store skeleton, so no projection exists,
     only entries provisioning writes, and journals with no event and no head above
-    genesis under the signer UID. Established history is never reseeded.
+    genesis under the signer UID. That UID must reach each journal, so a directory on
+    the way that it cannot enter refuses. SQLite side files without their journal
+    refuse too, since a WAL alone may hold signed frames. Established history is
+    never reseeded.
     """
     if os.path.lexists(state / "manifest.json"):
         raise AuthorityError("a manifest was published")

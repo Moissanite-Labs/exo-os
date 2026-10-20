@@ -427,14 +427,18 @@ def _kind(path: Path, kind: int) -> None:
 
 
 def _unused(store: Path, state: Path, principal: str, uid: int, gid: int) -> None:
-    """Repair's proof that refused spend state was never used, whatever its owners and modes.
+    """Repair's proof that refused spend state was never used.
 
     Boot resumes only the exact states first boot leaves, because it deletes or
     publishes from them. Repair deletes nothing, so it also takes other owners or
     modes, extra or linked temporaries and an earlier repair directory. It still needs
     the same evidence: first boot never finished, no policy.json, only entries first
     boot writes, a journal with no call, no stop and no observed clock under the exo
-    UID, and a committed journal identity beside any temporary policy.
+    UID, and a committed journal identity beside any temporary policy. The exo UID
+    must reach the journal, so a directory on its path that UID cannot enter refuses.
+    With no model-spend at all, the store is what a cut leaves after repair set the
+    old state aside: the empty skeleton and the repair directory. It holds no policy
+    and no journal, as at a fresh first boot.
     """
     if os.path.lexists(store / ".owned"):
         raise AuthorityError("first boot finished, so a policy was published")
@@ -442,9 +446,11 @@ def _unused(store: Path, state: Path, principal: str, uid: int, gid: int) -> Non
     if VAULT in entries:
         _node(store / VAULT, stat.S_IFDIR, 0o700, 0, 0)
     try:
-        _fresh(store, principal, {principal, "model-spend"} | (entries & {VAULT}))
+        _fresh(store, principal, {principal} | (entries & {state.name, VAULT}))
     except AuthorityError as exc:
         raise AuthorityError("the store is not the empty first-boot skeleton") from exc
+    if state.name not in entries:
+        return
     _kind(state, stat.S_IFDIR)
     if os.path.lexists(state / "policy.json"):
         raise AuthorityError("a policy was published")
@@ -480,7 +486,8 @@ def repair(principal: str = PRINCIPAL, *, store: Path = STORE, signer: Path = SI
 
     State that passes the boot check, including a stopped journal, is never replaced.
     State a policy may have used refuses unchanged. The preserved state stays
-    root-only for review.
+    root-only for review. After a cut that left no model-spend, repair provisions
+    from the empty skeleton as first boot does and preserves nothing new.
     """
     state, uid, gid = _context(principal, store, signer)
     try:
@@ -491,18 +498,21 @@ def repair(principal: str = PRINCIPAL, *, store: Path = STORE, signer: Path = SI
         _unused(store, state, principal, uid, gid)
     except AuthorityError as exc:
         raise AuthorityError(f"{refusal}; repair refuses: {exc}; {REFUSED_HINT}") from exc
-    vault = store / VAULT
-    if not os.path.lexists(vault):
-        vault.mkdir(mode=0o700)
-        os.chmod(vault, 0o700)
-    _node(vault, stat.S_IFDIR, 0o700, 0, 0)
-    slot = vault / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + os.urandom(4).hex())
-    slot.mkdir(mode=0o700)  # never an existing directory, so rename cannot replace evidence
-    preserved = slot / "model-spend"
-    os.rename(state, preserved)  # same @store subvolume; moves a symlink itself, never its target
-    for path in (slot, vault, store):
-        _fsync(path)
-    return {"preserved": str(preserved), "refusal": refusal, "policy": _provision(store, state, principal, uid, gid)}
+    preserved = None
+    if os.path.lexists(state):
+        vault = store / VAULT
+        if not os.path.lexists(vault):
+            vault.mkdir(mode=0o700)
+            os.chmod(vault, 0o700)
+        _node(vault, stat.S_IFDIR, 0o700, 0, 0)
+        slot = vault / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + os.urandom(4).hex())
+        slot.mkdir(mode=0o700)  # never an existing directory, so rename cannot replace evidence
+        moved = slot / "model-spend"
+        os.rename(state, moved)  # same @store subvolume; moves a symlink itself, never its target
+        for path in (slot, vault, store):
+            _fsync(path)
+        preserved = str(moved)
+    return {"preserved": preserved, "refusal": refusal, "policy": _provision(store, state, principal, uid, gid)}
 
 
 def inspect(*, store: Path = STORE, principal: str = PRINCIPAL) -> dict:
