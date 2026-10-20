@@ -137,9 +137,12 @@ class Broker:
                             raise TimeoutError()
                         sock.settimeout(deadline - time.monotonic())
                         return sock
-                    except BaseException as exc:
+                    except OSError as exc:
                         last = exc
                         sock.close()
+                    except BaseException:
+                        sock.close()
+                        raise
                 raise last
             conn._create_connection = connect_fixed
             deadline = time.monotonic() + TIMEOUT
