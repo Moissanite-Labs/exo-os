@@ -4,12 +4,16 @@ Checks recorded on 2026-10-13. The `c2d1ad9` image is built and audited.
 Acceptance is held: no complete native suite has passed on this image.
 Historical results below do not transfer to it.
 
-The next source composition selects merged core `5f434b15d53603d6a3f5461f4e858944e62c1128`.
+The next source composition selects merged core `8600bce83b1e43b4a33e0957cb6b723c20204ea3`.
 No image has been built or accepted from that composition. Recovery retains its
 original ten checks and adds an eleventh return-to-normal reboot proof; this new
 flow is unrun in a VM. Its controlled shell tests are source evidence only.
 
 ## Next composition source checks
+
+On 2026-10-20, exo-os `dce300e` was run at core `5f434b1` and again at core `8600bce`, with
+the same results at both pins and no source change: the Linux host suite passed 1,517 with
+78 skipped, and the Mac suite passed 1,555 with 34 skipped. No image was built.
 
 On 2026-10-14, source `5a40446f628c69ce46fab50cbfdb638549c37e8d`
 with core `859fbcc98e3fe9cc3af31cdc9d6b130db718e972` passed the complete

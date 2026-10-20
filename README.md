@@ -18,7 +18,7 @@ OS can close, and lays out the build path. Read it before planning a stage.
 The initial phases 1–3 passed their earlier VM checks, with the gaps in `ROADMAP.md`.
 The current runtime adds recoverable approvals, authenticated root receipts, compulsory isolated tool
 execution and administrator boot recovery. This new source composition pins merged core
-main `5f434b1`; no image build or native acceptance is claimed for it. The separate
+main `8600bce`; no image build or native acceptance is claimed for it. The separate
 land/batch-2 source `4aec0b9` with core `3ea58f4` passed 545 Linux host tests with
 12 skipped. Earlier image results do not transfer. Historical image evidence is
 recorded in [validation](docs/VALIDATION.md#current-image-evidence).
@@ -68,7 +68,7 @@ The other six suites and witness cases are not run. Built:
 Still required: fresh-image acceptance, real-model chat, loaded-web-app memory,
 native accessibility and Urdu visual checks, general API response adapters, independent
 witness deployment, voice and phone clients, and the hardware trials in `ROADMAP.md`.
-The current source pins merged core main `5f434b1`, which includes witness transport
+The current source pins merged core main `8600bce`, which includes witness transport
 and the challenged-head API, and adds optional explicit administrator
 [witness delivery](docs/WITNESS-PUBLISHER.md). Enrollment remains disabled by default.
 An independently administered endpoint remains unconfigured. Installed witness

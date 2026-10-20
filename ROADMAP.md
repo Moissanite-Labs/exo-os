@@ -33,7 +33,7 @@ reviewed response adapters. The shared-core ledger authority now runs under a se
 with a persistent journal, root-pinned public identity and explicit fresh-image provisioning before login.
 Both normal verification commands detect modified or missing copies without repairing them first.
 The current source composition pins merged core main
-`5f434b15d53603d6a3f5461f4e858944e62c1128`, including witness transport. The
+`8600bce83b1e43b4a33e0957cb6b723c20204ea3`, including witness transport. The
 witness publisher remains disabled until explicit administrator enrollment.
 This source requires its own image and native acceptance evidence. The schema3
 input-probe proposal passed technical peer review on 2026-10-14 UTC.

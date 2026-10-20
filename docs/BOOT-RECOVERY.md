@@ -166,7 +166,7 @@ a new boot ID, the same VM UUID, original `@` and its marker, and unchanged
 home/store, signer, helper, spend and egress state. Protected service-directory
 modes are checked again without repair. Separate return evidence records the
 original ten-check count. This eleven-check flow has not run in a VM; controlled
-shell fixtures do not establish a real reboot. Source using core `5f434b1` needs
+shell fixtures do not establish a real reboot. Source using core `8600bce` needs
 a fresh image before native acceptance.
 
 On 2026-10-13, the older `5a86e3b` image with core `cff62d1` passed the historical ten checks
