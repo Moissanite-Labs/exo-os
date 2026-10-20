@@ -236,3 +236,19 @@ prior verified receipt before publishing new evidence. Details:
 support outside rollback evidence. This implementation does not establish that
 the witness is independently administered or remotely deployed; Linux/image
 acceptance and an actual independent endpoint remain required.
+
+## OS-19. The root helper serializes mutations, not requests
+
+**Decision.** `exo-sysd` runs mutating actions one at a time under a mutation lock and
+holds a separate log lock only to open, append to and close the audit log. Read-only
+actions (`READ_ONLY` in `sysd/protocol.py`: `status`, `snapshot.list`) take no
+mutation lock. Any action not listed as read-only is a mutation. The mutation lock
+is held through the log append, so audit rows appear in execution order, and the log
+is still opened before a mutation runs. Details: `docs/SYSTEM-TRUST.md`.
+
+**Why.** One lock held for a whole action let a long install block every other
+request, including status. The guarantees that mattered were that mutations never
+overlap and that a known audit outage never lets one run; both remain. Rejected:
+a lock per action, which would let two mutations touch the package database and
+snapshots at once. Known limit: a request waiting for the mutation lock still holds
+one of the eight connection slots.

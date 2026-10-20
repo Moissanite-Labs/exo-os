@@ -14,15 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from .actions import ActionError, Actions
-from .protocol import MAX_REPLY, MAX_REQUEST, PUBLIC_KEY, VERSION, decode, encode, peer_credentials, read_line
+from .protocol import MAX_REPLY, MAX_REQUEST, PUBLIC_KEY, READ_ONLY, VERSION, decode, encode, peer_credentials, read_line
 
 KEY = Path('/var/lib/exo-sysd/sysd.key')
 LOG = Path('/var/lib/exo-sysd/audit.log')
 MAX_CONNECTIONS = 8
 IO_TIMEOUT = 5.0
-# Actions that only read system state. Everything else, including any action added later, is treated
-# as a mutation and serialized, so a new action is safe by default.
-READ_ONLY_ACTIONS = frozenset({'status', 'snapshot.list'})
 
 
 class Server:
@@ -60,7 +57,7 @@ class Server:
         # Mutations run one at a time, in the order they take the mutation lock. The audit log is opened
         # first: a known audit outage must never cause a mutation to run. The action itself runs outside
         # the log lock, so a slow action cannot block other requests.
-        mutation = None if action in READ_ONLY_ACTIONS else self.mutation_lock
+        mutation = None if action in READ_ONLY else self.mutation_lock
         if mutation is not None:
             mutation.acquire()
         try:
@@ -85,19 +82,19 @@ class Server:
             try:
                 if log is not None:
                     with self.lock:
-                        log.write(encode(receipt))
-                        log.flush()
-                        os.fsync(log.fileno())
+                        try:
+                            log.write(encode(receipt))
+                            log.flush()
+                            os.fsync(log.fileno())
+                        finally:
+                            try:
+                                log.close()  # inside the lock: a failed flush must not retry unlocked
+                            except OSError:
+                                pass
             except OSError:
                 # Preserve success and the actual result. Sign the audit failure too.
                 receipt = self._receipt(req, ok, result, err, uid, pid, started, execution,
                                         'root audit log append failed')
-            finally:
-                if log is not None:
-                    try:
-                        log.close()
-                    except OSError:
-                        pass
         finally:
             if mutation is not None:
                 mutation.release()

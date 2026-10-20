@@ -22,6 +22,11 @@ python -m pip --python /opt/exo/bin/python install --quiet --no-index --no-cache
 rm -rf /opt/exo/wheels
 for b in exo exo-os exo-surface exo-os-setup exo-os-recovery exo-ledger-admin exo-model-spend-admin exo-witness-admin; do ln -sf "/opt/exo/bin/$b" "/usr/local/bin/$b"; done
 
+# Boot must not wait for the network. NetworkManager.service lists NetworkManager-wait-online.service in
+# Also= and mkosi runs preset-all after this script, which follows Also= whatever the preset says. Only
+# a mask made before then holds.
+ln -sf /dev/null /etc/systemd/system/NetworkManager-wait-online.service
+
 # The person. Phase 1 has one account with automatic login; onboarding will create it in later phases.
 getent group exo-sys >/dev/null || groupadd --system exo-sys
 # Static broker principal; the desktop account receives no credential files.

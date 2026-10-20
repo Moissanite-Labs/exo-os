@@ -5,6 +5,8 @@ from pathlib import Path
 import socket
 import subprocess
 import threading
+import time
+import types
 
 import pytest
 
@@ -844,3 +846,67 @@ def test_mutating_actions_still_run_one_at_a_time(tmp_path):
     assert first_out[0]['ok'] and second_out[0]['ok']
     assert runner.peak == 1
     assert len((tmp_path / 'log').read_bytes().splitlines()) == 2
+
+
+class _SlowLog:
+    """Stands in for the audit log file and records overlapping appends and their order."""
+
+    def __init__(self, tracker):
+        self.t = tracker
+        self.buf = b""
+
+    def write(self, data):
+        with self.t.guard:
+            self.t.active += 1
+            self.t.peak = max(self.t.peak, self.t.active)
+        time.sleep(0.02)
+        self.t.rows.append(data)
+        with self.t.guard:
+            self.t.active -= 1
+
+    def flush(self):
+        pass
+
+    def fileno(self):
+        return os.open(os.devnull, os.O_WRONLY)
+
+    def close(self):
+        pass
+
+
+def test_audit_appends_never_overlap(tmp_path):
+    t = types.SimpleNamespace(guard=threading.Lock(), active=0, peak=0, rows=[])
+    srv = Server(Actions(FakeRunner(), keyring=KEYRING), key_path=tmp_path / 'key',
+                 public_key_path=tmp_path / 'receipt.pub', log_path=tmp_path / 'log')
+    srv._open_log = lambda: _SlowLog(t)
+    threads = [_run_in_thread(srv, 'status')[0] for _ in range(6)]
+    for th in threads:
+        th.join(10)
+    assert len(t.rows) == 6 and t.peak == 1
+
+
+def test_mutation_lock_is_held_through_the_log_append(tmp_path):
+    events = []
+
+    class Runner(FakeRunner):
+        def __call__(self, argv):
+            if argv[:2] == ["snapper", "-c"]:
+                events.append("run")
+            return super().__call__(argv)
+
+    t = None
+    srv = Server(Actions(Runner(), keyring=KEYRING), key_path=tmp_path / 'key',
+                 public_key_path=tmp_path / 'receipt.pub', log_path=tmp_path / 'log')
+
+    def open_log():
+        class L(_SlowLog):
+            def write(self, data):
+                time.sleep(0.02)
+                events.append("append")
+        return L(t)
+
+    srv._open_log = open_log
+    threads = [_run_in_thread(srv, 'snapshot.create')[0] for _ in range(3)]
+    for th in threads:
+        th.join(10)
+    assert events == ["run", "append"] * 3

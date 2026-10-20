@@ -13,7 +13,10 @@ MAX_REQUEST = 64 * 1024
 MAX_REPLY = 256 * 1024
 VERSION = 1
 NAMED_ACTIONS = frozenset({'status', 'snapshot.list', 'snapshot.create', 'package.install', 'snapshot.undo'})
-MUTATIONS = NAMED_ACTIONS - {'status', 'snapshot.list'}
+# Only these never change system state. Everything else, including any action added later, is a
+# mutation, so a new action is serialized by default.
+READ_ONLY = frozenset({'status', 'snapshot.list'})
+MUTATIONS = NAMED_ACTIONS - READ_ONLY
 
 
 def peer_credentials(conn: socket.socket) -> tuple[int, int, int]:

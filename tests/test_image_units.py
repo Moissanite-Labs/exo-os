@@ -24,6 +24,9 @@ def test_only_the_socket_is_enabled_so_the_key_cannot_depend_on_the_service():
 
 
 def test_boot_does_not_wait_for_the_network():
+    # preset-all follows NetworkManager.service's Also=, so only a mask made before presets run holds.
+    postinst = (Path(__file__).resolve().parents[1] / "image/mkosi.postinst.chroot").read_text().splitlines()
+    assert "ln -sf /dev/null /etc/systemd/system/NetworkManager-wait-online.service" in postinst
     preset = (UNITS / "systemd/system-preset/10-exo-os.preset").read_text().splitlines()
     assert "enable NetworkManager.service" in preset
     assert not any("wait-online" in line and line.startswith("enable") for line in preset)
