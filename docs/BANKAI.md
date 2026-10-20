@@ -118,7 +118,7 @@ looks. Tests that prove these belong in the acceptance scripts.
 Source: D-039, D-052, D-060 (exo #109). A caller is the principal only by how it connected: in process, or over the
 Unix socket with the per-launch launch record, from a process the kernel says is this user and is not in the core's
 tool tree. What a request body says about its sender decides nothing. What the code enforces at the pin (exo
-`5f434b1`, which includes D-060):
+`8600bce`, which includes D-060):
 - *Core side, surface path.* The surface joins as `Client(principal="surface")` (`surface/conn.py`,
   `_default_client`). That client, in the pinned core (`exo/principal.py`, `verify_daemon`, `stamp`; `exo/peerauth.py`),
   checks the kernel peer of the connection against the launch record before the credential goes on it, and the core
@@ -220,8 +220,8 @@ evidence; an undo restores the item.
 
 **I-10. Bypass mode, and its floor. Unverified at the pin.**
 Source: D-065, cited here until now as "A asked for a permissionless mode". At the pinned core
-(exo `5f434b1`) no D-065 exists (its `DECISIONS.md` goes from D-061 to D-067). The design is exo issue #96 (open) and
-exo PR #366 (open), a proposal that is not on main. The pinned source has no bypass mode (`git grep -i bypass 5f434b1
+(exo `8600bce`) no D-065 exists (its `DECISIONS.md` goes from D-061 to D-067). The design is exo issue #96 (open) and
+exo PR #366 (open), a proposal that is not on main. The pinned source has no bypass mode (`git grep -i bypass 8600bce
 -- src` finds nothing); its docs mention one only as that proposal (`docs/GITHUB-IDENTITY.md`, `docs/WHITEPAPER.md`
 section 30.1, `docs/DOCS-MAP.md`). This repo has no bypass code. So none of the following is claimed as implemented or checked: that bypass
 turns `ask` into `allow` with a banner and a ledger row per call, that a floor still asks for `store_write` and
