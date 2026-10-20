@@ -398,15 +398,22 @@ def is_package_or_recovery_process(comm: str, argv: list[bytes]) -> bool:
 
 
 def package_or_recovery_running(proc: Path = PROC) -> bool:
-    """True when a pacman or another recovery process exists (pacman itself writes nothing into db.lck)."""
+    """True when a pacman or another recovery process may exist (pacman itself writes nothing into db.lck).
+
+    A process that cannot be inspected counts as possibly running; only one that exited is skipped.
+    """
     for entry in proc.iterdir():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():
             continue
         try:
             name = (entry / "comm").read_text().strip()
             argv = (entry / "cmdline").read_bytes().split(b"\0")
+        except (FileNotFoundError, ProcessLookupError):
+            if entry.exists():
+                return True  # still listed but unreadable: it may be pacman
+            continue  # exited while being read
         except OSError:
-            continue
+            return True  # an entry that cannot be inspected is possibly running, so refuse
         if is_package_or_recovery_process(name, argv):
             return True
     return False

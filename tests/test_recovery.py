@@ -678,6 +678,48 @@ def test_real_recovery_invocations_are_detected(tmp_path, comm, cmdline):
     assert r.package_or_recovery_running(proc)
 
 
+@pytest.mark.parametrize("name", ["comm", "cmdline"])
+@pytest.mark.parametrize("error", [PermissionError(13, "denied"), OSError(5, "io error")])
+def test_unreadable_process_entry_is_possibly_running(tmp_path, monkeypatch, name, error):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 777)
+    db.write_text("")  # no valid holder, so only the process scan can protect it
+    real_read_text, real_read_bytes = Path.read_text, Path.read_bytes
+
+    def refuse(real):
+        def read(path, *args, **kwargs):
+            if path == proc / "777" / name:
+                raise error
+            return real(path, *args, **kwargs)
+        return read
+
+    monkeypatch.setattr(Path, "read_text", refuse(real_read_text))
+    monkeypatch.setattr(Path, "read_bytes", refuse(real_read_bytes))
+    assert r.package_or_recovery_running(proc)
+    assert r.stale_lock_reason(db, proc) is None
+    with pytest.raises(r.RecoveryError, match=str(db)):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert db.exists() and not list(tmp_path.glob("db.lck.stale-*"))
+
+
+def test_process_entry_that_exited_while_scanned_is_skipped(tmp_path, monkeypatch):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 777)
+    real_read_text = Path.read_text
+
+    def vanish(path, *args, **kwargs):
+        if path == proc / "777" / "comm":
+            for item in (proc / "777").iterdir():
+                item.unlink()
+            (proc / "777").rmdir()
+            raise FileNotFoundError(2, "gone")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", vanish)
+    assert not r.package_or_recovery_running(proc)
+
+
 def test_takeover_rechecks_and_restores_lock_that_became_live(tmp_path, monkeypatch):
     db, run, proc = lock_env(tmp_path)
     fake_process(proc, os.getpid(), start="555")
@@ -695,6 +737,24 @@ def test_takeover_rechecks_and_restores_lock_that_became_live(tmp_path, monkeypa
             pass
     assert db.read_text() == "4242 100\n"
     assert not list(tmp_path.glob("db.lck.stale-*"))
+
+
+def test_restore_of_live_lock_never_clobbers_lock_created_meanwhile(tmp_path, monkeypatch):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 4242, start="100")
+    db.write_text("9999 1\n")  # stale when first checked
+    real_rename = os.rename
+
+    def live_then_new_lock(src, dst):
+        Path(src).write_text("4242 100\n")  # a live holder takes the lock before the move
+        real_rename(src, dst)
+        Path(src).write_text("pacman owns this")  # a new lock appears before the restore
+
+    monkeypatch.setattr(os, "rename", live_then_new_lock)
+    with pytest.raises(r.RecoveryError, match="could not be restored"):
+        r.take_over_stale_lock(db, proc)
+    assert db.read_text() == "pacman owns this"
+    assert [path.read_text() for path in tmp_path.glob("db.lck.stale-*")] == ["4242 100\n"]
 
 
 def test_takeover_leaves_no_aside_file_and_new_lock_wins_race(tmp_path, monkeypatch):
