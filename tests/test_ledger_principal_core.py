@@ -370,6 +370,52 @@ def test_a_replaced_launch_record_refuses(authority, reasons):
     assert reasons == [NOT_CURRENT] if sys.platform.startswith("linux") else reasons in ([NOT_CURRENT], [NOT_PRIVATE])
 
 
+def can_mount():
+    """Root with CAP_SYS_ADMIN, as in tools/test-linux.sh with EXO_OS_SANDBOX_TESTS=1 (a privileged container)."""
+    try:
+        return subprocess.run(["unshare", "--mount", "--propagation", "private", "true"],
+                              capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+# OTHER, run in a private mount namespace after it mounts something over the record's folder there.
+MOUNTED = 'import json, subprocess, sys\nsubprocess.run(["mount", *json.loads(sys.argv.pop(1))], check=True)\n' + OTHER
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux") or not can_mount(),
+                    reason="needs Linux mount namespaces and the right to mount (a privileged test container)")
+@pytest.mark.parametrize("mounted", ["tmpfs", "same-filesystem"])
+def test_a_record_mounted_over_run_in_another_mount_namespace(authority, reasons, mounted):
+    """Another process mounts over run/ in its own mount namespace, writes a record there that names itself and
+    sends it. The kernel names that file at the record's path. A tmpfs is another filesystem and refuses. A folder
+    of the store filesystem passes: the documented limit (OS-21 Limits, docs/LEDGER-AUTHORITY.md). The real
+    record is not touched either way."""
+    core.issue(authority.core_socket)
+    genuine = authority.record.read_bytes()
+    run = authority.record.parent
+    decoy = authority.home / "decoy"
+    decoy.mkdir(mode=0o700)
+    how = (["-t", "tmpfs", "-o", "mode=0700", "tmpfs", str(run)] if mounted == "tmpfs"
+           else ["--bind", str(decoy), str(run)])
+    head = authority.journal.head()
+    raw = append_request("principal", "mounted-" + mounted, head)
+    result = subprocess.run(["unshare", "--mount", "--propagation", "private", sys.executable, "-c", MOUNTED,
+                             json.dumps(how), authority.path, json.dumps(raw), str(authority.record),
+                             str(authority.core_socket)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    reply = json.loads(result.stdout)
+    assert authority.record.read_bytes() == genuine
+    if mounted == "tmpfs":
+        assert reply["state"] == "refused", reply
+        unchanged(authority, head, raw["operation_id"])
+        assert reasons == [NOT_PRIVATE]
+    else:
+        assert reply["state"] == "ok", reply
+        assert json.loads((decoy / authority.record.name).read_text())["pid"] != json.loads(genuine)["pid"]
+        assert reasons == []
+
+
 def open_descriptors():
     return len(os.listdir("/dev/fd"))
 

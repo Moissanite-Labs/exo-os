@@ -213,7 +213,11 @@ What the binding does not cover:
   and a refusal for another `exo` process. The
   host suites run the real signer `Server` on a real Unix socket with a real
   launch record written by the core's own code
-  (`tests/test_ledger_principal_core.py`).
+  (`tests/test_ledger_principal_core.py`). Where the tests may mount (a
+  privileged container, `EXO_OS_SANDBOX_TESTS=1 tools/test-linux.sh`), another
+  process also mounts over `run/` in its own mount namespace: a tmpfs is
+  refused and a store-filesystem folder is accepted, as the first limit says.
+  Elsewhere that test is skipped.
 
 ### Other writers
 
