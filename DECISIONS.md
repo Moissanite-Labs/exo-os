@@ -192,14 +192,16 @@ configured. See `docs/LEDGER-AUTHORITY.md`.
 
 Every provisioned writer permits the desktop account `exo` as its caller.
 Separate writer keys do not isolate processes within that UID (Unix user ID).
-Writer attribution therefore trusts that desktop UID. The service still checks
-the caller UID for each stream/writer and enforces each writer's allowed authors.
-Signer keys and journal ownership remain separate from desktop processes.
+Writer attribution therefore trusts that desktop UID, except for appends as the
+`principal` writer, which OS-20 binds to the core process. The service still
+checks the caller UID for each stream/writer and enforces each writer's allowed
+authors. Signer keys and journal ownership remain separate from desktop processes.
 
 Trusted providers, plugins and desktop applications under `exo` can request
-signatures for any configured writer. Sandboxed tools have no authority socket
-in their box by design, with current native proof pending. Planned principal
-credentials and authenticated core-peer binding are not implemented.
+signatures for any other configured writer. Sandboxed tools have no authority
+socket in their box by design, with current native proof pending. The other
+writers, `exo-gate` and those that may attribute an event to the principal among
+them, are not bound to the core: proposed OS-21 in `DECISIONS-PROPOSED.md`.
 
 ## OS-16. Credentialed actions preserve both consent and uncertainty
 
@@ -252,3 +254,45 @@ overlap and that a known audit outage never lets one run; both remain. Rejected:
 a lock per action, which would let two mutations touch the package database and
 snapshots at once. Known limit: a request waiting for the mutation lock still holds
 one of the eight connection slots.
+
+## OS-20. The principal writer signs only for the core process its launch record names
+
+**Decision.** The ledger signer appends as the `principal` writer only for the
+process that the core's launch record (Exo D-060) names. The record is private
+to the desktop user, so the signer cannot open it. The exo-os client opens it and
+sends the open file with the append (`SCM_RIGHTS`). The signer accepts it only
+as a private single-link regular file, owned by the caller UID, on the store
+filesystem, that the kernel names at `$EXO_HOME/run/exod.principal.key`. The
+record must name the connection's kernel peer: the same pid, the caller UID and
+the process start identity read at accept, and that pid must still be the same
+process. Any doubt refuses before the journal is touched, so the reply is a known
+refusal, never an uncertain append. Reads, and every other writer, keep the
+caller-UID rule of OS-17. The JSON protocol, manifest, journal and signatures are
+unchanged. Details: `docs/LEDGER-AUTHORITY.md`.
+
+**Why.** Issue #106: every writer accepted any process running as `exo`, so a
+tool process that reached the socket could sign as `principal`. D-060 already
+names one process per launch, by pid and a start identity that a reused pid does
+not share. Binding to it closes the principal writer to every other process,
+including one that holds a copy of the record. No core change is needed, and
+nothing in the image appends as `principal` from another process: exod's own
+writers are `exo-gate`, `exo-memory` and `exo-learn`.
+
+**Rejected.** Letting the signer read the record: an ACL shows in the record's
+group bits, which the core's own reader refuses, and `CAP_DAC_READ_SEARCH` would
+let the signer read every desktop file. A record sent as data: any process can
+write one that names itself. Exod's cgroup or parent: any process of the user can
+join that cgroup or be started by the user manager. A root service that copies the
+record for the signer: a new root component for the same strength, since the
+record's folder is the user's.
+
+**Limits.** Same-user code outside the tool box can rewrite the record to name
+itself, as D-060 says. That also stops the real core's principal clients until
+the core restarts. A pid reused between connect and accept is not detected. The
+check needs the core's `/proc` entries readable by the signer. Command-line
+requests for the `principal` writer (`exo log append --author principal`) now
+refuse on the image. The principal-name writer, `exo-memory`, `exo-learn` and
+`ingest` can still attribute events to the principal from any `exo` process, and
+`exo-gate` is unbound: proposed OS-21. Native proof on a booted image is pending:
+an exod append through the signer's mount namespace, and a refusal for another
+`exo` process.

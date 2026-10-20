@@ -173,7 +173,7 @@ def test_unknown_after_authority_commit_is_lookup_recoverable(stream, monkeypatc
         def sendall(self, value):
             sent.append(value)
     monkeypatch.setattr(server, "peer_credentials", lambda *a: (1, 555, 555))
-    monkeypatch.setattr(server, "read_line", lambda *a: wire.encode(raw))
+    monkeypatch.setattr(server, "read_request", lambda *a: wire.encode(raw))
     Server(manifest, {"fixture": journal}, {"exo": 555}).serve_connection(Connection())
     assert wire.decode(sent[-1])["state"] == "unknown"
     assert journal.lookup("same-id", writer="exo-os")["event"]["seq"] == 1
@@ -191,7 +191,7 @@ def test_server_refuses_kernel_caller_before_payload_read(stream, monkeypatch):
         def sendall(self, value):
             pytest.fail("greeting disclosed before caller authentication")
     monkeypatch.setattr(server, "peer_credentials", lambda *a: (1, 999, 999))
-    monkeypatch.setattr(server, "read_line", lambda *a: pytest.fail("unauthenticated payload read"))
+    monkeypatch.setattr(server, "read_request", lambda *a: pytest.fail("unauthenticated payload read"))
     Server(manifest, {"fixture": journal}, {"exo": 555}).serve_connection(Connection())
 
 

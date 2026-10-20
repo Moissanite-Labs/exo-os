@@ -129,6 +129,12 @@ core at the current pin:
 
 The surface gets 2 and 3 by joining as `Client(principal="surface")`. The OS
 still has to keep the socket out of reach of tools (see BANKAI.md I-1, P-5).
+The ledger signer relies on 3 too: it signs as the `principal` writer only for
+the process the launch record names (OS-20). So the record's place beside
+`run/exod.sock`, its v1 fields and the start identity of
+`exo.principal.proc_info` are part of this contract.
+`tests/test_ledger_principal_core.py` writes the record with the core's own
+`exo.principal.issue` and fails if its place moves.
 Current behavior and limitations are documented in
 [SURFACE-RECOVERY.md](SURFACE-RECOVERY.md).
 

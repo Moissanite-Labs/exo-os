@@ -17,6 +17,21 @@ SOCKET = "/run/exo-ledger.sock"
 STREAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 TIMEOUT = 10
 WORKERS = 4
+# OS-20 (#106): an append as one of these writers must come from the very process the core's launch record names.
+# Every other writer, and every read, keeps the caller-UID rule.
+CORE_BOUND = frozenset({"principal"})
+
+
+def launch_record(ledger_path) -> Path | None:
+    """The core's launch record for the home that holds this projection, or None for a projection outside one.
+
+    The projection is ``$EXO_HOME/principals/<name>/ledger.sqlite`` and ``exo serve`` writes its record beside
+    ``$EXO_HOME/run/exod.sock`` (``exo.principal.token_path``, ``exo.ensure_core.exod_socket``). With None a
+    core-bound writer cannot append at all."""
+    path = Path(ledger_path)
+    if path.name != "ledger.sqlite" or path.parent.parent.name != "principals" or len(path.parents) < 4:
+        return None
+    return path.parents[2] / "run" / "exod.principal.key"
 
 
 def validate_manifest(raw):

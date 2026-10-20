@@ -20,8 +20,8 @@ from ..egress.server import account_uid
 from ..egress.policy import EgressError
 from ..sandbox.policy import trusted_path
 from ..sysd.protocol import peer_credentials
-from .policy import SOCKET, TIMEOUT, load_manifest
-from .wire import GREETING, MAX_WIRE, decode, encode, read_line, request
+from .policy import CORE_BOUND, SOCKET, TIMEOUT, launch_record, load_manifest
+from .wire import GREETING, MAX_WIRE, decode, encode, read_line, request, send_request
 
 
 def verify_socket(path, listener_uid):
@@ -64,15 +64,29 @@ def verify_greeting(conn, service_uid):
 
 
 class AuthorityClient:
-    def __init__(self, stream, writer, identity):
+    def __init__(self, stream, writer, identity, ledger_path=None):
         from exo.ledger_authority import validate_identity
         self.stream, self.writer, self.identity = stream, writer, validate_identity(identity)
+        self.ledger_path = ledger_path
         if self.identity["stream_id"] != stream or writer not in self.identity["writers"]:
             raise AuthorityError("authority writer or stream is not pinned")
+
+    def _launch_record(self):
+        """OS-20: a core-bound writer's append carries the core's launch record, opened here and passed as a
+        descriptor; the signer checks that this process is the one the record names. Refuses before connecting."""
+        refusal = f"the {self.writer} writer appends only from the core process its launch record names"
+        path = None if self.ledger_path is None else launch_record(self.ledger_path)
+        if path is None:
+            raise AuthorityError(refusal)
+        try:
+            return os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+        except OSError as exc:
+            raise AuthorityError(f"{refusal}; no readable launch record ({exc.strerror or exc})") from None
 
     def _call(self, op, **args):
         raw = request({"version": 1, "nonce": secrets.token_hex(16), "stream": self.stream,
                        "writer": self.writer, "op": op, **args})
+        record = self._launch_record() if op == "append" and self.writer in CORE_BOUND else None
         sent = False
         known_refusal = False
         try:
@@ -86,7 +100,7 @@ class AuthorityClient:
                     raise AuthorityUnavailable("authority listener kernel identity mismatch")
                 verify_greeting(conn, service_uid)
                 sent = True
-                conn.sendall(encode(raw))
+                send_request(conn, encode(raw), record)
                 reply = decode(read_line(conn, MAX_WIRE, TIMEOUT))
                 if (not isinstance(reply, dict) or set(reply) != {"version", "nonce", "stream", "writer", "state", "result"}
                         or type(reply["version"]) is not int or reply["version"] != 1
@@ -112,6 +126,9 @@ class AuthorityClient:
             if sent and op == "append":
                 raise AppendOutcomeUnknown(args["operation_id"]) from None
             raise AuthorityUnavailable("authority unavailable or unauthenticated") from exc
+        finally:
+            if record is not None:
+                os.close(record)
 
     def _record(self, record):
         if not isinstance(record, dict) or not isinstance(record.get("event"), dict):
@@ -174,5 +191,5 @@ def create_authority(ledger_path, writer=None):
                     raise AuthorityUnavailable("no authorized verification identity")
                 return ReadAuthorityClient(stream, sorted(candidates)[0], entry["identity"])
             if writer in entry["identity"]["writers"]:
-                return AuthorityClient(stream, writer, entry["identity"])
+                return AuthorityClient(stream, writer, entry["identity"], ledger_path=entry["ledger_path"])
     raise AuthorityUnavailable("ledger projection or writer is not provisioned")

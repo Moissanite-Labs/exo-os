@@ -1,19 +1,63 @@
 """Static-UID local signer; authenticate the caller before parsing any request."""
 from __future__ import annotations
 
+import hmac
 import os
 import socket
 import sqlite3
+import stat
+import sys
 import threading
+from pathlib import Path
 
 from exo import crypto
+from exo import principal as core
 from exo.ledger_authority import AuthorityError, HeadConflict
 from exo.ledger_authority.journal import AuthorityJournal
 
 from ..egress.server import account_uid
 from ..sysd.protocol import peer_credentials
-from .policy import STATE, TIMEOUT, WORKERS, key_name, load_manifest, private_file
-from .wire import GREETING, MAX_WIRE, decode, encode, read_line, request
+from .policy import CORE_BOUND, STATE, TIMEOUT, WORKERS, key_name, launch_record, load_manifest, private_file
+from .wire import GREETING, MAX_WIRE, closing, decode, encode, read_request, request
+
+
+def fd_path(fd):
+    """The path the kernel names for an open descriptor; a replaced or removed file reads as '... (deleted)'."""
+    if sys.platform.startswith("linux"):
+        return os.readlink(f"/proc/self/fd/{fd}")
+    if sys.platform == "darwin":  # host tests only: the signer ships for Linux
+        import fcntl
+        return fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0].decode()
+    raise AuthorityError("descriptor paths are unavailable on this platform")
+
+
+def store_device(home):
+    """The filesystem of the core's home. The signer may stat it, though not enter it."""
+    return os.stat(home).st_dev
+
+
+def core_record(fd, expected: Path, uid: int) -> dict:
+    """The core's launch record (D-060), read through a descriptor its caller sent (OS-20).
+
+    The signer cannot open the record: it is private to the desktop user, in an owner-only folder. The caller
+    opened it and passed the open file. It must be the private single-link file, owned by the caller, that the
+    kernel names at the record's place on the store filesystem, so a copy, a replaced record or a file in another
+    mount namespace does not count."""
+    info = os.fstat(fd)
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != uid or info.st_mode & 0o077
+            or info.st_size > core.RECORD_MAX or info.st_dev != store_device(expected.parents[1])):
+        raise AuthorityError("descriptor is not the core's private launch record")
+    if fd_path(fd) != str(expected):
+        raise AuthorityError("descriptor is not the core's current launch record")
+    raw = os.pread(fd, core.RECORD_MAX + 1, 0)
+    if len(raw) > core.RECORD_MAX:
+        raise AuthorityError("launch record too large")
+    record = decode(raw)
+    if not (isinstance(record, dict) and record.get("v") == 1 and type(record.get("pid")) is int
+            and record["pid"] > 0 and type(record.get("uid")) is int and isinstance(record.get("start"), str)
+            and record["start"]):
+        raise AuthorityError("launch record is not a v1 record")
+    return record
 
 
 class Server:
@@ -23,20 +67,41 @@ class Server:
                         for stream, entry in manifest["streams"].items()
                         for writer, names in entry["callers"].items()}
         self.caller_uids = set().union(*self.allowed.values())
+        self.records = {stream: launch_record(entry["ledger_path"]) for stream, entry in manifest["streams"].items()}
+
+    def bind_core(self, stream, uid, peer, fds):
+        """OS-20: only the process the core's launch record names may append as a core-bound writer.
+
+        ``peer`` is the kernel's peer and its start identity, taken at accept. The record must name that pid,
+        this uid and that start identity, and the pid must still be that process now."""
+        if len(fds) != 1 or self.records[stream] is None:
+            raise AuthorityError("this writer appends only with the core's launch record")
+        record = core_record(fds[0], self.records[stream], uid)
+        now = core.proc_info(peer.pid) if peer.pid else None
+        if (peer.uid != uid or record["uid"] != uid or record["pid"] != peer.pid or peer.ident is None
+                or now is None or not hmac.compare_digest(record["start"].encode(), peer.ident.encode())
+                or not hmac.compare_digest(now.ident.encode(), peer.ident.encode())):
+            raise AuthorityError("only the core process named by its launch record may append as this writer")
 
     def serve_connection(self, conn):
-        with conn:
+        fds = []  # descriptors the caller sent; closed however the connection ends
+        with conn, closing(fds):
             identifiers, entered_append = {}, False
             try:
                 uid = peer_credentials(conn)[1]
                 if uid not in self.caller_uids:
                     return
+                peer = core.accepted(conn)  # pid and start identity at accept, before any byte is read (D-060)
                 conn.settimeout(TIMEOUT)
                 conn.sendall(GREETING)
-                raw = request(decode(read_line(conn, MAX_WIRE, TIMEOUT)))
+                raw = request(decode(read_request(conn, MAX_WIRE, TIMEOUT, fds)))
                 identifiers = {key: raw[key] for key in ("nonce", "stream", "writer")}
                 if uid not in self.allowed.get((raw["stream"], raw["writer"]), set()):
                     raise AuthorityError("writer not authorized for this kernel identity")
+                if raw["writer"] in CORE_BOUND and raw["op"] == "append":
+                    self.bind_core(raw["stream"], uid, peer, fds)
+                elif fds:
+                    raise AuthorityError("unexpected descriptor")
                 journal = self.journals[raw["stream"]]
                 if raw["op"] == "append":
                     entered_append = True
