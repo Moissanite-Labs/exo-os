@@ -678,6 +678,48 @@ def test_real_recovery_invocations_are_detected(tmp_path, comm, cmdline):
     assert r.package_or_recovery_running(proc)
 
 
+@pytest.mark.parametrize("name", ["comm", "cmdline"])
+@pytest.mark.parametrize("error", [PermissionError(13, "denied"), OSError(5, "io error")])
+def test_unreadable_process_entry_is_possibly_running(tmp_path, monkeypatch, name, error):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 777)
+    db.write_text("")  # no valid holder, so only the process scan can protect it
+    real_read_text, real_read_bytes = Path.read_text, Path.read_bytes
+
+    def refuse(real):
+        def read(path, *args, **kwargs):
+            if path == proc / "777" / name:
+                raise error
+            return real(path, *args, **kwargs)
+        return read
+
+    monkeypatch.setattr(Path, "read_text", refuse(real_read_text))
+    monkeypatch.setattr(Path, "read_bytes", refuse(real_read_bytes))
+    assert r.package_or_recovery_running(proc)
+    assert r.stale_lock_reason(db, proc) is None
+    with pytest.raises(r.RecoveryError, match=str(db)):
+        with r.administrator_lock(db, run, proc):
+            pass
+    assert db.exists() and not list(tmp_path.glob("db.lck.stale-*"))
+
+
+def test_process_entry_that_exited_while_scanned_is_skipped(tmp_path, monkeypatch):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 777)
+    real_read_text = Path.read_text
+
+    def vanish(path, *args, **kwargs):
+        if path == proc / "777" / "comm":
+            for item in (proc / "777").iterdir():
+                item.unlink()
+            (proc / "777").rmdir()
+            raise FileNotFoundError(2, "gone")
+        return real_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", vanish)
+    assert not r.package_or_recovery_running(proc)
+
+
 def test_takeover_rechecks_and_restores_lock_that_became_live(tmp_path, monkeypatch):
     db, run, proc = lock_env(tmp_path)
     fake_process(proc, os.getpid(), start="555")
