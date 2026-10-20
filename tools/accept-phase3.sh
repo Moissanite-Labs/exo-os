@@ -113,8 +113,7 @@ import json, sys
 from exo_os.surface import renderer
 line, selection = sys.stdin.read().split("\n")[:2]
 launched = renderer.parse_log_line(line)
-would = json.loads(selection)
-assert set(would) == {"renderer", "source", "detail"} and would["renderer"] in ("gl", "cairo", "default")
+would = renderer.validate_choice(json.loads(selection), probed=True)
 print(json.dumps({"launcher": launched, "selection_without_override": would}))' > "$out/p3-surface-renderer-choice.json"; then
   result "surface-renderer-choice" 0 "launcher renderer log line or selection record missing or malformed; see p3-surface-renderer-choice.json"
   exit 1

@@ -31,11 +31,19 @@ LOG_PREFIX = "exo-surface: renderer="
 LOG_LINE = re.compile(r"exo-surface: renderer=(gl|cairo|default) source=(environment|probe-ok|probe-failed|no-display)"
                       r"(?: detail=(.*))?\Z")
 
-PROBE_CODE = """\
+# One identity representation on both sides: the GType name (GskGLRenderer), never the Python class name
+# (GLRenderer). The child prints it with identify(); GL_RENDERERS holds the same strings.
+PROBE_HELPERS = """\
 import sys
 import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
+
+
+def identify(renderer):
+    return renderer.__gtype__.name
+"""
+PROBE_MAIN = """\
 if not Gtk.init_check():
     sys.exit(3)
 window = Gtk.Window()
@@ -43,8 +51,9 @@ window.realize()
 renderer = window.get_renderer()
 if renderer is None:
     sys.exit(4)
-print(type(renderer).__name__)
+print(identify(renderer))
 """
+PROBE_CODE = PROBE_HELPERS + PROBE_MAIN
 
 
 @dataclass(frozen=True)
@@ -104,14 +113,32 @@ def apply(env: MutableMapping[str, str], probe: Probe = run_probe, log: Callable
     return choice
 
 
+CHOICES = {("default", "environment"), ("default", "no-display"), ("gl", "probe-ok"), ("cairo", "probe-failed")}
+PROBED = {("gl", "probe-ok"), ("cairo", "probe-failed")}
+
+
+def validate_choice(data: object, probed: bool = False) -> dict:
+    """Validate a selection record from `python -m exo_os.surface.renderer`; raises ValueError if malformed.
+
+    With probed=True the record must show the probe ran (probe-ok or probe-failed): default/environment and
+    default/no-display mean the production probe never ran.
+    """
+    if not isinstance(data, dict) or set(data) != {"renderer", "source", "detail"}:
+        raise ValueError("selection record has the wrong keys")
+    if not all(isinstance(data[k], str) for k in data):
+        raise ValueError("selection record fields must be strings")
+    if (data["renderer"], data["source"]) not in (PROBED if probed else CHOICES):
+        raise ValueError("selection record renderer and source are not a valid" + (" probed" if probed else "") + " pair")
+    return data
+
+
 def parse_log_line(line: str) -> dict:
     """Validate one launcher log line; raises ValueError unless it is exactly the documented shape."""
     match = LOG_LINE.fullmatch(line.strip())
     if not match:
         raise ValueError("not a surface renderer log line")
     renderer, source, detail = match.groups()
-    if (renderer, source) not in {("default", "environment"), ("default", "no-display"), ("gl", "probe-ok"),
-                                  ("cairo", "probe-failed")}:
+    if (renderer, source) not in CHOICES:
         raise ValueError("renderer and source disagree")
     return {"renderer": renderer, "source": source, "detail": detail or ""}
 

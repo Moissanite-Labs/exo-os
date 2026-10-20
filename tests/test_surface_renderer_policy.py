@@ -1,5 +1,7 @@
 """Production renderer policy (OS-20, #107): probe GL, fall back to Cairo, log the choice. Fakes only; no GTK."""
+import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,10 +14,10 @@ WAYLAND = {"WAYLAND_DISPLAY": "wayland-1"}
 
 def test_gl_available_leaves_gtk_default_untouched():
     env, lines = dict(WAYLAND), []
-    choice = renderer.apply(env, probe=lambda e: (True, "GskNglRenderer"), log=lines.append)
+    choice = renderer.apply(env, probe=lambda e: (True, "GskGLRenderer"), log=lines.append)
     assert (choice.renderer, choice.source) == ("gl", "probe-ok")
     assert "GSK_RENDERER" not in env
-    assert lines == ["exo-surface: renderer=gl source=probe-ok detail=GskNglRenderer"]
+    assert lines == ["exo-surface: renderer=gl source=probe-ok detail=GskGLRenderer"]
 
 
 def test_gl_failing_forces_cairo_and_says_so():
@@ -66,6 +68,11 @@ def fake_run(monkeypatch, result):
     return seen
 
 
+def test_child_emits_gtype_names_and_the_allowlist_holds_the_same_form():
+    assert "__gtype__.name" in renderer.PROBE_HELPERS and "__name__" not in renderer.PROBE_CODE
+    assert all(re.fullmatch(r"Gsk[A-Za-z0-9]+Renderer", n) for n in renderer.GL_RENDERERS)
+
+
 @pytest.mark.parametrize("name", sorted(renderer.GL_RENDERERS))
 def test_probe_accepts_gl_family_and_strips_any_renderer_override(monkeypatch, name):
     seen = fake_run(monkeypatch, Done(0, f"noise\n{name}\n"))
@@ -108,3 +115,57 @@ def test_acceptance_records_the_chosen_renderer():
     source = (ROOT / "tools/accept-phase3.sh").read_text()
     assert "exo_os.surface.renderer" in source and "p3-surface-renderer-choice.json" in source
     assert "parse_log_line" in source
+
+
+GOOD = {"renderer": "gl", "source": "probe-ok", "detail": "GskGLRenderer"}
+FAILED = {"renderer": "cairo", "source": "probe-failed", "detail": "probe exited 3"}
+
+
+@pytest.mark.parametrize("record", [GOOD, FAILED])
+def test_validator_accepts_probed_records(record):
+    assert renderer.validate_choice(record, probed=True) == record
+
+
+@pytest.mark.parametrize("record", [
+    {"renderer": "gl", "source": "invented", "detail": ""},                      # invented source
+    {"renderer": "cairo", "source": "probe-ok", "detail": ""},                   # contradictory pair
+    {"renderer": "gl", "source": "probe-ok", "detail": {"x": 1}},                # non-string detail
+    {"renderer": "default", "source": "no-display", "detail": "no display"},     # probe never ran
+    {"renderer": "default", "source": "environment", "detail": "GSK_RENDERER=cairo"},  # probe never ran
+    {"renderer": "gl", "source": "probe-ok"},                                    # missing key
+    {**GOOD, "extra": "x"}, "text", None,
+])
+def test_validator_rejects_unprobed_or_malformed_records_for_the_no_override_vm_record(record):
+    with pytest.raises(ValueError):
+        renderer.validate_choice(record, probed=True)
+
+
+def test_validator_without_probe_requirement_allows_default_records_but_not_invalid_ones():
+    for record in ({"renderer": "default", "source": "no-display", "detail": ""},
+                   {"renderer": "default", "source": "environment", "detail": "x"}):
+        assert renderer.validate_choice(record) == record
+    for record in ({"renderer": "gl", "source": "invented", "detail": ""}, {**GOOD, "detail": 3},
+                   {"renderer": "cairo", "source": "probe-ok", "detail": ""}):
+        with pytest.raises(ValueError):
+            renderer.validate_choice(record)
+
+
+def test_acceptance_script_requires_a_probed_record():
+    assert "validate_choice(json.loads(selection), probed=True)" in (ROOT / "tools/accept-phase3.sh").read_text()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="needs Linux GTK")
+def test_real_unrealized_gl_and_vulkan_renderers_keep_the_default_through_the_real_child(monkeypatch):
+    pytest.importorskip("gi")
+    creators = {"GskGLRenderer": "Gsk.GLRenderer", "GskVulkanRenderer": "Gsk.VulkanRenderer"}
+    for gtype, ctor in creators.items():
+        code = (renderer.PROBE_HELPERS + "from gi.repository import Gsk\n"
+                f"renderer = {ctor}()\nprint(identify(renderer))\n")
+        monkeypatch.setattr(renderer, "PROBE_CODE", code)
+        assert renderer.run_probe(WAYLAND) == (True, gtype)
+    # Through choose(), the GL family keeps GTK's default.
+    monkeypatch.setattr(renderer, "PROBE_CODE", renderer.PROBE_HELPERS + "from gi.repository import Gsk\n"
+                        "print(identify(Gsk.GLRenderer()))\n")
+    env = dict(WAYLAND)
+    choice = renderer.apply(env, log=lambda line: None)
+    assert (choice.renderer, choice.source) == ("gl", "probe-ok") and "GSK_RENDERER" not in env
