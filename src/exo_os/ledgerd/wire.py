@@ -17,7 +17,7 @@ ANCILLARY = socket.CMSG_SPACE(4 * array.array("i").itemsize)
 
 
 def send_request(conn, data, fd=None):
-    """Send one request line. A core-bound append carries the launch record's descriptor on its first bytes (OS-20);
+    """Send one request line. A core-bound append carries the launch record's descriptor on its first bytes (OS-21);
     the JSON is the same either way."""
     if fd is None:
         conn.sendall(data)

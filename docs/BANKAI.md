@@ -132,7 +132,7 @@ tool tree. What a request body says about its sender decides nothing. What the c
   `main`), the ledger service checks the peer UID (`ledgerd/server.py`), and their clients verify the service
   (`egress/client.py`, `verify_socket`, `verify_greeting`; `ledgerd/client.py`). For an append as the `principal`
   writer the ledger service also requires the very process the core's launch record names: the caller sends the
-  record as an open file, and the kernel peer's pid and process start identity must match it (OS-20;
+  record as an open file, and the kernel peer's pid and process start identity must match it (OS-21;
   `ledgerd/server.py`, `core_record`, `Server.bind_core`). Every other writer still admits any process of the
   desktop UID.
 - *Tools.* The tool namespace has no store, home, compositor, bus or root-helper socket, and denies socket creation
@@ -144,9 +144,9 @@ stamped `principal`. The pinned core's D-060 Limits say so: same-user code outsi
 can read the record (`exo/principal.py`, `stamp`, checks the token, the uid, a live and unreused pid, and that the
 caller is not a descendant of the core). Nothing in this repo closes that gap; the proposed fix is P-5 (desktop apps in
 their own boxes, section 4; see also `docs/TOOL-ISOLATION.md`). Issue #16 (a replaced socket) is closed and is covered by
-D-060 `verify_daemon`. OS-20 (issue #106) binds only the ledger's `principal` writer to the core process, and the
+D-060 `verify_daemon`. OS-21 (issue #106) binds only the ledger's `principal` writer to the core process, and the
 record it relies on can be rewritten by the same desktop code, so it does not close this gap either; the writers
-that may still attribute events to the principal from any `exo` process are proposed OS-21. The authority of the principal
+that may still attribute events to the principal from any `exo` process are proposed OS-22. The authority of the principal
 (approvals, learning signals, settings, model choice, policy acceptance) rests on the core's stamp, so on the OS the
 invariant holds for the surface and the root helper, not yet against a hostile same-user application. Check: a tool
 child, a detached grandchild and a replaced socket each try to act as the principal through the surface path, and
@@ -160,7 +160,7 @@ Source: D-040 (authors), D-010 (`PROVENANCE.toml` for lifted code), exo-os #88 a
 event-activation design `trigger:<id>` (D-057). Never from the text. On the OS this extends down the stack: a root
 action carries a receipt signed by exo-sysd (OS-4, OS-11); an image carries the exact Exo OS and Exo commits it was
 built from (OS-13, #30); a ledger row is signed by a writer key that the authority's manifest allows for that author
-(OS-17), and the `principal` writer's key signs only for the core process (OS-20). Check: `exo log verify` names every writer; an image's receipt matches its source.
+(OS-17), and the `principal` writer's key signs only for the core process (OS-21). Check: `exo log verify` names every writer; an image's receipt matches its source.
 
 **I-3. An approval is bound to the exact action.**
 Source: D-033, D-020 (required approval tokens), OS-12, OS-16. For an outward act the gate hashes the tool, target,

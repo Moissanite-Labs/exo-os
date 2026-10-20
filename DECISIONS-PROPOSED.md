@@ -115,9 +115,9 @@ carry no agent or team names (local `~/Work/CLAUDE.md`, rule 6).
 
 ## Open proposals
 
-### OS-21 (proposed, needs A). Which other ledger writers only a core may use
+### OS-22 (proposed, needs A). Which other ledger writers only a core may use
 
-Status: proposed 2026-10-20 with OS-20 (issue #106). Not decided. OS-20 binds the
+Status: proposed 2026-10-20 with OS-21 (issue #106). Not decided. OS-21 binds the
 `principal` writer to the core process its launch record names. Other writers can
 still put an event in the principal's voice, or record a gate decision, from any
 process running as `exo` that reaches the signer's socket:
@@ -134,11 +134,11 @@ process running as `exo` that reaches the signer's socket:
 
 | Option | Trade |
 |---|---|
-| a. Bind all of them to exod, as OS-20 does for `principal` | Only exod can write in the principal's voice or record a gate decision. `exo interview`, `exo ingest` and `exo log append` lose those writes until the core takes them as commands from a principal caller (a core change). A terminal window's own core would fail its gate audit and, under the required executor, run no tools. |
+| a. Bind all of them to exod, as OS-21 does for `principal` | Only exod can write in the principal's voice or record a gate decision. `exo interview`, `exo ingest` and `exo log append` lose those writes until the core takes them as commands from a principal caller (a core change). A terminal window's own core would fail its gate audit and, under the required executor, run no tools. |
 | b. Bind `exo-gate`, `exo-memory` and `exo-learn` to any core launch record in the home's `run/` folder, exod's or a terminal window's. Leave the command-line writers on the UID rule | Closes the in-core writers to tool processes and to every other process, and a terminal window's core keeps working. The principal's voice from `exo interview`, `exo ingest` and the principal-name writer stays as strong as the desktop UID. The signer must accept a small set of record paths. |
 | c. Keep the UID rule for all of them, as today | No change. Any process running as `exo` that reaches the socket can sign the principal's voice through these writers, or a gate decision. |
 
-**Recommendation: (b) now,** as a technical follow-up of OS-20, then (a) for the
+**Recommendation: (b) now,** as a technical follow-up of OS-21, then (a) for the
 principal's voice once the core can take onboarding answers and imports as commands
 from a principal caller. **A must rule:** until then, may the command line keep
 writing in the principal's voice (`exo interview`, `exo ingest`, `exo log append`

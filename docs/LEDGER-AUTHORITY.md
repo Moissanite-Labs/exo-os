@@ -139,7 +139,7 @@ as trust in that UID.
 ### The principal writer and the core's launch record
 
 An append as the `principal` writer is signed only for the core process that
-its launch record names (OS-20, issue #106). The core (`exo serve`) writes that
+its launch record names (OS-21, issue #106). The core (`exo serve`) writes that
 record before its socket accepts, beside the socket:
 `/var/lib/exo/exo/run/exod.principal.key`, owner-only in an owner-only folder
 (Exo D-060). It binds the core's pid, user ID and process start identity for
@@ -180,7 +180,7 @@ What the binding does not cover:
   core restarts.
 - The configured principal's writer (`exo`, whose author is the store id), and
   `exo-memory`, `exo-learn` and `ingest`, which may attribute an event to the
-  principal, still trust the desktop UID. So does `exo-gate`. Proposed OS-21 in
+  principal, still trust the desktop UID. So does `exo-gate`. Proposed OS-22 in
   `DECISIONS-PROPOSED.md` sets out the choices.
 - A pid reused between connect and accept is not detected (D-060's limit).
 - The check reads `/proc` entries of the core's processes. `hidepid` or

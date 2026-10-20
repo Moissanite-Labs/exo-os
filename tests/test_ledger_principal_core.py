@@ -1,4 +1,4 @@
-"""OS-20 (issue #106): only the core process its launch record names may append as the principal writer.
+"""OS-21 (issue #106): only the core process its launch record names may append as the principal writer.
 
 A real Unix listener runs the real signer `Server` against a real journal. The test process is the core: it
 writes its launch record with the pinned core's own `exo.principal.issue`. Another process of the same user
@@ -112,7 +112,7 @@ def authority(socket_dir, monkeypatch):
 def reasons(monkeypatch):
     """Why the signer refused the core binding, so each case is refused for its own reason."""
     seen = []
-    original = getattr(server.Server, "bind_core", None)  # absent before OS-20, where these tests fail on the reply
+    original = getattr(server.Server, "bind_core", None)  # absent before OS-21, where these tests fail on the reply
 
     def bind_core(self, *args):
         try:
@@ -171,7 +171,7 @@ def unchanged(authority, head, operation, writer="principal"):
 
 @pytest.mark.parametrize("with_record", [False, True], ids=["bare", "with-genuine-record"])
 def test_another_process_of_the_desktop_user_cannot_append_as_principal(authority, reasons, with_record):
-    """The probe for #106. Before OS-20 the signer accepted this from any process of the caller UID."""
+    """The probe for #106. Before OS-21 the signer accepted this from any process of the caller UID."""
     core.issue(authority.core_socket)  # this test process is the core its launch record names
     head = authority.journal.head()
     reply = other_process(authority, append_request("principal", "forged", head),

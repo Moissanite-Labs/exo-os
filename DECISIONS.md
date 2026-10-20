@@ -193,7 +193,7 @@ configured. See `docs/LEDGER-AUTHORITY.md`.
 Every provisioned writer permits the desktop account `exo` as its caller.
 Separate writer keys do not isolate processes within that UID (Unix user ID).
 Writer attribution therefore trusts that desktop UID, except for appends as the
-`principal` writer, which OS-20 binds to the core process. The service still
+`principal` writer, which OS-21 binds to the core process. The service still
 checks the caller UID for each stream/writer and enforces each writer's allowed
 authors. Signer keys and journal ownership remain separate from desktop processes.
 
@@ -201,7 +201,7 @@ Trusted providers, plugins and desktop applications under `exo` can request
 signatures for any other configured writer. Sandboxed tools have no authority
 socket in their box by design, with current native proof pending. The other
 writers, `exo-gate` and those that may attribute an event to the principal among
-them, are not bound to the core: proposed OS-21 in `DECISIONS-PROPOSED.md`.
+them, are not bound to the core: proposed OS-22 in `DECISIONS-PROPOSED.md`.
 
 ## OS-16. Credentialed actions preserve both consent and uncertainty
 
@@ -255,7 +255,7 @@ a lock per action, which would let two mutations touch the package database and
 snapshots at once. Known limit: a request waiting for the mutation lock still holds
 one of the eight connection slots.
 
-## OS-20. The principal writer signs only for the core process its launch record names
+## OS-21. The principal writer signs only for the core process its launch record names
 
 **Decision.** The ledger signer appends as the `principal` writer only for the
 process that the core's launch record (Exo D-060) names. The record is private
@@ -293,6 +293,6 @@ check needs the core's `/proc` entries readable by the signer. Command-line
 requests for the `principal` writer (`exo log append --author principal`) now
 refuse on the image. The principal-name writer, `exo-memory`, `exo-learn` and
 `ingest` can still attribute events to the principal from any `exo` process, and
-`exo-gate` is unbound: proposed OS-21. Native proof on a booted image is pending:
+`exo-gate` is unbound: proposed OS-22. Native proof on a booted image is pending:
 an exod append through the signer's mount namespace, and a refusal for another
 `exo` process.

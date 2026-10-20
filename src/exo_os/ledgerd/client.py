@@ -72,7 +72,7 @@ class AuthorityClient:
             raise AuthorityError("authority writer or stream is not pinned")
 
     def _launch_record(self):
-        """OS-20: a core-bound writer's append carries the core's launch record, opened here and passed as a
+        """OS-21: a core-bound writer's append carries the core's launch record, opened here and passed as a
         descriptor; the signer checks that this process is the one the record names. Refuses before connecting."""
         refusal = f"the {self.writer} writer appends only from the core process its launch record names"
         path = None if self.ledger_path is None else launch_record(self.ledger_path)

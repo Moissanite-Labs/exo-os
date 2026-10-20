@@ -41,7 +41,7 @@ def store_device(home):
 
 
 def core_record(fd, expected: Path, uid: int) -> dict:
-    """The core's launch record (D-060), read through a descriptor its caller sent (OS-20).
+    """The core's launch record (D-060), read through a descriptor its caller sent (OS-21).
 
     The signer cannot open the record: it is private to the desktop user, in an owner-only folder. The caller
     opened it and passed the open file. It must be the private single-link file, owned by the caller, that the
@@ -74,7 +74,7 @@ class Server:
         self.records = {stream: launch_record(entry["ledger_path"]) for stream, entry in manifest["streams"].items()}
 
     def bind_core(self, stream, uid, peer, fds):
-        """OS-20: only the process the core's launch record names may append as a core-bound writer.
+        """OS-21: only the process the core's launch record names may append as a core-bound writer.
 
         ``peer`` is the kernel's peer and its start identity, taken at accept. The record must name that pid,
         this uid and that start identity, and the pid must still be that process now."""

@@ -17,7 +17,7 @@ SOCKET = "/run/exo-ledger.sock"
 STREAM = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 TIMEOUT = 10
 WORKERS = 4
-# OS-20 (#106): an append as one of these writers must come from the very process the core's launch record names.
+# OS-21 (#106): an append as one of these writers must come from the very process the core's launch record names.
 # Every other writer, and every read, keeps the caller-UID rule.
 CORE_BOUND = frozenset({"principal"})
 
