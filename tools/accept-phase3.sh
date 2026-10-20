@@ -104,6 +104,23 @@ printf '%s\n' "$renderer_record" > "$out/p3-surface-renderer.json"
 renderer=$(printf '%s\n' "$renderer_record" | "$here/.venv/bin/python" "$here/tools/surface-renderer.py" --validate)
 echo "      vmtest surface renderer: $renderer; declared/effective service values in p3-surface-renderer.json" | tee -a "$report"
 
+# Renderer policy (OS-20): record what the production launcher chose in the running service (the log line it
+# writes), and what its selection logic would choose on this VM with the vmtest override removed.
+launcher_line=$(as_exo "journalctl --user -u exo-surface.service -o cat --no-pager | grep '^exo-surface: renderer=' | tail -n 1" || true)
+selection=$(as_exo 'env -u GSK_RENDERER GDK_BACKEND=wayland EXO_OS_VM_ACCEPTANCE=1 /opt/exo/bin/python -m exo_os.surface.renderer' 2>/dev/null || true)
+if ! printf '%s\n%s\n' "$launcher_line" "$selection" | "$here/.venv/bin/python" -I -c '
+import json, sys
+from exo_os.surface import renderer
+line, selection = sys.stdin.read().split("\n")[:2]
+launched = renderer.parse_log_line(line)
+would = renderer.validate_choice(json.loads(selection), probed=True)
+print(json.dumps({"launcher": launched, "selection_without_override": would}))' > "$out/p3-surface-renderer-choice.json"; then
+  result "surface-renderer-choice" 0 "launcher renderer log line or selection record missing or malformed; see p3-surface-renderer-choice.json"
+  exit 1
+fi
+choice_summary=$("$here/.venv/bin/python" -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("launcher %s (%s); selection without override %s (%s)" % (d["launcher"]["renderer"], d["launcher"]["source"], d["selection_without_override"]["renderer"], d["selection_without_override"]["source"]))' "$out/p3-surface-renderer-choice.json")
+result "surface-renderer-choice" 1 "$choice_summary; vmtest keeps Cairo only because the VM has no GPU; real hardware not covered; p3-surface-renderer-choice.json"
+
 # 1. app by a few letters
 if ! before=$(windows --baseline p3-palette-baseline.json); then
   result "palette-opens-app" 0 "no valid baseline; stopped before typing; see p3-palette-baseline.json"

@@ -624,8 +624,11 @@ host acceptance deadline remains separately bounded at 900 seconds.
 ### VM surface renderer scope
 
 The `vmtest` profile declares `GSK_RENDERER=cairo` in a drop-in for
-`exo-surface.service`. The production profile has no renderer override, and the
-VM setting is not a session-wide GTK or Chromium setting. GTK documents Cairo as
+`exo-surface.service` because the VM has no GPU. The production profile has no
+renderer override: the launcher probes GL and falls back to Cairo when it fails
+(OS-20), and Phase 3 records the choice in `p3-surface-renderer-choice.json`.
+Host tests cover both branches with fakes; neither branch is shown on real
+hardware. The VM setting is not a session-wide GTK or Chromium setting. GTK documents Cairo as
 an incomplete comparison renderer, including unsupported 3D transforms, so this
 setting is limited to the disposable software-rendering VM.
 See [GTK's Cairo renderer](https://docs.gtk.org/gsk4/ctor.CairoRenderer.new.html)
