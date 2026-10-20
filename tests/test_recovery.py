@@ -697,6 +697,24 @@ def test_takeover_rechecks_and_restores_lock_that_became_live(tmp_path, monkeypa
     assert not list(tmp_path.glob("db.lck.stale-*"))
 
 
+def test_restore_of_live_lock_never_clobbers_lock_created_meanwhile(tmp_path, monkeypatch):
+    db, run, proc = lock_env(tmp_path)
+    fake_process(proc, 4242, start="100")
+    db.write_text("9999 1\n")  # stale when first checked
+    real_rename = os.rename
+
+    def live_then_new_lock(src, dst):
+        Path(src).write_text("4242 100\n")  # a live holder takes the lock before the move
+        real_rename(src, dst)
+        Path(src).write_text("pacman owns this")  # a new lock appears before the restore
+
+    monkeypatch.setattr(os, "rename", live_then_new_lock)
+    with pytest.raises(r.RecoveryError, match="could not be restored"):
+        r.take_over_stale_lock(db, proc)
+    assert db.read_text() == "pacman owns this"
+    assert [path.read_text() for path in tmp_path.glob("db.lck.stale-*")] == ["4242 100\n"]
+
+
 def test_takeover_leaves_no_aside_file_and_new_lock_wins_race(tmp_path, monkeypatch):
     db, run, proc = lock_env(tmp_path)
     fake_process(proc, os.getpid(), start="555")
