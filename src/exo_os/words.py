@@ -225,7 +225,7 @@ def _escape_format_controls(text: str) -> str:
 
 def plain_summary(summary: str) -> str:
     """Exo's gate summary without the operator parts: '<tool> (costly, private). Why: X. Default if no
-    reply: skip.' becomes 'X.'"""
+    reply: skip.' becomes 'X.' A ' Link: ...' segment between the reason and the default is kept."""
     import re
 
     text = re.sub(r"^[\w.:-]+ \((?:reversible|costly|irreversible)[^)]*\)\.\s*", "", summary.strip())

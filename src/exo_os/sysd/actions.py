@@ -77,9 +77,12 @@ class Actions:
         _args(args, {"limit"})
         limit = _int(args.get("limit", 10), 1, 100)
         out = self._ok(["snapper", "--jsonout", "-c", self.snapper_config, "list", "--disable-used-space"])
-        rows = json.loads(out).get(self.snapper_config, [])
-        rows = [{"number": r["number"], "date": r.get("date", ""), "description": r.get("description", ""),
-                 "type": r.get("type", ""), "pre": r.get("pre-number")} for r in rows if r.get("number")]
+        try:
+            rows = json.loads(out).get(self.snapper_config, [])
+            rows = [{"number": r["number"], "date": r.get("date", ""), "description": r.get("description", ""),
+                     "type": r.get("type", ""), "pre": r.get("pre-number")} for r in rows if r.get("number")]
+        except (ValueError, AttributeError, TypeError, KeyError) as exc:
+            raise ActionError("snapper returned unreadable output") from exc
         return {"snapshots": rows[-limit:][::-1]}
 
     def package_install(self, args: dict[str, Any]) -> dict[str, Any]:

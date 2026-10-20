@@ -77,7 +77,12 @@ class Server:
             except BaseException:
                 slots.release()
                 raise
-            threading.Thread(target=worker, args=(conn,), daemon=True).start()
+            try:
+                threading.Thread(target=worker, args=(conn,), daemon=True).start()
+            except BaseException:
+                conn.close()
+                slots.release()
+                raise
 
 
 def load_journals(manifest, uid, state=STATE):

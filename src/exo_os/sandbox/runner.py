@@ -35,7 +35,10 @@ async def run(policy: Policy, tool: str, args: dict, cwd: str) -> dict:
         raise SandboxError("this execution path is not supported by the sandbox")
     cwd = policy.cwd(cwd)
     if tool == "bash" and args.get("cwd"):
-        policy.cwd(str(Path(cwd) / args["cwd"]))
+        # The validated path is authoritative: the worker must not re-resolve it.
+        cwd = policy.cwd(str(Path(cwd) / args["cwd"]))
+        # Hand the worker the canonical absolute path; a relative one would be resolved a second time.
+        args = {**args, "cwd": cwd}
     payload = json.dumps({"tool": tool, "args": args, "cwd": cwd,
                           "readonly": [str(p) for p in policy.runtime]}, allow_nan=False).encode()
     if len(payload) > 128 * 1024:

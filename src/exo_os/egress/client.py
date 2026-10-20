@@ -22,9 +22,13 @@ SOCKET = "/run/exo-egress.sock"
 def verify_socket(path: str, listener_uid: int):
     trusted_path(Path(path).parent, directory=True)
     trusted_path(Path("/etc/group"))
+    try:
+        gid = grp.getgrnam("exo-sys").gr_gid
+    except KeyError:
+        raise EgressError("untrusted egress socket") from None
     info = Path(path).lstat()
     if (not stat.S_ISSOCK(info.st_mode) or info.st_uid != listener_uid or
-            stat.S_IMODE(info.st_mode) != 0o660 or info.st_gid != grp.getgrnam("exo-sys").gr_gid):
+            stat.S_IMODE(info.st_mode) != 0o660 or info.st_gid != gid):
         raise EgressError("untrusted egress socket")
 
 
@@ -59,11 +63,11 @@ def verify_greeting(conn, service_uid):
 class EgressClient:
     def call(self, args):
         request = {"version": 1, "nonce": secrets.token_hex(16), "body": "", **args}
-        validate_request(request)
-        # uid=0 is the expected creator of the systemd .socket, not the service process.
-        listener_uid, service_uid = account_uid("root"), account_uid("exo-egress")
         sent = False
         try:
+            validate_request(request)
+            # uid=0 is the expected creator of the systemd .socket, not the service process.
+            listener_uid, service_uid = account_uid("root"), account_uid("exo-egress")
             verify_socket(SOCKET, listener_uid)
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
                 conn.settimeout(TIMEOUT * 3)
@@ -81,6 +85,6 @@ class EgressClient:
                     raise EgressError("invalid egress response")
                 return reply
         except (OSError, ValueError, RuntimeError):
-            return {"request_id": request["request_id"], "state": "unknown" if sent else "refused", "retryable": False,
+            return {"request_id": request.get("request_id"), "state": "unknown" if sent else "refused", "retryable": False,
                     "message": "Reply lost or untrusted; operation may have completed. Never resend." if sent else
                                "Egress service unavailable or unauthenticated"}

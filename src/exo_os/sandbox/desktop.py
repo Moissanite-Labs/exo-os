@@ -18,13 +18,20 @@ def required() -> bool:
 
 
 def check_app(app: dict) -> None:
-    if app.get("url"):
-        value = app["url"]
-        parts = urlsplit(value)
+    url = app.get("url")
+    if url:
+        if not isinstance(url, str):
+            raise SandboxError("host web app address must be text")
+        parts = urlsplit(url)
         if (parts.scheme != "https" or not parts.hostname or parts.username is not None or
-                parts.password is not None or any(ord(char) < 33 or ord(char) == 127 for char in value)):
+                parts.password is not None or any(ord(char) < 33 or ord(char) == 127 for char in url)):
             raise SandboxError("host web apps require an HTTPS address without credentials or control characters")
-    elif app.get("command") not in COMMANDS:
+        return
+    try:
+        known = app.get("command") in COMMANDS
+    except TypeError:
+        known = False
+    if not known:
         raise SandboxError("this app command has no reviewed host launch path; use the isolated workspace")
 
 

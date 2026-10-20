@@ -110,7 +110,7 @@ class Suggestion:
 class Action:
     """What Enter in the palette asks the app to do."""
 
-    kind: str  # open_app, send, none
+    kind: str  # open_app, send, show_transcript, show_panels, none
     value: str = ""
     command: Any = None  # protocol body for kind send
 
@@ -651,8 +651,9 @@ def _in_order(q: str, s_: str) -> bool:
 
 
 def panel_view(p: Panel) -> dict[str, Any]:
-    """The panel's data in one fixed shape per kind. Accepts the looser shapes docs/PANELS.md allows
-    (plain string options, row objects) and never raises on bad data: the text fallback is always there."""
+    """The panel's data in one fixed shape per kind. Accepts the looser shapes the panel kinds allow
+    (plain string options, row objects; the nine kinds are listed in DESIGN.md §7) and never raises
+    on bad data: the text fallback is always there."""
     d = p.data if isinstance(p.data, dict) else {}
     out: dict[str, Any] = {"kind": p.kind, "title": p.title, "text": p.text}
     try:

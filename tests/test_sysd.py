@@ -757,3 +757,21 @@ def test_reconcile_fails_closed_when_receipts_exist_but_the_anchor_does_not(tmp_
     summary = SysdClient().recover_pending()
     assert summary['recorded'] == [] and len(summary['errors']) == 1 and saved.exists()
     assert 'No such file' in summary['errors'][0]['error'] and trust_context.events == []
+
+
+def test_snapshot_list_garbled_output_is_action_error():
+    def garbled(argv):
+        if argv[0] == "snapper" and "list" in argv:
+            return subprocess.CompletedProcess(argv, 0, "locale warning: not JSON\n", "")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+    with pytest.raises(ActionError, match="unreadable output"):
+        Actions(garbled, keyring=KEYRING).snapshot_list({})
+
+
+def test_snapshot_list_non_object_rows_is_action_error():
+    def rows(argv):
+        if argv[0] == "snapper" and "list" in argv:
+            return subprocess.CompletedProcess(argv, 0, json.dumps({"root": ["oops"]}), "")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+    with pytest.raises(ActionError, match="unreadable output"):
+        Actions(rows, keyring=KEYRING).snapshot_list({})

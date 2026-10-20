@@ -57,3 +57,15 @@ def test_show_unknown_setting_says_so(env, capsys):
     assert cli.main(["show", "nope"]) == 1
     assert "There is no setting called nope." in capsys.readouterr().err
     assert cli.main(["show", "display.nope"]) == 1
+
+
+def test_init_from_missing_file_reports_not_changed(env, capsys):
+    assert cli.main(["init", "--from", "/nonexistent.toml"]) == 2
+    assert "Not changed:" in capsys.readouterr().err
+
+
+def test_init_from_malformed_file_reports_not_changed(env, tmp_path, capsys):
+    bad = tmp_path / "bad.toml"
+    bad.write_text("not [ valid toml")
+    assert cli.main(["init", "--from", str(bad)]) == 2
+    assert "Not changed:" in capsys.readouterr().err

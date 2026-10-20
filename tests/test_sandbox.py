@@ -142,3 +142,82 @@ def test_restoring_unsafe_profile_is_refused_before_any_change(tmp_path, monkeyp
     result = engine.apply(profile, "Undo unsafe history")
     assert not result.ok and "reviewed" in result.message
     assert not (tmp_path / "machine").exists()
+
+
+def test_check_app_rejects_non_string_url():
+    from exo_os.sandbox.desktop import check_app
+    with pytest.raises(SandboxError):
+        check_app({"url": 123})
+
+
+def test_check_app_rejects_unhashable_command():
+    from exo_os.sandbox.desktop import check_app
+    with pytest.raises(SandboxError):
+        check_app({"command": ["chromium"]})
+
+
+def _captured_payload(monkeypatch, policy, args, cwd):
+    import json
+
+    seen = {}
+
+    class Pipe:
+        def write(self, data):
+            seen["payload"] = json.loads(data)
+
+        async def drain(self):
+            pass
+
+        def close(self):
+            pass
+
+    class Stream:
+        def __init__(self, data=b""):
+            self.data = data
+
+        async def read(self, n):
+            data, self.data = self.data, b""
+            return data
+
+    class Proc:
+        pid = 0
+        returncode = 0
+        stdin = Pipe()
+        stdout = Stream(b'{"text": "", "is_error": false}')
+        stderr = Stream()
+
+        async def wait(self):
+            return 0
+
+    async def fake_exec(*argv, **kwargs):
+        return Proc()
+
+    monkeypatch.setattr(runner.asyncio, "create_subprocess_exec", fake_exec)
+    asyncio.run(runner.run(policy, "bash", args, cwd))
+    return seen["payload"]
+
+
+def test_relative_bash_cwd_is_resolved_once(tmp_path, monkeypatch):
+    from exo.core.tools.registry import ToolContext, default_registry
+
+    work = tmp_path / "work"
+    (work / "sub").mkdir(parents=True)
+    work = work.resolve()
+    args = {"command": "pwd", "cwd": "sub"}
+    payload = _captured_payload(monkeypatch, Policy(work), args, str(work))
+    assert args == {"command": "pwd", "cwd": "sub"}  # caller's dict is not mutated
+    assert payload["cwd"] == str(work / "sub") and payload["args"]["cwd"] == str(work / "sub")
+    # Replay the payload through the real pinned bash handler, as the worker does.
+    result = asyncio.run(default_registry().call(
+        ToolCall(id="x", name="bash", arguments=payload["args"]), ToolContext(cwd=payload["cwd"])))
+    assert not result.is_error and str(work / "sub") in result.text()
+    assert str(work / "sub" / "sub") not in result.text()
+
+
+def test_bash_cwd_outside_workspace_still_refused(tmp_path, monkeypatch):
+    work = tmp_path / "work"
+    work.mkdir()
+    work = work.resolve()
+    for bad in ("..", str(tmp_path), "missing"):
+        with pytest.raises(SandboxError):
+            _captured_payload(monkeypatch, Policy(work), {"command": "pwd", "cwd": bad}, str(work))
