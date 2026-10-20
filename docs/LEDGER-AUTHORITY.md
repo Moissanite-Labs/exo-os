@@ -5,8 +5,8 @@ The root boot service validates persistent mount identities on every boot. It
 provisions a new stream only when both the signer mount and root-owned store
 skeleton are empty, or when state left without a manifest provably signed nothing.
 Existing identity and journal must validate under the signer UID. Other incomplete
-state stops login. [Root repair](#root-repair) acts only on state that shows nothing
-was signed or published. It does not migrate an already running machine. The core
+state stops login until root runs [`exo-ledger-admin repair`](#root-repair). It
+does not migrate an already running machine. The core
 dependency is pinned in `exo.pin`; its contract is `docs/LEDGER-AUTHORITY.md` in the
 Exo repository.
 
@@ -47,10 +47,10 @@ state, then links it into place. A power cut therefore leaves either no
 `manifest.json` or a complete one, never a truncated file. A cut right after the
 link can leave the temporary hard link. Boot removes it only after validating the
 manifest and journal, and only when it is a root-owned 0644 file with the
-manifest's device and inode and both have two links. Established local signed or
-unsigned history needs a separately reviewed migration. It is never imported or
-replaced by a fresh genesis, at boot or by root repair. This is the OS-17 rule in
-`DECISIONS.md`, and it is unchanged.
+manifest's device and inode and both have two links. Established history is never
+imported. Only an explicit [root repair](#root-repair) starts a new genesis, and it
+preserves the old stream. That changes the OS-17 rule in `DECISIONS.md`, which says
+missing established state refuses rather than reseeding.
 
 The shipped single-user inventory binds `/var/lib/exo/exo/principals/exo/ledger.sqlite`.
 Each writer uses its own event key: `exo-gate`, `exo-memory`, `exo-learn`, `exo-os`,
@@ -87,39 +87,29 @@ the directories. A cut during removal therefore leaves state the next boot accep
 again. The keys never left the signer mount and nothing was signed, so nothing is
 lost. Everything else refuses. Examples are a manifest that fails validation, a
 projection, any signed event, any head above genesis, or an entry provisioning
-does not write. The image installs no documentation, so each refusal ends with a
-short hint. Without a manifest it names `exo-ledger-admin repair` and its limit.
-With one, it says a published ledger is never reseeded.
+does not write. The image installs no documentation, so each refusal names
+`exo-ledger-admin repair` inline.
 
 ### Root repair
 
 `exo-ledger-admin repair` runs as root from the console while login is blocked. It
 first runs the normal boot check, which may clear a cut-off provision. If that
-check passes, it stops there and prints the manifest. Otherwise it acts only when
-the refused state shows that nothing was signed or published:
+check passes, it stops there and prints the manifest. Otherwise it renames every
+signer mount entry into a new `/var/lib/exo-ledger/repair/<UTC time>-<random>/`
+directory, root-only and mode 0700. Nothing is deleted, and the old keys are out of
+the signer's reach. It then provisions a new stream with a new genesis and prints
+JSON with the preserved paths, the refusal and the new manifest. Reboot afterwards.
+Run `exo-model-spend-admin repair` only if the spend unit still refuses. A cut
+during repair leaves its `repair/` directory, which boot does not accept. Run
+repair again.
 
-- `manifest.json` is absent. The store is still the empty root-owned `exo`
-  skeleton, so no projection exists.
-- Every signer mount entry is a kind provisioning writes: `private/`, `s_` stream
-  directories, their key files, journal and SQLite side files, and `.manifest-`
-  temporaries beside at least one journal. Owners, modes, link counts and the
-  number of streams or temporaries may differ from every provisioning step. That is
-  why boot refused, since boot deletes what it clears.
-- Every journal opens under the `exo-ledger` UID, passes SQLite's quick check and
-  holds no event, no operation and no checkpoint above genesis.
-
-It then renames every signer mount entry into a new
-`/var/lib/exo-ledger/repair/<UTC time>-<random>/` directory, root-only and mode
-0700. Nothing is deleted, and the old keys are out of the signer's reach. It
-provisions a new stream and prints JSON with the preserved paths, the refusal and
-the new manifest. Reboot afterwards. Run `exo-model-spend-admin repair` only if the
-spend unit still refuses. A cut during repair leaves its `repair/` directory, which
-boot does not accept. Run repair again.
-
-Any other state refuses unchanged. That includes a manifest that fails validation,
-a projection or other store content, any signed event, any head above genesis and
-any entry repair cannot classify. A new genesis never replaces established
-history, at boot or by repair. Such state needs a separately reviewed migration.
+A projection at the bound path is published history. Repair refuses while one
+exists unless given `--set-aside-projection`. With that flag it also moves
+`ledger.sqlite` and its SQLite side files into a new
+`/var/lib/exo/ledger-repair/<UTC time>-<random>/` directory. The new stream never
+imports either copy, and both keep their signed records for review. Other principal
+data stays in place and is not reconciled with the new stream. That needs a
+separately reviewed migration.
 
 ## Caller trust boundary
 

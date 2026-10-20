@@ -137,10 +137,10 @@ def test_zero_cap_priced_native_route_refuses_before_mock_http_and_offline_remai
 
 def test_missing_and_partial_state_after_ownership_never_auto_recreate(store):
     (store / ".owned").touch()
-    with pytest.raises(AuthorityError, match="missing established.*never reset automatically.*by hand"):
+    with pytest.raises(AuthorityError, match="missing established.*root can run exo-model-spend-admin repair"):
         spend.ensure_boot(store=store)
     (store / "model-spend").mkdir(mode=0o755)
-    with pytest.raises(AuthorityError, match="missing after first boot completed.*never reset automatically"):
+    with pytest.raises(AuthorityError, match="missing after first boot completed.*exo-model-spend-admin repair"):
         spend.ensure_boot(store=store)
     assert not (store / "model-spend/policy.json").exists()
     assert not any((store / "model-spend").iterdir())
@@ -610,58 +610,43 @@ def test_interrupted_first_boot_refuses_state_it_cannot_prove_unpublished(store,
                                                                           fault):
     state, journal, temporary = _cut_before_link(store, monkeypatch)
     _inject(store, owners, tmp_path, state, journal, temporary, fault)
-    hint = "never reset automatically" if fault == "owned" else "root can run exo-model-spend-admin repair"
     before = _tree(state)
-    with pytest.raises(AuthorityError, match=UNPROVEN[fault] + ".*" + hint):
+    with pytest.raises(AuthorityError, match=UNPROVEN[fault] + ".*root can run exo-model-spend-admin repair"):
         spend.ensure_boot(store=store)
     assert _tree(state) == before
     assert not (state / "policy.json").exists()
 
 
-# Refused state a policy may have used, and why repair refuses it too.
-USED = {"one_call": "never used", "stopped": "never used", "observed_clock": "never used",
-        "other_principal": "never used", "extra_table": "never used",
-        "owned": "first boot finished, so a policy was published",
-        "extra_store_entry": "store is not the empty first-boot skeleton",
-        "extra_state_entry": "cannot classify model-spend entry",
-        "temporary_without_journal": "temporary policy has no journal identity"}
-
-
-@pytest.mark.parametrize("fault", sorted(USED))
-def test_repair_refuses_state_a_policy_may_have_used_and_changes_nothing(store, owners, monkeypatch, tmp_path,
-                                                                         fault):
-    state, journal, temporary = _cut_before_link(store, monkeypatch)
-    _inject(store, owners, tmp_path, state, journal, temporary, fault)
-    before = _tree(store)
-    with pytest.raises(AuthorityError, match=f"repair refuses: .*({USED[fault]}).*by hand"):
-        spend.repair(store=store)
-    assert _tree(store) == before and not (store / "model-spend-repair").exists()
-
-
-def test_repair_refuses_missing_or_published_state_after_first_boot(store):
-    raw = spend.ensure_boot(store=store)
-    (store / ".owned").touch()
-    (store / "model-spend/policy.json").write_text("{")
-    with pytest.raises(AuthorityError, match="policy is invalid.*never reset automatically"):
+def test_repair_preserves_a_refused_journal_and_publishes_fresh_zero_caps(store, monkeypatch):
+    state, journal, _ = _cut_before_link(store, monkeypatch)
+    _journal_write(journal, "INSERT INTO calls (id, day, month, route, session, reserved, actual, pricing) "
+                   "VALUES ('c1', '2026-10-20', '2026-10', 'native:m', 's', 1, NULL, '{}')")
+    old = _journal_identity(journal)
+    with pytest.raises(AuthorityError, match="holds calls"):
         spend.ensure_boot(store=store)
-    before = _tree(store)
-    with pytest.raises(AuthorityError, match="repair refuses: first boot finished"):
-        spend.repair(store=store)
-    assert _tree(store) == before
-    (store / ".owned").unlink()
-    before = _tree(store)
-    with pytest.raises(AuthorityError, match="repair refuses: a policy was published"):
-        spend.repair(store=store)
-    assert _tree(store) == before and raw["journal_id"] == _journal_identity(store / "model-spend/exo/journal.sqlite")
+    result = spend.repair(store=store)
+    preserved = Path(result["preserved"])
+    assert preserved.name == "model-spend" and preserved.parent.parent == store / "model-spend-repair"
+    for path in (preserved.parent, preserved.parent.parent):
+        assert stat.S_IMODE(path.stat().st_mode) == 0o700
+    assert "holds calls" in result["refusal"]
+    assert _journal_identity(preserved / "exo/journal.sqlite") == old
+    with sqlite3.connect(preserved / "exo/journal.sqlite") as db:
+        assert db.execute("SELECT COUNT(*) FROM calls").fetchone()[0] == 1
+    policy = result["policy"]
+    assert policy["journal_id"] != old and policy["daily_usd"] == policy["monthly_usd"] == "0"
+    assert policy["routes"] == {}
+    assert spend.ensure_boot(store=store) == policy
 
 
-def test_repair_refuses_missing_state_after_ownership(store):
+def test_repair_provisions_missing_state_after_ownership(store):
     (store / ".owned").touch()
     with pytest.raises(AuthorityError, match="missing established"):
         spend.ensure_boot(store=store)
-    with pytest.raises(AuthorityError, match="repair refuses: first boot finished"):
-        spend.repair(store=store)
-    assert {p.name for p in store.iterdir()} == {"exo", ".owned"}
+    result = spend.repair(store=store)
+    assert result["preserved"] is None and "missing established" in result["refusal"]
+    assert result["policy"]["daily_usd"] == "0" and result["policy"]["routes"] == {}
+    assert spend.ensure_boot(store=store) == result["policy"]
 
 
 # Unused state that boot will not delete or publish from, because no first-boot step leaves it.

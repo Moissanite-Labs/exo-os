@@ -374,17 +374,17 @@ def test_missing_manifest_refuses_state_it_cannot_prove_unpublished(boot, tmp_pa
         assert _count(boot, directory / "journal.sqlite", "records") == 1
 
 
-def test_truncated_manifest_from_an_older_provision_refuses_and_is_never_reseeded(boot):
+def test_truncated_manifest_from_an_older_provision_names_repair(boot):
     _boot_as_unit(boot)
     path = boot.state / "manifest.json"
     truncated = path.read_bytes()[:57]
     path.write_bytes(truncated)
-    with pytest.raises(AuthorityError, match="manifest is invalid.*published ledger is never reseeded"):
+    with pytest.raises(AuthorityError, match="manifest is invalid.*root can run exo-ledger-admin repair"):
         _boot_as_unit(boot)
-    before = _tree(boot.state)
-    with pytest.raises(AuthorityError, match="repair refuses: a manifest was published.*reviewed migration"):
-        admin.repair(state=boot.state, store=boot.store)
-    assert _tree(boot.state) == before and path.read_bytes() == truncated
+    result = admin.repair(state=boot.state, store=boot.store)
+    slot = Path(result["preserved"][0])
+    assert (slot / "manifest.json").read_bytes() == truncated and (slot / "private").is_dir()
+    assert _boot_as_unit(boot) == result["manifest"]
 
 
 def test_provision_refuses_a_manifest_leftover(boot):
@@ -401,41 +401,44 @@ def test_repair_never_replaces_valid_state(boot):
     assert {p.name: p.stat().st_ino for p in boot.state.iterdir()} == before
 
 
-# Refused state that may hold signed or published history, and why repair refuses it too.
-PUBLISHED = {
-    "signed_event": "not provably unsigned",
-    "head_above_genesis": "not provably unsigned",
-    "unknown_table": "not provably unsigned",
-    "projection": "store is not the empty first-boot skeleton",
-    "store_entry": "store is not the empty first-boot skeleton",
-    "signer_entry": "cannot classify signer entry",
-    "unknown_stream_file": "cannot classify signer stream",
-    "symlinked_private": "cannot classify signer entry",
-    "temporary_without_journal": "temporary manifest has no journal",
-}
-
-
-@pytest.mark.parametrize("fault", sorted(PUBLISHED))
-def test_repair_refuses_state_that_may_hold_history_and_changes_nothing(boot, tmp_path, fault):
-    manifest = _provisioned_then_lost(boot)
-    _inject(boot, tmp_path, manifest, fault)
-    before, store = _tree(boot.state), _tree(boot.store)
-    with pytest.raises(AuthorityError, match=f"repair refuses: .*{PUBLISHED[fault]}.*never reseeded"):
-        admin.repair(state=boot.state, store=boot.store)
-    assert _tree(boot.state) == before and _tree(boot.store) == store
-    assert not (boot.state / admin.VAULT).exists()
-
-
-def test_repair_refuses_a_published_manifest_that_fails_validation(boot, monkeypatch):
+def test_repair_preserves_signed_history_and_starts_a_new_stream(boot):
     manifest = _boot_as_unit(boot)
-    stream = next(iter(manifest["streams"]))
-    (boot.state / "private" / stream / "checkpoint.key").chmod(0o644)
-    with pytest.raises(AuthorityError, match="published ledger is never reseeded"):
+    record = _append(boot, manifest)
+    old = next(iter(manifest["streams"]))
+    (boot.state / "manifest.json").unlink()
+    with pytest.raises(AuthorityError, match="not provably unsigned"):
         _boot_as_unit(boot)
-    before = _tree(boot.state)
-    with pytest.raises(AuthorityError, match="repair refuses: a manifest was published"):
+    result = admin.repair(state=boot.state, store=boot.store)
+    slot = Path(result["preserved"][0])
+    assert slot.parent == boot.state / admin.VAULT and stat.S_IMODE(slot.stat().st_mode) == 0o700
+    assert "not provably unsigned" in result["refusal"]
+    assert _count(boot, slot / "private" / old / "journal.sqlite", "records") == 1
+    stream = next(iter(result["manifest"]["streams"]))
+    assert stream != old and record["event"]["seq"] == 1
+    _assert_fresh_stream(boot, result["manifest"], [old])
+
+
+def test_repair_moves_a_projection_only_when_asked(boot):
+    manifest = _boot_as_unit(boot)
+    boot.projection.parent.mkdir(parents=True)
+    boot.projection.write_bytes(b"principal copy")
+    boot.projection.with_name("ledger.sqlite-wal").write_bytes(b"wal")
+    (boot.state / "manifest.json").unlink()
+    with pytest.raises(AuthorityError, match="fresh store must contain only"):
+        _boot_as_unit(boot)
+    before = {p.name for p in boot.state.iterdir()}
+    with pytest.raises(AuthorityError, match="--set-aside-projection"):
         admin.repair(state=boot.state, store=boot.store)
-    assert _tree(boot.state) == before
+    assert {p.name for p in boot.state.iterdir()} == before and boot.projection.exists()
+    assert not (boot.state / admin.VAULT).exists() and not (boot.store / "ledger-repair").exists()
+    result = admin.repair(state=boot.state, store=boot.store, set_aside_projection=True)
+    signer_slot, projection_slot = map(Path, result["preserved"])
+    assert (signer_slot / "private" / next(iter(manifest["streams"]))).is_dir()
+    assert projection_slot.parent == boot.store / "ledger-repair"
+    assert (projection_slot / "ledger.sqlite").read_bytes() == b"principal copy"
+    assert (projection_slot / "ledger.sqlite-wal").read_bytes() == b"wal"
+    assert not boot.projection.exists() and not boot.projection.with_name("ledger.sqlite-wal").exists()
+    assert _boot_as_unit(boot) == result["manifest"]
 
 
 # Unpublished state that boot will not delete, because no provisioning step leaves it.
@@ -476,15 +479,13 @@ def test_repair_resumes_after_a_cut_during_its_own_provision(boot, monkeypatch, 
     _assert_fresh_stream(boot, result["manifest"])
 
 
-def test_repair_command_prints_its_result(monkeypatch, capsys):
+def test_repair_command_passes_the_projection_flag(monkeypatch, capsys):
     seen = []
-    monkeypatch.setattr(admin, "repair", lambda principal: seen.append(principal) or {"preserved": []})
-    monkeypatch.setattr(admin.sys, "argv", ["exo-ledger-admin", "repair"])
-    admin.main()
-    assert seen == ["exo"] and json.loads(capsys.readouterr().out) == {"preserved": []}
+    monkeypatch.setattr(admin, "repair", lambda principal, set_aside_projection: seen.append(
+        (principal, set_aside_projection)) or {"preserved": []})
     monkeypatch.setattr(admin.sys, "argv", ["exo-ledger-admin", "repair", "--set-aside-projection"])
-    with pytest.raises(SystemExit):
-        admin.main()
+    admin.main()
+    assert seen == [("exo", True)] and json.loads(capsys.readouterr().out) == {"preserved": []}
 
 
 @pytest.mark.skipif(os.geteuid() != 0, reason="requires disposable root Linux test container")

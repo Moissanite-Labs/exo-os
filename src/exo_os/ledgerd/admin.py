@@ -1,4 +1,4 @@
-"""Explicit root-only fresh provisioning. No reseed, local-history import or remote sending."""
+"""Explicit root-only provisioning and repair. No local-history import or remote sending."""
 from __future__ import annotations
 
 import argparse
@@ -21,11 +21,9 @@ from ..sandbox.policy import SandboxError, trusted_path
 from .policy import STATE, key_name, load_manifest, validate_manifest
 
 REPAIR = "exo-ledger-admin repair"
-# Boot units log these; the image installs no docs, so each names the command and its limit inline.
-UNPUBLISHED_HINT = (f"root can run {REPAIR}, which sets this state aside and provisions again "
-                    "only if nothing was signed or published")
-PUBLISHED_HINT = "a published ledger is never reseeded and needs a reviewed migration"
-REFUSED_HINT = "signed, published or unknown signer state is never reseeded and needs a reviewed migration"
+# Boot units log this; the image installs no docs, so it names the command inline.
+REPAIR_HINT = (f"root can run {REPAIR}, which preserves this state and provisions a new stream; "
+               "a bound projection moves aside only with --set-aside-projection")
 VAULT = "repair"
 TEMPORARY = re.compile(r"\.manifest-[0-9a-f]{16}")
 STREAM_DIR = re.compile(r"s_[0-9a-f]{32}")
@@ -283,8 +281,7 @@ def ensure_boot(principal="exo", *, state=STATE, store=Path("/var/lib/exo")):
     try:
         return _boot(principal, state, store, uid, gid)
     except AuthorityError as exc:
-        hint = PUBLISHED_HINT if os.path.lexists(state / "manifest.json") else UNPUBLISHED_HINT
-        raise AuthorityError(f"{exc}; {hint}") from exc
+        raise AuthorityError(f"{exc}; {REPAIR_HINT}") from exc
 
 
 def _vault(path):
@@ -314,79 +311,39 @@ def _set_aside(parent, names, vault):
     return slot
 
 
-def _kind(path, kind):
-    """Repair's shape check: the file type alone, never following a symlink."""
-    if stat.S_IFMT(path.lstat().st_mode) != kind:
-        raise AuthorityError(f"repair cannot classify signer entry: {path}")
+def repair(principal="exo", *, state=STATE, store=Path("/var/lib/exo"), set_aside_projection=False):
+    """Root console repair after boot refused: preserve signer state, then provision a new stream.
 
-
-def _unpublished(principal, state, store, uid, gid):
-    """Repair's proof that refused signer state holds nothing signed or published.
-
-    Boot clears only the exact states provisioning leaves, because it deletes them.
-    Repair deletes nothing, so it also takes entries with other owners or modes, more
-    than one stream or temporary, and an earlier repair directory. It still needs the
-    same evidence: no manifest, the empty store skeleton, so no projection exists,
-    only entries provisioning writes, and journals with no event and no head above
-    genesis under the signer UID. Established history is never reseeded.
-    """
-    if os.path.lexists(state / "manifest.json"):
-        raise AuthorityError("a manifest was published")
-    try:
-        _fresh_store(store, principal)
-    except AuthorityError as exc:
-        raise AuthorityError("the store is not the empty first-boot skeleton") from exc
-    leaves = {key_name(writer) for writer in inventory(principal)} | {"checkpoint.key", "journal.sqlite"} | SIDE_FILES
-    journals, temporaries = [], 0
-    for entry in state.iterdir():
-        if entry.name == VAULT:
-            continue  # checked as a root-only directory before anything moves into it
-        if TEMPORARY.fullmatch(entry.name):
-            _kind(entry, stat.S_IFREG)  # nothing reads a temporary manifest
-            temporaries += 1
-            continue
-        if entry.name != "private":
-            raise AuthorityError(f"repair cannot classify signer entry: {entry}")
-        _kind(entry, stat.S_IFDIR)
-        for stream in entry.iterdir():
-            if not STREAM_DIR.fullmatch(stream.name):
-                raise AuthorityError(f"repair cannot classify signer entry: {stream}")
-            _kind(stream, stat.S_IFDIR)
-            held = {p.name for p in stream.iterdir()}
-            if not held <= leaves or (held & SIDE_FILES and "journal.sqlite" not in held):
-                raise AuthorityError(f"repair cannot classify signer stream: {stream}")
-            for name in held:
-                _kind(stream / name, stat.S_IFREG)
-            if "journal.sqlite" in held:
-                journals.append(stream / "journal.sqlite")
-    if temporaries and not journals:
-        raise AuthorityError("a temporary manifest has no journal to show nothing was signed")
-    for journal in journals:
-        try:
-            _as_signer(uid, gid, lambda journal=journal: _unsigned(journal))
-        except AuthorityError as exc:
-            raise AuthorityError("a signer journal is not provably unsigned") from exc
-
-
-def repair(principal="exo", *, state=STATE, store=Path("/var/lib/exo")):
-    """Root console repair after boot refused: preserve unpublished signer state, then provision again.
-
-    Valid or resumable state is never replaced. State that may hold anything signed
-    or published refuses unchanged, so no new genesis replaces established history.
+    Valid or resumable state is never replaced. A bound projection is published history,
+    so it moves aside only on explicit request. Preserved state is never imported. This
+    is the one path where a new genesis follows established history.
     """
     uid, gid = _context(principal, state, store)
     try:
         return {"preserved": [], "refusal": None, "manifest": _boot(principal, state, store, uid, gid)}
     except AuthorityError as exc:
         refusal = str(exc)
-    try:
-        _unpublished(principal, state, store, uid, gid)
-    except AuthorityError as exc:
-        raise AuthorityError(f"{refusal}; repair refuses: {exc}; {REFUSED_HINT}") from exc
-    vault = _vault(state / VAULT)
-    signer = {p.name for p in state.iterdir()} - {VAULT}
-    preserved = [_set_aside(state, signer, vault)] if signer else []
     projection = store / principal / "principals" / principal / "ledger.sqlite"
+    sidecars = [projection.with_name(projection.name + suffix) for suffix in ("-wal", "-shm", "-journal")]
+    held = [path for path in (projection, *sidecars) if os.path.lexists(path)]
+    if held and not set_aside_projection:
+        raise AuthorityError(f"{refusal}; the bound ledger projection holds published history: rerun "
+                             f"{REPAIR} --set-aside-projection to preserve it and start a new stream")
+    if held:
+        # The principal's copy lives under its own UID; refuse any symlinked component.
+        parent = store
+        for part in projection.parent.relative_to(store).parts:
+            parent = parent / part
+            if parent.is_symlink() or not parent.is_dir():
+                raise AuthorityError("bound ledger projection path is not a plain directory")
+    # Check both destinations before moving anything.
+    vaults = (_vault(state / VAULT), _vault(store / "ledger-repair") if held else None)
+    preserved = []
+    signer = {p.name for p in state.iterdir()} - {VAULT}
+    if signer:
+        preserved.append(_set_aside(state, signer, vaults[0]))
+    if held:
+        preserved.append(_set_aside(projection.parent, {path.name for path in held}, vaults[1]))
     manifest = provision(principal, state=state, uid=uid, gid=gid, projection=projection)
     return {"preserved": [str(path) for path in preserved], "refusal": refusal, "manifest": manifest}
 
@@ -465,9 +422,10 @@ def main():
     fresh.add_argument("principal")
     boot = sub.add_parser("ensure-boot")
     boot.add_argument("--principal", default="exo")
-    fix = sub.add_parser("repair", help="root console only: preserve refused unpublished signer state, "
-                                        "then provision a new stream")
+    fix = sub.add_parser("repair", help="root console only: preserve refused signer state, then provision a new stream")
     fix.add_argument("--principal", default="exo")
+    fix.add_argument("--set-aside-projection", action="store_true",
+                     help="also preserve the bound ledger projection; its history is never imported")
     export = sub.add_parser("export-checkpoints")
     export.add_argument("--since", type=int, default=0)
     export.add_argument("--limit", type=int, default=MAX_BATCH)
@@ -481,7 +439,7 @@ def main():
         ensure_boot(args.principal)
         return
     if args.command == "repair":
-        print(json.dumps(repair(args.principal), sort_keys=True))
+        print(json.dumps(repair(args.principal, set_aside_projection=args.set_aside_projection), sort_keys=True))
         return
     if os.geteuid() != 0:
         raise AuthorityError("checkpoint export requires an administrator")
