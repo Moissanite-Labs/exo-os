@@ -4,7 +4,7 @@ Checks recorded on 2026-10-13. The `c2d1ad9` image is built and audited.
 Acceptance is held: no complete native suite has passed on this image.
 Historical results below do not transfer to it.
 
-The next source composition selects merged core `859fbcc98e3fe9cc3af31cdc9d6b130db718e972`.
+The next source composition selects merged core `5f434b15d53603d6a3f5461f4e858944e62c1128`.
 No image has been built or accepted from that composition. Recovery retains its
 original ten checks and adds an eleventh return-to-normal reboot proof; this new
 flow is unrun in a VM. Its controlled shell tests are source evidence only.

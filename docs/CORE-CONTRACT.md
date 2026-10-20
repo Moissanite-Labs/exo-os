@@ -12,7 +12,7 @@ the core into an OS fork. The current plugin, protocol-client, and ledger tests
 are the compatibility checks before moving that pin.
 
 The current source composition pins merged core main
-`859fbcc98e3fe9cc3af31cdc9d6b130db718e972`, including witness transport PR 88,
+`5f434b15d53603d6a3f5461f4e858944e62c1128`, including witness transport PR 88,
 the required executor and model-spend boundary. It requires its own image and
 native acceptance evidence. The schema3 input-probe proposal remains pending
 peer review. Host and private GTK checks do not establish image acceptance.
@@ -108,21 +108,27 @@ signed prefix; it does not prove that no later history exists. See
 [WITNESS-PUBLISHER.md](WITNESS-PUBLISHER.md). Current-image acceptance and the
 remaining phase-4 criteria still apply.
 
-## Protocol improvements needed from core
+## Protocol improvements from core
 
-The surface currently uses `hello.seq`, `approvals.list`, event replay and
+The surface uses `hello.seq`, `approvals.list`, event replay and
 principal-authenticated `approval.respond` at the tested pin. These support
-recovery without replaying a person's decision. Three additions should be
-implemented in the shared protocol/client rather than patched into the OS:
+recovery without replaying a person's decision. Three additions were needed in
+the shared protocol and client rather than patched into the OS. All three are in
+core at the current pin:
 
-1. An atomic pending-approvals snapshot with its event cursor, so the client can
-   reconcile without the current snapshot/event ordering workaround.
-2. Per-subscription heartbeat or acknowledged stream progress. Command health
-   alone cannot prove that an entirely idle event connection is alive.
-3. Peer authentication before disclosing a principal credential, consistently
-   for every client. A filesystem socket path is not a daemon identity.
+1. An atomic pending-approvals snapshot with its event cursor. `approvals.list`
+   now returns an await-free cursor. The surface still reconciles with
+   `hello.seq` and does not read that cursor yet.
+2. Per-subscription heartbeat. The core pings an idle event stream every 15
+   seconds, `hello` reports the heartbeat and the launch instance, and the
+   Python client ends a stream that brings no event or heartbeat for 45 seconds.
+3. Peer authentication before disclosing a principal credential (Exo D-060,
+   PRs 109, 175 and 325). A principal client checks the kernel peer of each
+   Unix connection against the launch record before the credential goes on it.
+   The core stamps the principal only for the same user and the recorded process.
 
-These are integration requirements, not interfaces already present in the pin.
+The surface gets 2 and 3 by joining as `Client(principal="surface")`. The OS
+still has to keep the socket out of reach of tools (issues #16 and #106).
 Current behavior and limitations are documented in
 [SURFACE-RECOVERY.md](SURFACE-RECOVERY.md).
 
