@@ -213,7 +213,9 @@ def test_surface_joins_as_the_principal(tmp_path):
     sock = tmp_path / "run" / "exod.sock"
     token = pr.issue(sock)
     client = conn._default_client(str(sock))
-    assert client._who() == {pr.HEADER: token, "X-Exo-Client": "surface"}
+    from exo.peerauth import PrincipalTransport
+    assert isinstance(client._http._transport, PrincipalTransport)
+    assert client._http._transport.label == "surface"
 
 
 def test_stop_twice_does_not_raise(paths):
